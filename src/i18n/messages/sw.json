@@ -1321,7 +1321,9 @@
       "open": "fungua",
       "close": "funga"
     },
-    "noResults": "Hakuna matokeo"
+    "noResults": "Hakuna matokeo",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Viboko vya mtandao",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Miunganisho iliyochaguliwa pekee",
     "selectAtLeastOneConnection": "Chagua angalau muunganisho mmoja au uchague Miunganisho yote.",
     "allConnectionsDesc": "Ufunguo huu unaweza kutumia muunganisho wowote ulio amilifu.",
-    "restrictedToConnections": "Imezuiliwa kwa {count, plural, one {# muunganisho} other {# miunganisho}}."
+    "restrictedToConnections": "Imezuiliwa kwa {count, plural, one {# muunganisho} other {# miunganisho}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Kumbukumbu ya Ukaguzi",

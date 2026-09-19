@@ -1321,7 +1321,9 @@
       "open": "فتح",
       "close": "إغلاق"
     },
-    "noResults": "لا توجد نتائج"
+    "noResults": "لا توجد نتائج",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "خطافات الويب",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "الاتصالات المحددة فقط",
     "selectAtLeastOneConnection": "حدّد اتصالًا واحدًا على الأقل أو اختر جميع الاتصالات.",
     "allConnectionsDesc": "يمكن لهذا المفتاح استخدام أي اتصال نشط.",
-    "restrictedToConnections": "مقيّد بـ {count, plural, one {اتصال واحد} other {# اتصالات}}."
+    "restrictedToConnections": "مقيّد بـ {count, plural, one {اتصال واحد} other {# اتصالات}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "سجل التدقيق",

@@ -1321,7 +1321,9 @@
       "open": "avaa",
       "close": "sulje"
     },
-    "noResults": "Ei tuloksia"
+    "noResults": "Ei tuloksia",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Webhookit",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Vain valitut yhteydet",
     "selectAtLeastOneConnection": "Valitse vähintään yksi yhteys tai valitse Kaikki yhteydet.",
     "allConnectionsDesc": "Tämä avain voi käyttää mitä tahansa aktiivista yhteyttä.",
-    "restrictedToConnections": "Rajoitettu {count, plural, one {# yhteyteen} other {# yhteyteen}}."
+    "restrictedToConnections": "Rajoitettu {count, plural, one {# yhteyteen} other {# yhteyteen}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Tarkastusloki",

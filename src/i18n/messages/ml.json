@@ -1321,7 +1321,9 @@
       "open": "തുറക്കുക",
       "close": "അടയ്ക്കുക"
     },
-    "noResults": "ഫലങ്ങളൊന്നുമില്ല"
+    "noResults": "ഫലങ്ങളൊന്നുമില്ല",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "വെബ്ഹുക്കുകൾ",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "തിരഞ്ഞെടുത്ത കണക്ഷനുകൾ മാത്രം",
     "selectAtLeastOneConnection": "കുറഞ്ഞത് ഒരു കണക്ഷനെങ്കിലും തിരഞ്ഞെടുക്കുക, അല്ലെങ്കിൽ എല്ലാ കണക്ഷനുകളും തിരഞ്ഞെടുക്കുക.",
     "allConnectionsDesc": "ഈ കീയ്ക്ക് സജീവമായ ഏത് കണക്ഷനും ഉപയോഗിക്കാം.",
-    "restrictedToConnections": "{count, plural, one {# കണക്ഷനിലേക്ക്} other {# കണക്ഷനുകളിലേക്ക്}} പരിമിതപ്പെടുത്തിയിരിക്കുന്നു."
+    "restrictedToConnections": "{count, plural, one {# കണക്ഷനിലേക്ക്} other {# കണക്ഷനുകളിലേക്ക്}} പരിമിതപ്പെടുത്തിയിരിക്കുന്നു.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "ഓഡിറ്റ് ലോഗ്",

@@ -1321,7 +1321,9 @@
       "open": "បើក",
       "close": "បិទ"
     },
-    "noResults": "គ្មានលទ្ធផល"
+    "noResults": "គ្មានលទ្ធផល",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Webhooks",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "តែការតភ្ជាប់ដែលបានជ្រើសរើសប៉ុណ្ណោះ",
     "selectAtLeastOneConnection": "ជ្រើសរើសការតភ្ជាប់យ៉ាងហោចណាស់មួយ ឬជ្រើសរើសការតភ្ជាប់ទាំងអស់។",
     "allConnectionsDesc": "សោនេះអាចប្រើការតភ្ជាប់សកម្មណាមួយបាន។",
-    "restrictedToConnections": "បានកំណត់ត្រឹម {count, plural, one {# ការតភ្ជាប់} other {# ការតភ្ជាប់}}។"
+    "restrictedToConnections": "បានកំណត់ត្រឹម {count, plural, one {# ការតភ្ជាប់} other {# ការតភ្ជាប់}}។",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "កំណត់ហេតុសវនកម្ម",

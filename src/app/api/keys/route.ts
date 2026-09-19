@@ -83,6 +83,9 @@ export async function POST(request) {
       weeklyUsageLimitUsd,
       chaosModeEnabled,
       expiresAt,
+      catalogScope,
+      customerEmail,
+      planId,
     } = validation.data;
 
     // Always get machineId from server
@@ -94,6 +97,9 @@ export async function POST(request) {
       allowedCombos,
       allowedConnections,
       expiresAt,
+      catalogScope,
+      customerEmail,
+      planId,
     });
     if (
       noLog === true ||
@@ -139,7 +145,13 @@ export async function POST(request) {
         dailyUsageLimitUsd: dailyUsageLimitUsd ?? null,
         weeklyUsageLimitUsd: weeklyUsageLimitUsd ?? null,
         chaosModeEnabled: chaosModeEnabled === true,
-        expiresAt: expiresAt ?? null,
+        expiresAt: apiKey.expiresAt ?? null,
+        catalogScope: apiKey.catalogScope,
+        customerEmail: apiKey.customerEmail ?? null,
+        planId: apiKey.planId ?? null,
+        planDays: apiKey.planDays ?? null,
+        planStartedAt: apiKey.planStartedAt ?? null,
+        renewalsCount: apiKey.renewalsCount,
         streamDefaultMode: "legacy",
         compressionEnabled: true,
         cacheDefaultMode: "legacy",

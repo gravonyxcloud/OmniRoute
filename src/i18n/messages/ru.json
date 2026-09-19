@@ -1321,7 +1321,9 @@
       "open": "открыть",
       "close": "закрыть"
     },
-    "noResults": "Нет результатов"
+    "noResults": "Нет результатов",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Вебхуки",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Только выбранные подключения",
     "selectAtLeastOneConnection": "Выберите хотя бы одно подключение или вариант «Все подключения».",
     "allConnectionsDesc": "Этот ключ позволяет использовать любое активное подключение.",
-    "restrictedToConnections": "Доступ ограничен: {count, plural, one {# подключением} few {# подключениями} many {# подключениями} other {# подключения}}."
+    "restrictedToConnections": "Доступ ограничен: {count, plural, one {# подключением} few {# подключениями} many {# подключениями} other {# подключения}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Журнал аудита",

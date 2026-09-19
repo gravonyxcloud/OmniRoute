@@ -1321,7 +1321,9 @@
       "open": "mở",
       "close": "đóng"
     },
-    "noResults": "Không có kết quả"
+    "noResults": "Không có kết quả",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Webhook",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Chỉ các kết nối đã chọn",
     "selectAtLeastOneConnection": "Chọn ít nhất một kết nối hoặc chọn Tất cả kết nối.",
     "allConnectionsDesc": "Khóa này có thể dùng bất kỳ kết nối đang hoạt động nào.",
-    "restrictedToConnections": "Giới hạn ở {count, plural, one {# kết nối} other {# kết nối}}."
+    "restrictedToConnections": "Giới hạn ở {count, plural, one {# kết nối} other {# kết nối}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Nhật ký kiểm tra",

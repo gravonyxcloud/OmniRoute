@@ -1321,7 +1321,9 @@
       "open": "բացել",
       "close": "փակել"
     },
-    "noResults": "Արդյունքներ չկան"
+    "noResults": "Արդյունքներ չկան",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Վեբհուկներ",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Միայն ընտրված կապերը",
     "selectAtLeastOneConnection": "Ընտրեք առնվազն մեկ կապ կամ ընտրեք «Բոլոր կապերը»։",
     "allConnectionsDesc": "Այս բանալին կարող է օգտագործել ցանկացած ակտիվ կապ։",
-    "restrictedToConnections": "Սահմանափակված է {count, plural, one {# կապով} other {# կապով}}։"
+    "restrictedToConnections": "Սահմանափակված է {count, plural, one {# կապով} other {# կապով}}։",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Աուդիտի մատյան",

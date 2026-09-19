@@ -1321,7 +1321,9 @@
       "open": "ava",
       "close": "sulge"
     },
-    "noResults": "Tulemusi pole"
+    "noResults": "Tulemusi pole",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Veebihaagid",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Ainult valitud ühendused",
     "selectAtLeastOneConnection": "Vali vähemalt üks ühendus või suvand „Kõik ühendused“.",
     "allConnectionsDesc": "See võti võib kasutada mis tahes aktiivset ühendust.",
-    "restrictedToConnections": "Piiratud {count, plural, one {# ühendusega} other {# ühendusega}}."
+    "restrictedToConnections": "Piiratud {count, plural, one {# ühendusega} other {# ühendusega}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Auditilogi",

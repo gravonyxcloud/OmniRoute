@@ -1321,7 +1321,9 @@
       "open": "열기",
       "close": "닫기"
     },
-    "noResults": "결과가 없습니다"
+    "noResults": "결과가 없습니다",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "웹훅",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "선택한 연결만",
     "selectAtLeastOneConnection": "연결을 하나 이상 선택하거나 모든 연결을 선택하세요.",
     "allConnectionsDesc": "이 키는 모든 활성 연결을 사용할 수 있습니다.",
-    "restrictedToConnections": "{count, plural, one {#개 연결로 제한됩니다} other {#개 연결로 제한됩니다}}."
+    "restrictedToConnections": "{count, plural, one {#개 연결로 제한됩니다} other {#개 연결로 제한됩니다}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "감사 로그",

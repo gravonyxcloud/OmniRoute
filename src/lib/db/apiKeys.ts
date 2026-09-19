@@ -31,6 +31,7 @@ import {
   matchesWildcardPattern,
 } from "./apiKeys/modelPermissions";
 import { ALL_COMBOS_ACCESS_RULE } from "@/shared/constants/comboAccess";
+import { getApiKeyPlanDays, planExpiryDate } from "@/shared/constants/apiKeyPlans";
 import {
   parseAllowedModels,
   parseAllowedCombos,
@@ -75,6 +76,17 @@ let _schemaChecked = false;
 
 type JsonRecord = Record<string, unknown>;
 
+function parseOptionalString(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  return value;
+}
+
+function parseOptionalNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const numeric = typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 interface CacheEntry<TValue> {
   timestamp: number;
   value: TValue;
@@ -86,6 +98,11 @@ interface CreateApiKeyOptions {
   allowedCombos?: string[];
   allowedConnections?: string[];
   expiresAt?: string | null;
+  catalogScope?: "all" | "combos" | "models";
+  customerEmail?: string | null;
+  planId?: string | null;
+  planDays?: number | null;
+  planStartedAt?: string | null;
 }
 
 export type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
@@ -128,6 +145,11 @@ interface ApiKeyMetadata {
   compressionEnabled: boolean;
   allowAutoCombos: boolean;
   catalogScope: "all" | "combos" | "models";
+  customerEmail?: string | null;
+  planId?: string | null;
+  planDays?: number | null;
+  planStartedAt?: string | null;
+  renewalsCount?: number;
 }
 
 interface ApiKeyRow extends JsonRecord {
@@ -179,6 +201,16 @@ interface ApiKeyRow extends JsonRecord {
   allowAutoCombos?: unknown;
   catalog_scope?: unknown;
   catalogScope?: unknown;
+  customer_email?: unknown;
+  customerEmail?: unknown;
+  plan_id?: unknown;
+  planId?: unknown;
+  plan_days?: unknown;
+  planDays?: unknown;
+  plan_started_at?: unknown;
+  planStartedAt?: unknown;
+  renewals_count?: unknown;
+  renewalsCount?: unknown;
 }
 
 interface StatementLike<TRow = unknown> {
@@ -231,6 +263,11 @@ interface ApiKeyView extends JsonRecord {
   compressionEnabled: boolean;
   allowAutoCombos: boolean;
   catalogScope: "all" | "combos" | "models";
+  customerEmail?: string | null;
+  planId?: string | null;
+  planDays?: number | null;
+  planStartedAt?: string | null;
+  renewalsCount?: number;
 }
 
 // LRU cache for API key validation (valid keys only)
@@ -457,10 +494,10 @@ function getPreparedStatements(db: ApiKeysDbLike): ApiKeysStatements {
       "SELECT id, expires_at, revoked_at, is_active, is_banned FROM api_keys WHERE key = ? OR key_hash = ?"
     );
     _stmtGetKeyMetadata = db.prepare<ApiKeyRow>(
-      "SELECT id, name, machine_id, model_access_mode, allowed_models, blocked_models, allowed_combos, allowed_connections, allowed_quotas, no_log, auto_resolve, is_active, access_schedule, max_requests_per_day, max_requests_per_minute, throttle_delay_ms, max_sessions, revoked_at, expires_at, ip_allowlist, scopes, rate_limits, is_banned, key_hash, allowed_endpoints, stream_default_mode, cache_default_mode, disable_non_public_models, allow_usage_command, usage_limit_enabled, daily_usage_limit_usd, weekly_usage_limit_usd, chaos_mode_enabled, compression_enabled, allow_auto_combos, catalog_scope, proxy_id FROM api_keys WHERE key = ? OR key_hash = ?"
+      "SELECT id, name, machine_id, model_access_mode, allowed_models, blocked_models, allowed_combos, allowed_connections, allowed_quotas, no_log, auto_resolve, is_active, access_schedule, max_requests_per_day, max_requests_per_minute, throttle_delay_ms, max_sessions, revoked_at, expires_at, ip_allowlist, scopes, rate_limits, is_banned, key_hash, allowed_endpoints, stream_default_mode, cache_default_mode, disable_non_public_models, allow_usage_command, usage_limit_enabled, daily_usage_limit_usd, weekly_usage_limit_usd, chaos_mode_enabled, compression_enabled, allow_auto_combos, catalog_scope, proxy_id, customer_email, plan_id, plan_days, plan_started_at, renewals_count FROM api_keys WHERE key = ? OR key_hash = ?"
     );
     _stmtInsertKey = db.prepare(
-      "INSERT INTO api_keys (id, name, key, machine_id, model_access_mode, allowed_models, allowed_combos, allowed_connections, no_log, created_at, key_prefix, key_hash, scopes, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO api_keys (id, name, key, machine_id, model_access_mode, allowed_models, allowed_combos, allowed_connections, no_log, created_at, key_prefix, key_hash, scopes, expires_at, catalog_scope, customer_email, plan_id, plan_days, plan_started_at, renewals_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     _stmtDeleteKey = db.prepare("DELETE FROM api_keys WHERE id = ?");
   }
@@ -527,6 +564,11 @@ export async function getApiKeys(limit?: number, offset?: number) {
     );
     camelRow.allowAutoCombos = parseAllowAutoCombos((camelRow as JsonRecord).allowAutoCombos);
     camelRow.catalogScope = parseCatalogScope((camelRow as JsonRecord).catalogScope);
+    camelRow.customerEmail = parseOptionalString((camelRow as JsonRecord).customerEmail);
+    camelRow.planId = parseOptionalString((camelRow as JsonRecord).planId);
+    camelRow.planDays = parseOptionalNumber((camelRow as JsonRecord).planDays);
+    camelRow.planStartedAt = parseNullableTimestamp((camelRow as JsonRecord).planStartedAt);
+    camelRow.renewalsCount = parseOptionalNumber((camelRow as JsonRecord).renewalsCount) ?? 0;
     Object.assign(camelRow, parseApiKeyUsageLimitFields(camelRow));
     if (typeof camelRow.id === "string" && camelRow.id.length > 0) {
       setNoLog(camelRow.id, camelRow.noLog === true);
@@ -666,6 +708,11 @@ export async function getApiKeyById(id: string) {
   );
   camelRow.allowAutoCombos = parseAllowAutoCombos((camelRow as JsonRecord).allowAutoCombos);
   camelRow.catalogScope = parseCatalogScope((camelRow as JsonRecord).catalogScope);
+  camelRow.customerEmail = parseOptionalString((camelRow as JsonRecord).customerEmail);
+  camelRow.planId = parseOptionalString((camelRow as JsonRecord).planId);
+  camelRow.planDays = parseOptionalNumber((camelRow as JsonRecord).planDays);
+  camelRow.planStartedAt = parseNullableTimestamp((camelRow as JsonRecord).planStartedAt);
+  camelRow.renewalsCount = parseOptionalNumber((camelRow as JsonRecord).renewalsCount) ?? 0;
   Object.assign(camelRow, parseApiKeyUsageLimitFields(camelRow));
   if (typeof camelRow.id === "string" && camelRow.id.length > 0) {
     setNoLog(camelRow.id, camelRow.noLog === true);
@@ -705,6 +752,16 @@ export async function createApiKey(
   const db = getDbInstance() as ApiKeysDbLike;
   const now = new Date().toISOString();
 
+  const planId = options.planId ?? null;
+  const planDays = planId ? (getApiKeyPlanDays(planId) ?? null) : null;
+  const planStartedAt = options.planStartedAt ?? (planId ? now : null);
+  const planStartedMs = planStartedAt ? Date.parse(planStartedAt) || Date.now() : Date.now();
+  const customerEmail = options.customerEmail ?? null;
+  const catalogScope = planId ? "combos" : (options.catalogScope ?? "all");
+  const expiresAt =
+    options.expiresAt ??
+    (planDays !== null && planStartedAt ? planExpiryDate(planStartedMs, planDays) : null);
+
   const { generateApiKeyWithMachine } = await import("@/shared/utils/apiKey");
   const result = generateApiKeyWithMachine(machineId);
 
@@ -720,8 +777,14 @@ export async function createApiKey(
     noLog: false,
     allowUsageCommand: false,
     createdAt: now,
-    expiresAt: options.expiresAt ?? null,
+    expiresAt,
     scopes,
+    catalogScope,
+    customerEmail,
+    planId,
+    planDays,
+    planStartedAt,
+    renewalsCount: 0,
   };
 
   const stmt = getPreparedStatements(db);
@@ -739,7 +802,13 @@ export async function createApiKey(
     apiKey.key.slice(0, 12),
     await hashKey(apiKey.key),
     JSON.stringify(scopes),
-    apiKey.expiresAt
+    apiKey.expiresAt,
+    apiKey.catalogScope,
+    apiKey.customerEmail,
+    apiKey.planId,
+    apiKey.planDays,
+    apiKey.planStartedAt,
+    apiKey.renewalsCount
   );
   setNoLog(apiKey.id, false);
 
@@ -778,6 +847,61 @@ export async function regenerateApiKey(id: string) {
   });
 
   return { id, key: newKey };
+}
+
+export type RenewApiKeyResult =
+  | {
+      status: "ok";
+      id: string;
+      expiresAt: string;
+      planId: string;
+      planDays: number;
+      renewalsCount: number;
+    }
+  | { status: "revoked" }
+  | { status: "not_found" };
+
+export async function renewApiKey(id: string, planId: string): Promise<RenewApiKeyResult> {
+  const planDays = getApiKeyPlanDays(planId);
+  if (planDays === null) {
+    return { status: "not_found" };
+  }
+
+  const db = getDbInstance() as ApiKeysDbLike;
+  const stmt = getPreparedStatements(db);
+  const row = stmt.getKeyById.get(id) as ApiKeyRow | undefined;
+  if (!row) return { status: "not_found" };
+
+  const revokedAt = parseNullableTimestamp(row.revoked_at ?? row.revokedAt);
+  if (revokedAt !== null) return { status: "revoked" };
+
+  const now = Date.now();
+  const currentExpiry = parseNullableTimestamp(row.expires_at ?? row.expiresAt);
+  const currentExpiryMs = currentExpiry ? Date.parse(currentExpiry) : NaN;
+  const baseMs = Number.isFinite(currentExpiryMs) ? Math.max(now, currentExpiryMs) : now;
+  const expiresAt = planExpiryDate(baseMs, planDays);
+
+  const renewalsCount = (parseOptionalNumber(row.renewals_count ?? row.renewalsCount) ?? 0) + 1;
+  const planStartedAt =
+    parseNullableTimestamp(row.plan_started_at ?? row.planStartedAt) ?? new Date(now).toISOString();
+
+  const updateStmt = db.prepare(
+    "UPDATE api_keys SET plan_id = ?, plan_days = ?, plan_started_at = COALESCE(plan_started_at, ?), renewals_count = ?, expires_at = ? WHERE id = ?"
+  );
+  updateStmt.run(planId, planDays, planStartedAt, renewalsCount, expiresAt, id);
+
+  clearApiKeyCaches();
+  await deleteRedisAuthCacheForKeyId(db, id);
+  backupDbFile("pre-write");
+
+  const { logAuditEvent } = await import("@/lib/compliance");
+  logAuditEvent({
+    action: "apiKey.renew",
+    target: id,
+    details: { planId, planDays, expiresAt, renewalsCount },
+  });
+
+  return { status: "ok", id, expiresAt, planId, planDays, renewalsCount };
 }
 
 export async function updateApiKeyPermissions(
@@ -1429,6 +1553,11 @@ export async function getApiKeyMetadata(
       compressionEnabled: true,
       allowAutoCombos: true,
       catalogScope: "all",
+      customerEmail: null,
+      planId: null,
+      planDays: null,
+      planStartedAt: null,
+      renewalsCount: 0,
     };
   }
 
@@ -1522,6 +1651,11 @@ export async function getApiKeyMetadata(
     catalogScope: parseCatalogScope(
       (record as JsonRecord).catalog_scope ?? (record as JsonRecord).catalogScope
     ),
+    customerEmail: parseOptionalString(record.customer_email ?? record.customerEmail),
+    planId: parseOptionalString(record.plan_id ?? record.planId),
+    planDays: parseOptionalNumber(record.plan_days ?? record.planDays),
+    planStartedAt: parseNullableTimestamp(record.plan_started_at ?? record.planStartedAt),
+    renewalsCount: parseOptionalNumber(record.renewals_count ?? record.renewalsCount) ?? 0,
     ...parseApiKeyUsageLimitFields(record as JsonRecord),
   };
 

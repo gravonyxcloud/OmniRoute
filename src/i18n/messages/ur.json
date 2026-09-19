@@ -1321,7 +1321,9 @@
       "open": "کھولیں",
       "close": "بند کریں"
     },
-    "noResults": "کوئی نتائج نہیں"
+    "noResults": "کوئی نتائج نہیں",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "ویب ہکس",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "صرف منتخب کنکشنز",
     "selectAtLeastOneConnection": "کم از کم ایک کنکشن منتخب کریں یا تمام کنکشنز کا انتخاب کریں۔",
     "allConnectionsDesc": "یہ کلید کوئی بھی فعال کنکشن استعمال کر سکتی ہے۔",
-    "restrictedToConnections": "{count, plural, one {# کنکشن} other {# کنکشنز}} تک محدود۔"
+    "restrictedToConnections": "{count, plural, one {# کنکشن} other {# کنکشنز}} تک محدود۔",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "آڈٹ لاگ",

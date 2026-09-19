@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { API_KEY_PLAN_IDS } from "@/shared/constants/apiKeyPlans";
 import {
   ACCOUNT_FALLBACK_STRATEGY_VALUES,
   ROUTING_STRATEGY_VALUES,
@@ -64,11 +65,32 @@ export const createKeySchema = z
     expiresAt: z.string().datetime().nullable().optional(),
     scopes: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
     allowedConnections: z.array(z.string().uuid()).min(1).max(100).optional(),
+    catalogScope: z.enum(["all", "combos", "models"]).optional(),
+    customerEmail: z.string().email().max(320).nullable().optional(),
+    planId: z.enum(API_KEY_PLAN_IDS).nullable().optional(),
   })
   .superRefine((value, ctx) => {
     requireConsistentModelAccess(value, ctx);
     requireExclusiveLeaseConnections(value, ctx);
+    if (value.planId && value.expiresAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "expiresAt is derived from the plan; do not set it on a plan key",
+        path: ["expiresAt"],
+      });
+    }
+    if (value.planId && value.catalogScope && value.catalogScope !== "combos") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "plan keys are restricted to combos-only (catalogScope 'combos')",
+        path: ["catalogScope"],
+      });
+    }
   });
+
+export const renewKeySchema = z.object({
+  planId: z.enum(API_KEY_PLAN_IDS),
+});
 
 export const createSyncTokenSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),

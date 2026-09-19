@@ -1321,7 +1321,9 @@
       "open": "отвори",
       "close": "затвори"
     },
-    "noResults": "Нема резултата"
+    "noResults": "Нема резултата",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Веб-куке",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Само изабране везе",
     "selectAtLeastOneConnection": "Изаберите бар једну везу или одаберите Све везе.",
     "allConnectionsDesc": "Овај кључ може користити било коју активну везу.",
-    "restrictedToConnections": "Ограничено на {count, plural, one {# везу} few {# везе} other {# веза}}."
+    "restrictedToConnections": "Ограничено на {count, plural, one {# везу} few {# везе} other {# веза}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Дневник ревизије",

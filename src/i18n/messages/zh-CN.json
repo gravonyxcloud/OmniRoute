@@ -1321,7 +1321,9 @@
       "open": "打开",
       "close": "关闭"
     },
-    "noResults": "没有结果"
+    "noResults": "没有结果",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Webhook",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "仅选定的连接",
     "selectAtLeastOneConnection": "请至少选择一个连接，或选择“所有连接”。",
     "allConnectionsDesc": "此密钥可以使用任何活跃连接。",
-    "restrictedToConnections": "仅限用于 {count, plural, one {# 个连接} other {# 个连接}}。"
+    "restrictedToConnections": "仅限用于 {count, plural, one {# 个连接} other {# 个连接}}。",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "审核日志",

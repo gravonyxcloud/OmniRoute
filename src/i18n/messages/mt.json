@@ -1321,7 +1321,9 @@
       "open": "iftaħ",
       "close": "agħlaq"
     },
-    "noResults": "Ebda riżultat"
+    "noResults": "Ebda riżultat",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Webhooks",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Il-konnessjonijiet magħżula biss",
     "selectAtLeastOneConnection": "Agħżel mill-inqas konnessjoni waħda jew agħżel Il-konnessjonijiet kollha.",
     "allConnectionsDesc": "Din iċ-ċavetta tista’ tuża kwalunkwe konnessjoni attiva.",
-    "restrictedToConnections": "Ristretta għal {count, plural, one {# konnessjoni} other {# konnessjonijiet}}."
+    "restrictedToConnections": "Ristretta għal {count, plural, one {# konnessjoni} other {# konnessjonijiet}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Reġistru tal-Awditjar",

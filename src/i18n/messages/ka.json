@@ -1321,7 +1321,9 @@
       "open": "გახსნა",
       "close": "დახურვა"
     },
-    "noResults": "შედეგები ვერ მოიძებნა"
+    "noResults": "შედეგები ვერ მოიძებნა",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "ვებჰუკები",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "მხოლოდ არჩეული კავშირები",
     "selectAtLeastOneConnection": "აირჩიეთ მინიმუმ ერთი კავშირი ან მონიშნეთ „ყველა კავშირი“.",
     "allConnectionsDesc": "ამ გასაღებს შეუძლია ნებისმიერი აქტიური კავშირის გამოყენება.",
-    "restrictedToConnections": "შეზღუდულია {count, plural, one {# კავშირით} other {# კავშირით}}."
+    "restrictedToConnections": "შეზღუდულია {count, plural, one {# კავშირით} other {# კავშირით}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "აუდიტის ჟურნალი",

@@ -1321,7 +1321,9 @@
       "open": "atidaryti",
       "close": "uždaryti"
     },
-    "noResults": "Rezultatų nerasta"
+    "noResults": "Rezultatų nerasta",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Webhookai",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Tik pasirinkti ryšiai",
     "selectAtLeastOneConnection": "Pasirinkite bent vieną ryšį arba parinktį „Visi ryšiai“.",
     "allConnectionsDesc": "Šis raktas gali naudoti bet kurį aktyvų ryšį.",
-    "restrictedToConnections": "Prieiga apribota iki {count, plural, one {# ryšio} other {# ryšių}}."
+    "restrictedToConnections": "Prieiga apribota iki {count, plural, one {# ryšio} other {# ryšių}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Audito žurnalas",

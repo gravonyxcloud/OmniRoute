@@ -1321,7 +1321,9 @@
       "open": "उघडा",
       "close": "बंद करा"
     },
-    "noResults": "कोणतेही परिणाम नाहीत"
+    "noResults": "कोणतेही परिणाम नाहीत",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "वेबहुक",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "फक्त निवडलेली कनेक्शन्स",
     "selectAtLeastOneConnection": "किमान एक कनेक्शन निवडा किंवा सर्व कनेक्शन्स निवडा.",
     "allConnectionsDesc": "ही की कोणतेही सक्रिय कनेक्शन वापरू शकते.",
-    "restrictedToConnections": "{count, plural, one {# कनेक्शनपुरते} other {# कनेक्शन्सपुरते}} मर्यादित."
+    "restrictedToConnections": "{count, plural, one {# कनेक्शनपुरते} other {# कनेक्शन्सपुरते}} मर्यादित.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "ऑडिट लॉग",

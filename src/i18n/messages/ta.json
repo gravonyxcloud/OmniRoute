@@ -1321,7 +1321,9 @@
       "open": "திறக்கவும்",
       "close": "மூடு"
     },
-    "noResults": "எந்த முடிவுகளும் இல்லை"
+    "noResults": "எந்த முடிவுகளும் இல்லை",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "வெப்ஹூக்ஸ்",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "தேர்ந்தெடுக்கப்பட்ட இணைப்புகள் மட்டும்",
     "selectAtLeastOneConnection": "குறைந்தது ஓர் இணைப்பையாவது தேர்ந்தெடுக்கவும் அல்லது அனைத்து இணைப்புகளும் என்பதைத் தேர்வுசெய்யவும்.",
     "allConnectionsDesc": "இந்த விசை செயலில் உள்ள எந்த இணைப்பையும் பயன்படுத்தலாம்.",
-    "restrictedToConnections": "{count, plural, one {# இணைப்புக்கு} other {# இணைப்புகளுக்கு}} வரையறுக்கப்பட்டுள்ளது."
+    "restrictedToConnections": "{count, plural, one {# இணைப்புக்கு} other {# இணைப்புகளுக்கு}} வரையறுக்கப்பட்டுள்ளது.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "தணிக்கைப் பதிவு",

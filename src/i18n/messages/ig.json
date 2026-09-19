@@ -1321,7 +1321,9 @@
       "open": "mepee",
       "close": "mechie"
     },
-    "noResults": "Enweghị nsonaazụ"
+    "noResults": "Enweghị nsonaazụ",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Nko weebụ",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Naanị njikọ ndị ahọrọ",
     "selectAtLeastOneConnection": "Họrọ opekata mpe otu njikọ ma ọ bụ họrọ Njikọ niile.",
     "allConnectionsDesc": "Igodo a nwere ike iji njikọ ọ bụla na-arụ ọrụ.",
-    "restrictedToConnections": "Ejedebere ya na {count, plural, one {# njikọ} other {# njikọ}}."
+    "restrictedToConnections": "Ejedebere ya na {count, plural, one {# njikọ} other {# njikọ}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Ndekọ Nnyocha",

@@ -1321,7 +1321,9 @@
       "open": "Oscail",
       "close": "Dún"
     },
-    "noResults": "Gan torthaí"
+    "noResults": "Gan torthaí",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Crúcaí gréasáin",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Naisc roghnaithe amháin",
     "selectAtLeastOneConnection": "Roghnaigh nasc amháin ar a laghad nó roghnaigh Gach nasc.",
     "allConnectionsDesc": "Is féidir leis an eochair seo aon nasc gníomhach a úsáid.",
-    "restrictedToConnections": "Srianta do {count, plural, one {# nasc} other {# nasc}}."
+    "restrictedToConnections": "Srianta do {count, plural, one {# nasc} other {# nasc}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Log Iniúchta",

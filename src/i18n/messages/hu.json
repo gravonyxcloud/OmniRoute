@@ -1321,7 +1321,9 @@
       "open": "megnyitás",
       "close": "bezárás"
     },
-    "noResults": "Nincs találat"
+    "noResults": "Nincs találat",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Webhookok",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Csak a kiválasztott kapcsolatok",
     "selectAtLeastOneConnection": "Válasszon ki legalább egy kapcsolatot, vagy válassza az Összes kapcsolat lehetőséget.",
     "allConnectionsDesc": "Ez a kulcs bármely aktív kapcsolatot használhatja.",
-    "restrictedToConnections": "{count, plural, one {# kapcsolatra} other {# kapcsolatra}} korlátozva."
+    "restrictedToConnections": "{count, plural, one {# kapcsolatra} other {# kapcsolatra}} korlátozva.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Ellenőrzési napló",

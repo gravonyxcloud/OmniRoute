@@ -1321,7 +1321,9 @@
       "open": "פתח",
       "close": "סגור"
     },
-    "noResults": "אין תוצאות"
+    "noResults": "אין תוצאות",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "וובהוקים",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "רק חיבורים שנבחרו",
     "selectAtLeastOneConnection": "יש לבחור חיבור אחד לפחות או לבחור באפשרות כל החיבורים.",
     "allConnectionsDesc": "מפתח זה יכול להשתמש בכל חיבור פעיל.",
-    "restrictedToConnections": "מוגבל ל-{count, plural, one {חיבור אחד} other {# חיבורים}}."
+    "restrictedToConnections": "מוגבל ל-{count, plural, one {חיבור אחד} other {# חיבורים}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "יומן ביקורת",

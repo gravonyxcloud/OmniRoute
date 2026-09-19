@@ -1321,7 +1321,9 @@
       "open": "เปิด",
       "close": "ปิด"
     },
-    "noResults": "ไม่มีผลลัพธ์"
+    "noResults": "ไม่มีผลลัพธ์",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "เว็บฮุค",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "เฉพาะการเชื่อมต่อที่เลือก",
     "selectAtLeastOneConnection": "เลือกการเชื่อมต่ออย่างน้อยหนึ่งรายการ หรือเลือกการเชื่อมต่อทั้งหมด",
     "allConnectionsDesc": "คีย์นี้สามารถใช้การเชื่อมต่อใดก็ได้ที่เปิดใช้งานอยู่",
-    "restrictedToConnections": "จำกัดไว้ที่ {count, plural, one {# การเชื่อมต่อ} other {# การเชื่อมต่อ}}"
+    "restrictedToConnections": "จำกัดไว้ที่ {count, plural, one {# การเชื่อมต่อ} other {# การเชื่อมต่อ}}",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "บันทึกการตรวจสอบ",

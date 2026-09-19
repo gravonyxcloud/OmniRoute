@@ -1321,7 +1321,9 @@
       "open": "açık",
       "close": "kapat"
     },
-    "noResults": "Sonuç yok"
+    "noResults": "Sonuç yok",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Web kancaları",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Yalnızca seçili bağlantılar",
     "selectAtLeastOneConnection": "En az bir bağlantı seçin veya “Tüm bağlantılar” seçeneğini belirleyin.",
     "allConnectionsDesc": "Bu anahtar herhangi bir etkin bağlantıyı kullanabilir.",
-    "restrictedToConnections": "{count, plural, one {# bağlantıyla} other {# bağlantıyla}} sınırlandırıldı."
+    "restrictedToConnections": "{count, plural, one {# bağlantıyla} other {# bağlantıyla}} sınırlandırıldı.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Denetim Günlüğü",

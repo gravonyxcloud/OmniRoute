@@ -1321,7 +1321,9 @@
       "open": "åpne",
       "close": "lukk"
     },
-    "noResults": "Ingen resultater"
+    "noResults": "Ingen resultater",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Webhooker",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Bare valgte tilkoblinger",
     "selectAtLeastOneConnection": "Velg minst én tilkobling, eller velg Alle tilkoblinger.",
     "allConnectionsDesc": "Denne nøkkelen kan bruke en hvilken som helst aktiv tilkobling.",
-    "restrictedToConnections": "Begrenset til {count, plural, one {# tilkobling} other {# tilkoblinger}}."
+    "restrictedToConnections": "Begrenset til {count, plural, one {# tilkobling} other {# tilkoblinger}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Revisjonslogg",

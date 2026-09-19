@@ -1321,7 +1321,9 @@
       "open": "deschide",
       "close": "închide"
     },
-    "noResults": "Niciun rezultat"
+    "noResults": "Niciun rezultat",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "Webhook-uri",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "Doar conexiunile selectate",
     "selectAtLeastOneConnection": "Selectați cel puțin o conexiune sau alegeți Toate conexiunile.",
     "allConnectionsDesc": "Această cheie poate utiliza orice conexiune activă.",
-    "restrictedToConnections": "Restricționată la {count, plural, one {# conexiune} other {# conexiuni}}."
+    "restrictedToConnections": "Restricționată la {count, plural, one {# conexiune} other {# conexiuni}}.",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "Jurnal de audit",

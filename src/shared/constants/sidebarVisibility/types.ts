@@ -3,6 +3,7 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "home",
   // OmniProxy — flat
   "api-manager",
+  "api-key-plans",
   "endpoints",
   "providers",
   "embedded-services",

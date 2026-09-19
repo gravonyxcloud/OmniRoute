@@ -1321,7 +1321,9 @@
       "open": "ဖွင့်ရန်",
       "close": "ပိတ်ရန်"
     },
-    "noResults": "ရလဒ်မရှိပါ"
+    "noResults": "ရလဒ်မရှိပါ",
+    "apiKeyPlanEndpoints": "Client Keys & Endpoints",
+    "apiKeyPlanEndpointsSubtitle": "Auto-create & renew customer keys"
   },
   "webhooks": {
     "title": "ဝဘ်ဟုတ်များ",
@@ -2433,7 +2435,17 @@
     "onlySelectedConnections": "ရွေးချယ်ထားသော ချိတ်ဆက်မှုများသာ",
     "selectAtLeastOneConnection": "အနည်းဆုံး ချိတ်ဆက်မှုတစ်ခုကို ရွေးပါ သို့မဟုတ် ချိတ်ဆက်မှုအားလုံးကို ရွေးပါ။",
     "allConnectionsDesc": "ဤ key သည် အသက်ဝင်နေသော မည်သည့်ချိတ်ဆက်မှုကိုမဆို အသုံးပြုနိုင်သည်။",
-    "restrictedToConnections": "{count, plural, one {ချိတ်ဆက်မှု # ခု} other {ချိတ်ဆက်မှု # ခု}} သာ အသုံးပြုခွင့်ရှိသည်။"
+    "restrictedToConnections": "{count, plural, one {ချိတ်ဆက်မှု # ခု} other {ချိတ်ဆက်မှု # ခု}} သာ အသုံးပြုခွင့်ရှိသည်။",
+    "renewKey": "Renew",
+    "renewConfirm": "Renew this plan key? Expiry is extended from the current expiration date.",
+    "failedRenewKey": "Failed to renew key",
+    "renewedSuccess": "Key renewed — new expiry {date}",
+    "planLabel": "Plan",
+    "planLabelDesc": "Service plan: the key expires automatically and can only call combos created in OmniRoute.",
+    "planNone": "No plan",
+    "customerEmail": "Customer e-mail",
+    "customerEmailPlaceholder": "customer@example.com",
+    "renewalsBadge": "Renewed ×{count}"
   },
   "auditLog": {
     "title": "စစ်ဆေးမှတ်တမ်း",

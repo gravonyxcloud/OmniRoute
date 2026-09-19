@@ -34,6 +34,15 @@ const OMNI_PROXY_ITEMS: readonly SidebarItemDefinition[] = [
     icon: "vpn_key",
   },
   {
+    id: "api-key-plans",
+    href: "/dashboard/api-manager/plans",
+    i18nKey: "apiKeyPlanEndpoints",
+    labelFallback: "Client Keys & Endpoints",
+    subtitleKey: "apiKeyPlanEndpointsSubtitle",
+    subtitleFallback: "Auto-create & renew customer keys",
+    icon: "subscriptions",
+  },
+  {
     id: "providers",
     href: "/dashboard/providers",
     i18nKey: "providers",
