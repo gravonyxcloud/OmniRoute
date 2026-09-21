@@ -48,7 +48,7 @@ jobs:
       promote_latest: ${{ steps.version.outputs.promote_latest }}
       skip: ${{ steps.version.outputs.skip }}
     env:
-      IMAGE_NAME: diegosouzapw/omniroute
+      IMAGE_NAME: gabrielsilva543/omniroute
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -113,14 +113,14 @@ jobs:
           # and `next` channels are intentionally rebuilt on every matching push.
           SKIP="false"
           if [ "$VERSION" != "main" ] && [ "$VERSION" != "next" ]; then
-            if docker manifest inspect "diegosouzapw/omniroute:${VERSION}" >/dev/null 2>&1; then
-              echo "Image diegosouzapw/omniroute:${VERSION} already exists on Docker Hub — skipping rebuild."
+            if docker manifest inspect "gabrielsilva543/omniroute:${VERSION}" >/dev/null 2>&1; then
+              echo "Image gabrielsilva543/omniroute:${VERSION} already exists on Docker Hub — skipping rebuild."
               SKIP="true"
             fi
           fi
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
 
-          echo "Publishing diegosouzapw/omniroute:$VERSION (promote_latest=$PROMOTE, skip=$SKIP)"
+          echo "Publishing gabrielsilva543/omniroute:$VERSION (promote_latest=$PROMOTE, skip=$SKIP)"
 
   build:
     name: Build Docker (${{ matrix.platform }})
@@ -155,8 +155,8 @@ jobs:
           - platform: linux/arm64
             arch: arm64
     env:
-      IMAGE_NAME: diegosouzapw/omniroute
-      GHCR_IMAGE_NAME: ghcr.io/diegosouzapw/omniroute
+      IMAGE_NAME: gabrielsilva543/omniroute
+      GHCR_IMAGE_NAME: ghcr.io/gravonyxcloud/omniroute
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -349,8 +349,8 @@ jobs:
       packages: write
       security-events: write
     env:
-      IMAGE_NAME: diegosouzapw/omniroute
-      GHCR_IMAGE_NAME: ghcr.io/diegosouzapw/omniroute
+      IMAGE_NAME: gabrielsilva543/omniroute
+      GHCR_IMAGE_NAME: ghcr.io/gravonyxcloud/omniroute
       VERSION: ${{ needs.prepare.outputs.version }}
       PROMOTE_LATEST: ${{ needs.prepare.outputs.promote_latest }}
     steps:
@@ -593,6 +593,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: diegosouzapw/omniroute
+          repository: gabrielsilva543/omniroute
           short-description: "OmniRoute — Unified AI proxy. Route any LLM through one endpoint."
           readme-filepath: ./README.md
