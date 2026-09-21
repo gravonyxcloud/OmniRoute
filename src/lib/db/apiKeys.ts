@@ -16,6 +16,7 @@ import {
   parseApiKeyUsageLimitFields,
 } from "./apiKeyUsageLimitFields";
 import { setNoLog } from "../compliance/noLog";
+import { upsertTokenLimit, listTokenLimits } from "./tokenLimits";
 import { resolveModelAlias } from "@omniroute/open-sse/services/modelDeprecation.ts";
 import { getProviderAlias, resolveProviderId } from "@/shared/constants/providers";
 import { getSyncedAvailableModelsByConnection, getCustomModels, getModelIsHidden } from "./models";
@@ -31,7 +32,11 @@ import {
   matchesWildcardPattern,
 } from "./apiKeys/modelPermissions";
 import { ALL_COMBOS_ACCESS_RULE } from "@/shared/constants/comboAccess";
-import { getApiKeyPlanDays, planExpiryDate } from "@/shared/constants/apiKeyPlans";
+import {
+  getApiKeyPlanDays,
+  planExpiryDate,
+  API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR,
+} from "@/shared/constants/apiKeyPlans";
 import {
   parseAllowedModels,
   parseAllowedCombos,
@@ -103,6 +108,7 @@ interface CreateApiKeyOptions {
   planId?: string | null;
   planDays?: number | null;
   planStartedAt?: string | null;
+  tokensPerHourLimit?: number | null;
 }
 
 export type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
@@ -812,6 +818,10 @@ export async function createApiKey(
   );
   setNoLog(apiKey.id, false);
 
+  if (planId) {
+    ensurePlanTokenLimit(apiKey.id, planId, options.tokensPerHourLimit);
+  }
+
   backupDbFile("pre-write");
   return apiKey;
 }
@@ -847,6 +857,33 @@ export async function regenerateApiKey(id: string) {
   });
 
   return { id, key: newKey };
+}
+
+/**
+ * Seed the default per-key token limit for a plan key: a global-scoped,
+ * hourly-reset budget (default 80M tokens/hour) enforced by
+ * apiKeyPolicy.validateTokenLimit → checkTokenLimits. Idempotent — no-op when
+ * the key already carries a global hourly limit. Plan keys without this seed
+ * (created before the limit existed, then renewed) get it on renew.
+ */
+export function ensurePlanTokenLimit(
+  apiKeyId: string,
+  planId: string,
+  tokensPerHour?: number | null
+): boolean {
+  if (!apiKeyId || !planId) return false;
+  const existing = listTokenLimits(apiKeyId);
+  const hasHourlyGlobal = existing.some(
+    (l) => l.scopeType === "global" && l.resetInterval === "hourly"
+  );
+  if (hasHourlyGlobal) return false;
+  const numeric = Number(tokensPerHour);
+  const tokenLimit =
+    Number.isFinite(numeric) && numeric > 0
+      ? Math.floor(numeric)
+      : API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR;
+  upsertTokenLimit({ apiKeyId, scopeType: "global", tokenLimit, resetInterval: "hourly" });
+  return true;
 }
 
 export type RenewApiKeyResult =
@@ -890,6 +927,7 @@ export async function renewApiKey(id: string, planId: string): Promise<RenewApiK
   );
   updateStmt.run(planId, planDays, planStartedAt, renewalsCount, expiresAt, id);
 
+  ensurePlanTokenLimit(id, planId);
   clearApiKeyCaches();
   await deleteRedisAuthCacheForKeyId(db, id);
   backupDbFile("pre-write");

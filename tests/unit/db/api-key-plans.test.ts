@@ -1,7 +1,9 @@
 /**
  * Unit coverage for API key plans (migration 182): plan fields on create,
- * plan-forced combos-only `catalog_scope`, and renewal semantics extending
- * expiry from max(now, current expires_at).
+ * plan-forced combos-only `catalog_scope`, renewal semantics extending
+ * expiry from max(now, current expires_at), and the default per-key hourly
+ * token limit (migration 183) seeded for plan keys and enforced by
+ * checkTokenLimits.
  */
 
 import test from "node:test";
@@ -16,8 +18,16 @@ process.env.API_KEY_SECRET = "test-api-key-secret";
 
 const core = await import("../../../src/lib/db/core.ts");
 const apiKeysDb = await import("../../../src/lib/db/apiKeys.ts");
-const { API_KEY_PLAN_IDS, getApiKeyPlanDays, planExpiryDate, API_KEY_PLAN_DAY_MS } =
-  await import("../../../src/shared/constants/apiKeyPlans.ts");
+const tokenLimitsDb = await import("../../../src/lib/db/tokenLimits.ts");
+const tokenLimitCounter = await import("../../../open-sse/services/tokenLimitCounter.ts");
+const { getBudgetWindow } = await import("../../../src/domain/costRules.ts");
+const {
+  API_KEY_PLAN_IDS,
+  getApiKeyPlanDays,
+  planExpiryDate,
+  API_KEY_PLAN_DAY_MS,
+  API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR,
+} = await import("../../../src/shared/constants/apiKeyPlans.ts");
 
 const MACHINE_ID = "machine1234567890";
 
@@ -219,4 +229,79 @@ test("renewApiKey rejects revoked keys and unknown ids", async () => {
 
   const invalidPlan = await apiKeysDb.renewApiKey(created.id, "bogus");
   assert.equal(invalidPlan.status, "not_found");
+});
+
+test("hourly reset window aligns to the top of the UTC hour", () => {
+  const now = Date.UTC(2026, 0, 15, 13, 24, 0);
+  const window = getBudgetWindow("hourly", "00:00", now);
+  assert.equal(window.periodStartAt, Date.UTC(2026, 0, 15, 13, 0, 0));
+  assert.equal(window.nextResetAt, Date.UTC(2026, 0, 15, 14, 0, 0));
+});
+
+test("createApiKey with a plan seeds a default global hourly token limit and enforces it", async () => {
+  const created = await apiKeysDb.createApiKey("limited-plan", MACHINE_ID, [], {
+    planId: "7d",
+  });
+
+  const limits = tokenLimitsDb.listTokenLimits(created.id);
+  const global = limits.find((l) => l.scopeType === "global" && l.resetInterval === "hourly");
+  assert.ok(global, "seeds a global hourly limit");
+  assert.equal(global.tokenLimit, API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR);
+  assert.equal(global.enabled, true);
+
+  assert.equal(tokenLimitCounter.checkTokenLimits(created.id), null, "under budget is allowed");
+
+  const { windowStart } = tokenLimitsDb.resetWindowIfElapsed(global);
+  tokenLimitsDb.incrementWindowTokens(global.id, windowStart, global.tokenLimit + 10);
+
+  const breach = tokenLimitCounter.checkTokenLimits(created.id);
+  assert.ok(breach, "over budget is rejected");
+  assert.equal(breach.limitValue, API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR);
+  assert.equal(breach.scopeType, "global");
+});
+
+test("createApiKey respects a tokensPerHourLimit override", async () => {
+  const created = await apiKeysDb.createApiKey("override-plan", MACHINE_ID, [], {
+    planId: "7d",
+    tokensPerHourLimit: 5_000_000,
+  });
+
+  const global = tokenLimitsDb
+    .listTokenLimits(created.id)
+    .find((l) => l.scopeType === "global" && l.resetInterval === "hourly");
+  assert.ok(global, "seeds a global hourly limit");
+  assert.equal(global.tokenLimit, 5_000_000);
+});
+
+test("createApiKey without a plan does not seed a token limit", async () => {
+  const created = await apiKeysDb.createApiKey("plain-limit", MACHINE_ID);
+  assert.equal(tokenLimitsDb.listTokenLimits(created.id).length, 0);
+});
+
+test("renewApiKey seeds the missing limit for pre-existing plan keys and keeps it on renewals", async () => {
+  const created = await apiKeysDb.createApiKey("legacy-plan", MACHINE_ID, [], {
+    planId: "3d",
+  });
+
+  const seeded = tokenLimitsDb
+    .listTokenLimits(created.id)
+    .find((l) => l.scopeType === "global" && l.resetInterval === "hourly");
+  assert.ok(seeded, "create seeds the default");
+  tokenLimitsDb.deleteTokenLimit(seeded.id);
+  assert.equal(tokenLimitsDb.listTokenLimits(created.id).length, 0, "limit removed");
+
+  const renewed = await apiKeysDb.renewApiKey(created.id, "7d");
+  assert.equal(renewed.status, "ok");
+
+  const afterRenew = tokenLimitsDb
+    .listTokenLimits(created.id)
+    .find((l) => l.scopeType === "global" && l.resetInterval === "hourly");
+  assert.ok(afterRenew, "renew re-seeds the missing limit");
+  assert.equal(afterRenew.tokenLimit, API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR);
+
+  await apiKeysDb.renewApiKey(created.id, "30d");
+  const hourlyCount = tokenLimitsDb
+    .listTokenLimits(created.id)
+    .filter((l) => l.scopeType === "global" && l.resetInterval === "hourly").length;
+  assert.equal(hourlyCount, 1, "subsequent renewals keep the limit, no duplicates");
 });

@@ -27,7 +27,7 @@ import {
   spendBatchWriter,
 } from "@/lib/spend/batchWriter";
 
-export type BudgetResetInterval = "daily" | "weekly" | "monthly";
+export type BudgetResetInterval = "daily" | "weekly" | "monthly" | "hourly";
 
 interface BudgetConfig {
   dailyLimitUsd?: number;
@@ -91,7 +91,12 @@ interface BudgetSummary {
   warningThreshold: number | null;
 }
 
-const VALID_RESET_INTERVALS = new Set<BudgetResetInterval>(["daily", "weekly", "monthly"]);
+const VALID_RESET_INTERVALS = new Set<BudgetResetInterval>([
+  "daily",
+  "weekly",
+  "monthly",
+  "hourly",
+]);
 const RESET_TIME_REGEX = /^(\d{2}):(\d{2})$/;
 
 /** @type {Map<string, NormalizedBudgetConfig>} In-memory cache for budgets */
@@ -186,6 +191,14 @@ export function getBudgetWindow(
   const year = current.getUTCFullYear();
   const month = current.getUTCMonth();
   const day = current.getUTCDate();
+
+  if (resetInterval === "hourly") {
+    const thisHourStart = Date.UTC(year, month, day, current.getUTCHours(), 0, 0, 0);
+    return {
+      periodStartAt: thisHourStart,
+      nextResetAt: thisHourStart + 60 * 60 * 1000,
+    };
+  }
 
   if (resetInterval === "weekly") {
     const daysSinceMonday = (current.getUTCDay() + 6) % 7;

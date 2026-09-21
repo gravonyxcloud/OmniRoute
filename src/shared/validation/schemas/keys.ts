@@ -68,6 +68,7 @@ export const createKeySchema = z
     catalogScope: z.enum(["all", "combos", "models"]).optional(),
     customerEmail: z.string().email().max(320).nullable().optional(),
     planId: z.enum(API_KEY_PLAN_IDS).nullable().optional(),
+    tokensPerHourLimit: z.coerce.number().int().min(1000).optional().nullable(),
   })
   .superRefine((value, ctx) => {
     requireConsistentModelAccess(value, ctx);
@@ -84,6 +85,13 @@ export const createKeySchema = z
         code: z.ZodIssueCode.custom,
         message: "plan keys are restricted to combos-only (catalogScope 'combos')",
         path: ["catalogScope"],
+      });
+    }
+    if (value.tokensPerHourLimit && !value.planId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "tokensPerHourLimit only applies to plan keys (requires planId)",
+        path: ["tokensPerHourLimit"],
       });
     }
   });

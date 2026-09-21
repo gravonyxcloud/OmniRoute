@@ -71,7 +71,8 @@ function normalizeScopeType(value: unknown): TokenLimitScopeType {
 }
 
 function normalizeResetInterval(value: unknown): BudgetResetInterval {
-  if (value === "daily" || value === "weekly" || value === "monthly") return value;
+  if (value === "daily" || value === "weekly" || value === "monthly" || value === "hourly")
+    return value;
   return "monthly";
 }
 
@@ -85,7 +86,7 @@ function ensureSchema() {
       scope_type      TEXT NOT NULL CHECK (scope_type IN ('model', 'provider', 'global')),
       scope_value     TEXT NOT NULL DEFAULT '',
       token_limit     INTEGER NOT NULL CHECK (token_limit > 0),
-      reset_interval  TEXT NOT NULL DEFAULT 'monthly' CHECK (reset_interval IN ('daily', 'weekly', 'monthly')),
+      reset_interval  TEXT NOT NULL DEFAULT 'monthly' CHECK (reset_interval IN ('daily', 'weekly', 'monthly', 'hourly')),
       reset_time      TEXT,
       enabled         INTEGER NOT NULL DEFAULT 1,
       created_at      TEXT NOT NULL DEFAULT (datetime('now')),
@@ -158,7 +159,16 @@ export function upsertTokenLimit(input: UpsertTokenLimitInput): TokenLimit {
                    reset_time     = excluded.reset_time,
                    enabled        = excluded.enabled,
                    updated_at     = datetime('now')`
-  ).run({ id, apiKeyId: input.apiKeyId, scopeType, scopeValue, tokenLimit, resetInterval, resetTime, enabled });
+  ).run({
+    id,
+    apiKeyId: input.apiKeyId,
+    scopeType,
+    scopeValue,
+    tokenLimit,
+    resetInterval,
+    resetTime,
+    enabled,
+  });
 
   const row = db
     .prepare(
@@ -281,11 +291,7 @@ export function incrementWindowTokens(
 }
 
 /** Append a window-reset audit log row. */
-export function logTokenLimitReset(
-  limitId: string,
-  prevTokens: number,
-  windowStart: string
-): void {
+export function logTokenLimitReset(limitId: string, prevTokens: number, windowStart: string): void {
   ensureSchema();
   const db = getDbInstance();
   db.prepare(

@@ -16,11 +16,16 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const PAGE = join(ROOT, "src/app/(dashboard)/dashboard/api-manager/ApiManagerPageClient.tsx");
+const ENTRY_LINK = join(
+  ROOT,
+  "src/app/(dashboard)/dashboard/api-manager/components/PlansEntryLink.tsx"
+);
 const SECTIONS = join(ROOT, "src/shared/constants/sidebarVisibility/sections.ts");
 const TYPES = join(ROOT, "src/shared/constants/sidebarVisibility/types.ts");
 const DOCS = join(ROOT, "src/app/(dashboard)/dashboard/api-manager/plans/page.tsx");
 
 const src = readFileSync(PAGE, "utf8");
+const entryLink = readFileSync(ENTRY_LINK, "utf8");
 const sections = readFileSync(SECTIONS, "utf8");
 const types = readFileSync(TYPES, "utf8");
 const docs = readFileSync(DOCS, "utf8");
@@ -42,6 +47,15 @@ const NEW_API_MANAGER_KEYS = [
   "planLabel",
   "planLabelDesc",
   "planNone",
+  "plan3d",
+  "plan7d",
+  "plan15d",
+  "plan30d",
+  "planTokenLimitHint",
+  "planTokenLimitBadge",
+  "plansEntryTitle",
+  "plansEntryHint",
+  "plansEntryCta",
   "customerEmail",
   "customerEmailPlaceholder",
   "renewalsBadge",
@@ -59,8 +73,12 @@ test("create form wires planId + customerEmail into POST /api/keys", () => {
     "customerEmail sent to create body"
   );
   assert.ok(
-    src.includes("API_KEY_PLAN_IDS") && src.includes("API_KEY_PLAN_DAYS"),
-    "plan options rendered from the shared constants"
+    src.includes("API_KEY_PLAN_IDS") && src.includes("t(`plan${planId}`)"),
+    "plan options rendered from the shared constants with friendly labels"
+  );
+  assert.ok(
+    src.includes("planTokenLimitHint") && src.includes("API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR"),
+    "create form surfaces the default per-key token limit"
   );
 });
 
@@ -96,6 +114,29 @@ test("endpoint reference page documents both endpoints", () => {
   assert.ok(docs.includes("/renew"), "renew endpoint documented");
   assert.ok(docs.includes("planId"), "planId documented");
   assert.ok(docs.includes("expiresAt"), "expiry behavior documented");
+});
+
+test("the API Keys page points to the endpoint reference", () => {
+  assert.ok(src.includes("PlansEntryLink"), "automation entry link used on the page");
+  assert.ok(
+    entryLink.includes('href="/dashboard/api-manager/plans"'),
+    "entry links to the endpoint reference page"
+  );
+});
+
+test("docs describe the per-key hourly token limit", () => {
+  assert.ok(docs.includes("tokensPerHourLimit"), "create override documented");
+  assert.ok(docs.includes("80,000,000"), "default 80M tokens/hour documented");
+  assert.ok(docs.includes("Per-key token limit"), "token-limit section present");
+  assert.ok(docs.includes('EndpointBadge status="429"'), "429 enforcement documented");
+});
+
+test("plan keys surface the token-limit badge", () => {
+  assert.ok(
+    src.includes("formatTokensShort(API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR)"),
+    "badge formats the shared 80M constant"
+  );
+  assert.ok(src.includes('t("planTokenLimitBadge"'), "badge uses i18n key");
 });
 
 test("new i18n keys exist in both en and pt-BR", () => {

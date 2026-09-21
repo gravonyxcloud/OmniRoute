@@ -37,8 +37,12 @@ import type { CatalogScope } from "./components/ApiKeyCatalogScopeSelect";
 import { AllowedCombosSection } from "./components/AllowedCombosSection";
 import ProviderModelPermissionList from "./components/ProviderModelPermissionList";
 import RoutingEntryLink from "@/shared/components/routing/RoutingEntryLink";
+import PlansEntryLink from "./components/PlansEntryLink";
 import { ALL_COMBOS_ACCESS_RULE } from "@/shared/constants/comboAccess";
-import { API_KEY_PLAN_IDS, API_KEY_PLAN_DAYS } from "@/shared/constants/apiKeyPlans";
+import {
+  API_KEY_PLAN_IDS,
+  API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR,
+} from "@/shared/constants/apiKeyPlans";
 
 // Constants for validation
 const MAX_KEY_NAME_LENGTH = 200;
@@ -84,6 +88,17 @@ function sanitizeInput(input: string): string {
     .replace(/'/g, "")
     .trim()
     .slice(0, MAX_KEY_NAME_LENGTH);
+}
+
+function formatTokensShort(count: number): string {
+  if (count >= 1_000_000_000) return `${(count / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(count);
+}
+
+function formatTokensFull(count: number): string {
+  return count.toLocaleString("en-US");
 }
 
 // Validate key name
@@ -1071,6 +1086,7 @@ export default function ApiManagerPageClient() {
       </div>
 
       <RoutingEntryLink />
+      <PlansEntryLink />
 
       {/* Filter Bar — shown when there are keys */}
       {keys.length > 0 && (
@@ -1350,10 +1366,18 @@ export default function ApiManagerPageClient() {
                           <span className="material-symbols-outlined text-[12px]">
                             subscriptions
                           </span>
-                          {t("planLabel")}: {key.planId}
+                          {t("planLabel")}: {key.planId && t(`plan${key.planId}`)}
                           {typeof key.renewalsCount === "number" && key.renewalsCount > 0 && (
                             <span>· {t("renewalsBadge", { count: key.renewalsCount })}</span>
                           )}
+                        </span>
+                      )}
+                      {key.planId && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[11px] font-medium">
+                          <span className="material-symbols-outlined text-[12px]">bolt</span>
+                          {t("planTokenLimitBadge", {
+                            count: formatTokensShort(API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR),
+                          })}
                         </span>
                       )}
                       {key.customerEmail && (
@@ -1635,7 +1659,7 @@ export default function ApiManagerPageClient() {
                 <option value="">{t("planNone")}</option>
                 {API_KEY_PLAN_IDS.map((planId) => (
                   <option key={planId} value={planId}>
-                    {planId} · {API_KEY_PLAN_DAYS[planId]} days
+                    {t(`plan${planId}`)}
                   </option>
                 ))}
               </select>
@@ -1650,6 +1674,11 @@ export default function ApiManagerPageClient() {
                 className="sm:max-w-[50%]"
               />
             </div>
+            <p className="text-xs text-text-muted">
+              {t("planTokenLimitHint", {
+                count: formatTokensFull(API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR),
+              })}
+            </p>
           </div>
           <div className="flex flex-col gap-3 p-3 rounded-lg border border-border bg-surface/40">
             <div className="flex flex-col gap-1">
@@ -1814,7 +1843,7 @@ export default function ApiManagerPageClient() {
                 </p>
                 {renewedKeyInfo?.planId && (
                   <p className="text-xs text-sky-700 dark:text-sky-300">
-                    {t("planLabel")}: {renewedKeyInfo.planId}
+                    {t("planLabel")}: {t(`plan${renewedKeyInfo.planId}`)}
                   </p>
                 )}
               </div>

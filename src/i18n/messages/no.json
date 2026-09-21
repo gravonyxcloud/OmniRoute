@@ -2445,7 +2445,16 @@
     "planNone": "No plan",
     "customerEmail": "Customer e-mail",
     "customerEmailPlaceholder": "customer@example.com",
-    "renewalsBadge": "Renewed ×{count}"
+    "renewalsBadge": "Renewed ×{count}",
+    "plan3d": "3 days",
+    "plan7d": "7 days",
+    "plan15d": "15 days",
+    "plan30d": "30 days",
+    "planTokenLimitHint": "Each plan key includes a default {count} tokens/hour limit (global, hourly reset) to prevent shared high-load usage.",
+    "planTokenLimitBadge": "{count} tokens/h",
+    "plansEntryTitle": "Plans & Automation Endpoints",
+    "plansEntryHint": "Self-serve plans with automatic expiry and a per-key token limit, plus the API endpoints to automate key creation and renewal.",
+    "plansEntryCta": "View endpoints"
   },
   "auditLog": {
     "title": "Revisjonslogg",

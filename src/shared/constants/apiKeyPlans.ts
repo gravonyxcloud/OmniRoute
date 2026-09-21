@@ -11,6 +11,8 @@ export const API_KEY_PLAN_DAYS: Record<ApiKeyPlanId, number> = {
 
 export const API_KEY_PLAN_DAY_MS = 24 * 60 * 60 * 1000;
 
+export const API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR = 80_000_000;
+
 export function getApiKeyPlanDays(planId: string | null | undefined): number | null {
   if (!planId) return null;
   return API_KEY_PLAN_DAYS[planId as ApiKeyPlanId] ?? null;

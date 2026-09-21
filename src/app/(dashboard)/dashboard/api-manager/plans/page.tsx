@@ -24,6 +24,7 @@ const STATUS_COLORS: Record<string, string> = {
   "401": "bg-amber-500/15 text-amber-500 border-amber-500/30",
   "403": "bg-red-500/15 text-red-500 border-red-500/30",
   "404": "bg-amber-500/15 text-amber-500 border-amber-500/30",
+  "429": "bg-orange-500/15 text-orange-500 border-orange-500/30",
 };
 
 function EndpointBadge({ status }: { status: string }) {
@@ -86,6 +87,36 @@ export default function ApiKeyPlansPage() {
         </p>
       </Card>
 
+      <Card title="Per-key token limit">
+        <ul className="list-disc list-inside text-sm text-text-main flex flex-col gap-1">
+          <li>
+            Every plan key is seeded with a global token limit of{" "}
+            <span className="font-mono text-xs">80,000,000</span> tokens per hour (hourly reset, top
+            of the UTC hour).
+          </li>
+          <li>
+            The limit is per API key and applies across every provider/model the key may call — it
+            is not shared or bypassed by combo fallback.
+          </li>
+          <li>
+            Once the hourly window is exhausted the chat endpoint returns{" "}
+            <EndpointBadge status="429" /> with{" "}
+            <span className="font-mono text-xs">
+              &quot;Token limit exceeded ... tokens used in the current window&quot;
+            </span>{" "}
+            and the window resets on the next hour boundary.
+          </li>
+          <li>
+            The seed is idempotent. A key created before the default existed receives it on its next
+            renewal without resetting its current usage.
+          </li>
+          <li>
+            Keys created <em>without</em> a plan keep the historical behavior — no automatic token
+            limit applies.
+          </li>
+        </ul>
+      </Card>
+
       <Card title="POST /api/keys — Create a customer key">
         <div className="flex flex-col gap-4">
           <div>
@@ -98,7 +129,8 @@ export default function ApiKeyPlansPage() {
   -d '{
     "name": "Client plan key",
     "planId": "30d",
-    "customerEmail": "client@example.com"
+    "customerEmail": "client@example.com",
+    "tokensPerHourLimit": 40000000
   }'`}</CodeBlock>
           </div>
           <div>
@@ -118,6 +150,11 @@ export default function ApiKeyPlansPage() {
                 <span className="font-mono text-xs">customerEmail</span> — optional identifier shown
                 as a badge in the API Keys dashboard.
               </li>
+              <li>
+                <span className="font-mono text-xs">tokensPerHourLimit</span> — optional override of
+                the per-key token budget (integer, ≥ 1000). Plan keys default to{" "}
+                <span className="font-mono text-xs">80,000,000</span> tokens per hour.
+              </li>
             </ul>
           </div>
           <div>
@@ -132,8 +169,9 @@ export default function ApiKeyPlansPage() {
                   <span className="font-mono text-xs">planId</span>,{" "}
                   <span className="font-mono text-xs">planDays</span>,{" "}
                   <span className="font-mono text-xs">expiresAt</span>,{" "}
-                  <span className="font-mono text-xs">renewalsCount</span>. The raw key is shown
-                  only once — store it immediately.
+                  <span className="font-mono text-xs">renewalsCount</span>,{" "}
+                  <span className="font-mono text-xs">tokensPerHourLimit</span>. The raw key is
+                  shown only once — store it immediately.
                 </span>
               </div>
               <div className="flex items-center gap-2">
