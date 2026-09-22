@@ -21,10 +21,10 @@ on:
         required: true
         type: string
       promote_latest:
-        description: "Also tag :latest (only if this is the highest semver)"
+        description: "Also tag :latest + :latest-web (fork convention: every published build becomes latest)"
         required: false
         type: boolean
-        default: false
+        default: true
 
 # One publish per ref. A merge storm used to fan out 8 concurrent hosted builds,
 # every one OOM-killing `npm run build` inside BuildKit (#11976). The :next
@@ -95,7 +95,9 @@ jobs:
             echo "Pre-release identifier detected — skipping :latest."
             PROMOTE="false"
           elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            PROMOTE="${PROMOTE_INPUT:-false}"
+            # Fork convention: every manual publish becomes :latest / :latest-web
+            # unless explicitly disabled at dispatch time.
+            PROMOTE="${PROMOTE_INPUT:-true}"
           else
             git fetch --tags --quiet || true
             # Decide via the extracted helper, which folds VERSION into the
