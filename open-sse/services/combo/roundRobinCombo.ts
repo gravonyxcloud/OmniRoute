@@ -96,6 +96,7 @@ import {
   isLocalQueueCapacityErrorBody,
   toRecordedTarget,
   getExhaustedTargetSkipReason,
+  isConnectivityClassFailure,
 } from "./comboPredicates.ts";
 import { applyComboTargetExhaustion } from "./targetExhaustion.ts";
 import { isRetryAfterEligibleStatus } from "./unavailableRetryGate.ts";
@@ -1044,6 +1045,12 @@ export async function handleRoundRobinCombo({
             !isTokenLimitBreach &&
             !scopedFailure &&
             [408, 429, 500, 502, 503, 504].includes(result.status);
+          // Connectivity-class failures (host offline, DNS miss, socket death, dead
+          // proxy) skip the same-model retry — see isConnectivityClassFailure.
+          const connectivityFailure = isConnectivityClassFailure({
+            errorText,
+            structuredError,
+          });
           // See the same guard's comment in the "auto" strategy loop above —
           // failoverBeforeRetry must prevent this same-model retry too, not
           // just the lower-level skipUpstreamRetry mechanism. Only skip when
@@ -1055,6 +1062,7 @@ export async function handleRoundRobinCombo({
           if (
             retry < maxRetries &&
             isTransient &&
+            !connectivityFailure &&
             !providerExhausted &&
             (!config.failoverBeforeRetryExplicit || !hasNextRrTarget)
           ) {

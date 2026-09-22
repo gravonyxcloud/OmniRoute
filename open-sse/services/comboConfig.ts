@@ -28,6 +28,22 @@ export const PRE_SCREEN_CONCURRENCY = 5;
 export const DEFAULT_COMBO_TARGET_TIMEOUT_MS = 120_000;
 
 /**
+ * Resolve the effective default per-target combo timeout, honoring the operator-level
+ * `COMBO_TARGET_TIMEOUT_MS` override. When set (positive integer), it replaces the
+ * 120s constant as the fallback for combos without their own `targetTimeoutMs` — the
+ * fast-failover lever for pools whose upstream models are slow or offline. Invalid or
+ * non-positive values fall back to the constant. Clamped to `MAX_TIMER_TIMEOUT_MS`
+ * like every other positive timeout.
+ */
+export function resolveDefaultComboTargetTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.COMBO_TARGET_TIMEOUT_MS;
+  if (!raw) return DEFAULT_COMBO_TARGET_TIMEOUT_MS;
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric) || numeric <= 0) return DEFAULT_COMBO_TARGET_TIMEOUT_MS;
+  return Math.min(Math.floor(numeric), MAX_TIMER_TIMEOUT_MS);
+}
+
+/**
  * Small buffer added on top of the combo-cooldown-wait budget (see below) when deriving
  * the per-target timeout floor for wait-eligible combos. The wait itself is bounded by
  * `resilienceSettings.comboCooldownWait.budgetMs`; this buffer only needs to cover the
@@ -70,14 +86,15 @@ export function resolveComboTargetTimeoutMsForCombo(
   config: Record<string, unknown> | null | undefined,
   upstreamTimeoutMs: number,
   strategy: string,
-  comboCooldownWait: Pick<ComboCooldownWaitSettings, "enabled" | "budgetMs">
+  comboCooldownWait: Pick<ComboCooldownWaitSettings, "enabled" | "budgetMs">,
+  env: NodeJS.ProcessEnv = process.env
 ): number {
   const defaultTimeoutMs = isComboCooldownWaitEligible(strategy, comboCooldownWait)
     ? Math.max(
-        DEFAULT_COMBO_TARGET_TIMEOUT_MS,
+        resolveDefaultComboTargetTimeoutMs(env),
         comboCooldownWait.budgetMs + COMBO_TARGET_TIMEOUT_WAIT_BUFFER_MS
       )
-    : DEFAULT_COMBO_TARGET_TIMEOUT_MS;
+    : resolveDefaultComboTargetTimeoutMs(env);
   return resolveComboTargetTimeoutMs(config, upstreamTimeoutMs, defaultTimeoutMs);
 }
 

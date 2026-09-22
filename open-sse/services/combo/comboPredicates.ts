@@ -54,6 +54,39 @@ export function isAllAccountsRateLimitedResponse(
   return ALL_ACCOUNTS_RATE_LIMITED_PATTERNS.some((p) => p.test(errorText));
 }
 
+// Connectivity-class failure markers surfaced on a failed upstream dispatch: the
+// model/host is offline (ECONNREFUSED/ENOTFOUND/ETIMEDOUT), the socket died, or the
+// configured proxy is unreachable. An upstream in this state will NOT be back in the
+// couple of seconds of the default combo retry delay, and `isTransient` currently
+// treats 502/503/504 as retry-same-model, so a dead pool re-hits the SAME dead model
+// up to maxRetries with full retry sleeps before ever touching the next target. Combos
+// exist to fail over fast — connectivity failures must skip the same-model retry and
+// advance to the next target immediately.
+const CONNECTIVITY_FAILURE_TEXT_PATTERNS = [
+  /ECONNREFUSED/i,
+  /ECONNRESET/i,
+  /ENOTFOUND/i,
+  /ETIMEDOUT/i,
+  /ENETUNREACH/i,
+  /EHOSTUNREACH/i,
+  /socket hang up/i,
+  /fetch failed/i,
+  /proxy unreachable/i,
+  /network unreachable/i,
+  /getaddrinfo/i,
+  /UND_ERR_(SOCKET|CONNECT_TIMEOUT)/i,
+];
+
+export function isConnectivityClassFailure(opts: {
+  errorText?: string;
+  structuredError?: { code?: string; type?: string } | null;
+}): boolean {
+  if (opts.structuredError?.code === "proxy_unreachable") return true;
+  const { errorText } = opts;
+  if (!errorText) return false;
+  return CONNECTIVITY_FAILURE_TEXT_PATTERNS.some((p) => p.test(errorText));
+}
+
 // #1731v2 guard: a provider circuit-breaker-open response (503 + `X-OmniRoute-Provider-Breaker`
 // header / `provider_circuit_open` error code, see providerCircuitOpenResponse) is an OmniRoute
 // resilience signal, NOT a per-connection upstream failure. It must keep being treated as an

@@ -69,6 +69,7 @@ import {
   resolveDelayMs,
   resolvePersistedConnectionCooldownSkipReason,
   isModelScoped400,
+  isConnectivityClassFailure,
 } from "./comboPredicates.ts";
 import { applyComboTargetExhaustion } from "./targetExhaustion.ts";
 import { advanceNativeCodexTurnGeneration, pinNativeCodexTurn } from "./nativeCodexTurnPin.ts";
@@ -1063,6 +1064,15 @@ export async function executeTargetAttempt(opts: {
       !isTokenLimitBreach &&
       !scopedFailure &&
       [408, 429, 500, 502, 503, 504].includes(result.status);
+    // Connectivity-class failures (host offline, DNS miss, socket death, dead
+    // proxy) are NOT worth a same-model retry: the model can't come back within
+    // the couple-of-seconds retry delay, and burning maxRetries retry sleeps on
+    // a dead upstream is exactly the latency that combos exist to avoid. Failing
+    // over to the next target immediately. (see isConnectivityClassFailure)
+    const connectivityFailure = isConnectivityClassFailure({
+      errorText,
+      structuredError,
+    });
     // failoverBeforeRetry means what it says: prefer the next sibling
     // target over hammering this one again. Without this check, a
     // transient error always re-hit the SAME model up to maxRetries
@@ -1084,6 +1094,7 @@ export async function executeTargetAttempt(opts: {
     if (
       retry < deps.maxRetries &&
       isTransient &&
+      !connectivityFailure &&
       !providerExhausted &&
       (!deps.config.failoverBeforeRetryExplicit || !nextTarget)
     ) {
