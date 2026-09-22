@@ -127,7 +127,7 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.skip != 'true'
     # amd64: the .113 omni-build pool (31 GB / 32 cores, ONE listener since
-    # #12048). Hosted ubuntu-24.04 is ~7 GB and dies ResourceExhausted (#11976).
+    # #12048). Hosted ubuntu-24.04 is ~16 GB and dies ResourceExhausted (#11976).
     # Falls back to hosted when USE_VPS_RUNNER is off. arm64: no ARM box — stay
     # on GitHub's ubuntu-24.04-arm.
     # Webpack on BOTH arches: Turbopack on omniroute-113-6 hit
@@ -135,6 +135,10 @@ jobs:
     # (run 33253576569). The same tree's arm64 webpack build on hosted ARM
     # succeeded (run 33264823398). Dockerfile already documents webpack as the
     # Docker escape hatch (OMNIROUTE_USE_TURBOPACK=0).
+    # Fork heap fix: the amd64 webpack build worker died with
+    # "Ineffective mark-compacts near heap limit" at --max-old-space-size=6144
+    # (run 35785165287). Enlarging the V8 ceiling via OMNIROUTE_BUILD_MEMORY_MB
+    # build-arg below (Dockerfile default stays 6144).
     runs-on: ${{ matrix.arch == 'amd64' && (vars.USE_VPS_RUNNER == 'true' && fromJSON('["self-hosted","omni-build"]') || 'ubuntu-24.04') || 'ubuntu-24.04-arm' }}
     # Share the 1-slot omni-build ceiling (#12048) with ci.yml `Build` /
     # npm-publish. Same group as main's Build so a :next publish waits beside
@@ -193,6 +197,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             OMNIROUTE_USE_TURBOPACK=0
+            OMNIROUTE_BUILD_MEMORY_MB=8192
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
           tags: |
             ${{ env.IMAGE_NAME }}
@@ -212,6 +217,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             OMNIROUTE_USE_TURBOPACK=0
+            OMNIROUTE_BUILD_MEMORY_MB=8192
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
           tags: |
             ${{ env.IMAGE_NAME }}
@@ -239,6 +245,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             OMNIROUTE_USE_TURBOPACK=0
+            OMNIROUTE_BUILD_MEMORY_MB=8192
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
           tags: |
             ${{ env.IMAGE_NAME }}
@@ -266,6 +273,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             OMNIROUTE_USE_TURBOPACK=0
+            OMNIROUTE_BUILD_MEMORY_MB=8192
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
           tags: |
             ${{ env.IMAGE_NAME }}
