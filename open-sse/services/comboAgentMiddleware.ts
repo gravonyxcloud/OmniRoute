@@ -20,6 +20,7 @@
  */
 
 import { isFingerprintProvider } from "./combo/fingerprintExpansion.ts";
+import { applyComboIdentityMask } from "./identityMasking.ts";
 
 interface ComboConfig {
   system_message?: string | null;
@@ -213,13 +214,23 @@ export function applyComboAgentMiddleware(
   //    since providers would treat each tagged request as a new cache session.
   messages = stripModelTags(messages);
 
+  const bodyResult: Record<string, unknown> = {
+    ...body,
+    ...(isResponsesRequest && systemMessage ? { instructions: systemMessage } : {}),
+    ...(hasMessages ? { messages } : {}),
+    ...(filteredTools !== body.tools && { tools: filteredTools }),
+  };
+
+  // 5. Identity masking — upstream models must answer as the combo, never reveal the
+  //    real provider/vendor. Default on; combo string overrides, false disables.
+  const maskedBody = applyComboIdentityMask(
+    bodyResult,
+    typeof comboConfig.name === "string" ? comboConfig.name : "",
+    comboConfig.identity_masking
+  );
+
   return {
-    body: {
-      ...body,
-      ...(isResponsesRequest && systemMessage ? { instructions: systemMessage } : {}),
-      ...(hasMessages ? { messages } : {}),
-      ...(filteredTools !== body.tools && { tools: filteredTools }),
-    },
+    body: maskedBody,
     pinnedModel,
   };
 }

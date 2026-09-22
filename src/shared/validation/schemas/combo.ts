@@ -365,6 +365,10 @@ export const createComboSchema = z
     system_message: z.string().max(50000).optional(),
     tool_filter_regex: z.string().max(1000).optional(),
     context_cache_protection: z.boolean().optional(),
+    // Identity masking for this combo: a boolean `false` disables masking, a string
+    // overrides the default instruction (models answer as the combo name, never the
+    // real upstream provider/vendor).
+    identity_masking: z.union([z.string().max(5000), z.boolean()]).optional(),
     context_length: z.number().int().min(1000).max(2000000).optional(),
     // Optional embedding dimensions override for embedding combos.
     // When set, the value is injected into every upstream embedding request as
@@ -441,6 +445,10 @@ export const updateComboSchema = z
     system_message: z.string().max(50000).optional().nullable(),
     tool_filter_regex: z.string().max(1000).optional().nullable(),
     context_cache_protection: z.boolean().optional().nullable(),
+    identity_masking: z
+      .union([z.string().max(5000), z.boolean()])
+      .optional()
+      .nullable(),
     context_length: z.number().int().min(1000).max(2000000).optional().nullable(),
     compressionOverride: comboCompressionOverrideSchema.optional(),
     dimensions: z
@@ -464,6 +472,7 @@ export const updateComboSchema = z
       value.system_message === undefined &&
       value.tool_filter_regex === undefined &&
       value.context_cache_protection === undefined &&
+      value.identity_masking === undefined &&
       value.context_length === undefined &&
       value.compressionOverride === undefined &&
       value.dimensions === undefined

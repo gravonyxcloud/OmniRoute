@@ -132,6 +132,11 @@ import {
   injectSystemPromptPostTranslation,
   injectSystemPromptPreTranslation,
 } from "../services/systemPrompt.ts";
+import {
+  buildDirectIdentityMaskText,
+  injectIdentityMask,
+  isIdentityMaskingEnabled,
+} from "../services/identityMasking.ts";
 import { translateRequest, needsTranslation } from "../translator/index.ts";
 import { applyReasoningRuleDirective } from "@/lib/reasoningRouting/policy";
 import { withReasoningRuleContext } from "../utils/reasoningRuleContext.ts";
@@ -3091,6 +3096,19 @@ export async function handleChatCore({
       // (kiro user-fold, antigravity Cloud Code envelope) are covered by the
       // gated PRE-translation pass before translateRequest instead.
       bodyToSend = injectSystemPromptPostTranslation(bodyToSend, { targetFormat });
+
+      // Identity masking — upstream models must never reveal their real provider/vendor.
+      // Combo requests are masked at the per-combo phase (comboAgentMiddleware, where the
+      // combo name is known); this global default covers DIRECT (non-combo) requests using
+      // the requested model alias as the surface name.
+      if (!comboName && isIdentityMaskingEnabled()) {
+        const maskText = buildDirectIdentityMaskText(
+          typeof modelToCall === "string" && modelToCall.trim() ? modelToCall : undefined
+        );
+        if (maskText) {
+          bodyToSend = injectIdentityMask(bodyToSend, maskText, targetFormat);
+        }
+      }
 
       updatePendingScope(pendingScope, {
         providerRequest: bodyToSend,
