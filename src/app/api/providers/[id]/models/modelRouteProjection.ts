@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { getRegistryEntry } from "@omniroute/open-sse/config/providerRegistry.ts";
+import {
+  buildOpencodeServerIdentityHeaders,
+  isOpencodeFamilyProvider,
+} from "@omniroute/open-sse/utils/opencodeHeaders.ts";
 import { filterChatSelectableModels } from "@omniroute/open-sse/services/modelEndpointPolicy.ts";
 import { filterSelectableModels } from "@omniroute/open-sse/services/modelLifecycle.ts";
 import { getModelIsHidden } from "@/lib/db/models";
@@ -38,11 +42,16 @@ async function fetchLiveNoAuthModels(
   chatOnly: boolean
 ): Promise<NextResponse | null> {
   try {
+    // opencode.ai family: the /v1/models probe must carry the OpenCode CLI identity so
+    // Cloudflare does not 403 the datacenter fetch (#5997) — same contract as the executor.
+    const opencodeIdentityHeaders = isOpencodeFamilyProvider(providerId)
+      ? buildOpencodeServerIdentityHeaders(providerId)
+      : {};
     const liveResponse = await safeOutboundFetch(modelsUrl, {
       ...SAFE_OUTBOUND_FETCH_PRESETS.modelsDiscovery,
       guard: getProviderOutboundGuard(),
       method: "GET",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...opencodeIdentityHeaders },
     });
     if (!liveResponse.ok) return null;
 

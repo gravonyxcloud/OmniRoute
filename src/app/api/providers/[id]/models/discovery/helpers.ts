@@ -3,6 +3,10 @@ import { getStaticModelsForProvider, type LocalCatalogModel } from "@/lib/provid
 import { SAFE_OUTBOUND_FETCH_PRESETS, safeOutboundFetch } from "@/shared/network/safeOutboundFetch";
 import { getProviderValidationGuard } from "@/shared/network/outboundUrlGuardPolicy";
 import {
+  buildOpencodeServerIdentityHeaders,
+  isOpencodeFamilyProvider,
+} from "@omniroute/open-sse/utils/opencodeHeaders.ts";
+import {
   buildOllamaShowUrl,
   enrichOllamaModelsWithCapabilities,
 } from "@/lib/providerModels/ollamaCapabilities";
@@ -104,6 +108,12 @@ export function buildNamedOpenAiStyleHeaders(
 
   if (provider === "reka" && token) {
     headers["X-Api-Key"] = token;
+  }
+
+  // opencode.ai family (e.g. opencode-go): the /v1/models probe must carry the OpenCode
+  // CLI identity so Cloudflare does not 403 the datacenter fetch (#5997).
+  if (isOpencodeFamilyProvider(provider)) {
+    Object.assign(headers, buildOpencodeServerIdentityHeaders(provider));
   }
 
   return headers;

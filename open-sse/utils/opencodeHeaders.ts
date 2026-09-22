@@ -73,6 +73,51 @@ export function resolveOpencodeCliDefaults(
   };
 }
 
+/**
+ * Provider ids served by opencode.ai — the free tier plus the two API-key gateways.
+ * All three hit the same Cloudflare-fronted /v1/models endpoint and need the same
+ * synthesized CLI identity headers on datacenter egress (#5997).
+ */
+export const OPENCODE_FAMILY_PROVIDERS: ReadonlySet<string> = new Set([
+  "opencode",
+  "opencode-zen",
+  "opencode-go",
+]);
+
+/**
+ * Whether a provider id belongs to the opencode.ai family (free + zen + go).
+ */
+export function isOpencodeFamilyProvider(providerId: string | null | undefined): boolean {
+  return typeof providerId === "string" && OPENCODE_FAMILY_PROVIDERS.has(providerId);
+}
+
+/**
+ * OpenCode CLI identity header set for non-chat egress (provider model-discovery and
+ * key-validation probes). Same synthesis the executor applies to chat requests (#5997):
+ * Cloudflare in front of opencode.ai 403s datacenter fetches to /v1/models that carry
+ * no CLI identity. The free tier enforces the User-Agent contract (`gated`), matching
+ * how `resolveOpencodeCliDefaults` is invoked for free-tier chat requests; the API-key
+ * gateways keep honoring a configured UA as-is. Returns an empty object when identity
+ * synthesis is disabled via OPENCODE_SYNTHESIZE_CLI_HEADERS=0.
+ */
+export function buildOpencodeServerIdentityHeaders(
+  providerId: string,
+  options: { gated?: boolean } = {}
+): Record<string, string> {
+  const defaults = resolveOpencodeCliDefaults(
+    providerId,
+    options.gated ?? providerId === "opencode"
+  );
+  if (!defaults) return {};
+  return {
+    "User-Agent": defaults.userAgent,
+    "x-opencode-client": defaults.client,
+    "x-opencode-project": defaults.project,
+    "x-opencode-session": canonicalId("ses_"),
+    "x-opencode-request": canonicalId("msg_"),
+  };
+}
+
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 function base62From(bytes: Buffer, length: number): string {

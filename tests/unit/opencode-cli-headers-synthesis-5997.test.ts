@@ -27,7 +27,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { forwardOpencodeClientHeaders } from "../../open-sse/utils/opencodeHeaders.ts";
+import {
+  buildOpencodeServerIdentityHeaders,
+  forwardOpencodeClientHeaders,
+  isOpencodeFamilyProvider,
+} from "../../open-sse/utils/opencodeHeaders.ts";
 import { OpencodeExecutor } from "../../open-sse/executors/opencode.ts";
 
 // Since 2026-09-17 the free tier requires the canonical OpenCode id shapes; a UUID is
@@ -167,5 +171,37 @@ test("OpencodeExecutor.buildHeaders: OPENCODE_GO_USER_AGENT env overrides the de
       const headers = executor.buildHeaders(null, true, null, "glm-5.2");
       assert.equal(headers["User-Agent"], "opencode-cli/2.5.0");
     });
+  });
+});
+
+test("isOpencodeFamilyProvider covers free/zen/go and rejects unrelated ids", () => {
+  assert.equal(isOpencodeFamilyProvider("opencode"), true);
+  assert.equal(isOpencodeFamilyProvider("opencode-zen"), true);
+  assert.equal(isOpencodeFamilyProvider("opencode-go"), true);
+  assert.equal(isOpencodeFamilyProvider("openai"), false);
+  assert.equal(isOpencodeFamilyProvider(null), false);
+  assert.equal(isOpencodeFamilyProvider(undefined), false);
+});
+
+test("buildOpencodeServerIdentityHeaders synthesizes the CLI identity for discovery probes [#5997]", () => {
+  const headers = buildOpencodeServerIdentityHeaders("opencode-zen");
+  assert.equal(headers["User-Agent"], "opencode/1.18.31");
+  assert.equal(headers["x-opencode-client"], "desktop");
+  assert.equal(headers["x-opencode-project"], "global");
+  assert.match(headers["x-opencode-request"] ?? "", REQUEST_RE);
+  assert.match(headers["x-opencode-session"] ?? "", SESSION_RE);
+  assert.notEqual(headers["x-opencode-request"], headers["x-opencode-session"]);
+});
+
+test("buildOpencodeServerIdentityHeaders honors the provider-specific UA override", () => {
+  withEnv("OPENCODE_ZEN_USER_AGENT", "opencode/9.9.9", () => {
+    const headers = buildOpencodeServerIdentityHeaders("opencode-zen");
+    assert.equal(headers["User-Agent"], "opencode/9.9.9");
+  });
+});
+
+test("buildOpencodeServerIdentityHeaders returns {} when synthesis is opted out [#10571 opt-out]", () => {
+  withEnv("OPENCODE_SYNTHESIZE_CLI_HEADERS", "false", () => {
+    assert.deepEqual(buildOpencodeServerIdentityHeaders("opencode-zen"), {});
   });
 });

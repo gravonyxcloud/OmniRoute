@@ -1,6 +1,10 @@
 import { getEmbeddingProvider } from "@omniroute/open-sse/config/embeddingRegistry.ts";
 import { getRegistryEntry } from "@omniroute/open-sse/config/providerRegistry.ts";
 import {
+  buildOpencodeServerIdentityHeaders,
+  isOpencodeFamilyProvider,
+} from "@omniroute/open-sse/utils/opencodeHeaders.ts";
+import {
   isClaudeCodeCompatibleProvider,
   isAnthropicCompatibleProvider,
   isLocalProvider,
@@ -432,10 +436,16 @@ export async function validateProviderApiKey({ provider, apiKey, providerSpecifi
 
   try {
     if (OPENAI_LIKE_FORMATS.has(entry.format)) {
+      // opencode.ai family (free/zen/go): the /v1/models probe must carry the OpenCode
+      // CLI identity so Cloudflare does not 403 the datacenter fetch (#5997) — otherwise a
+      // genuinely valid key/connection validates as "Invalid API key".
+      const opencodeIdentityHeaders = isOpencodeFamilyProvider(provider)
+        ? buildOpencodeServerIdentityHeaders(provider)
+        : {};
       return await validateOpenAILikeProvider({
         apiKey,
         baseUrl,
-        headers: entry.headers || {},
+        headers: { ...(entry.headers || {}), ...opencodeIdentityHeaders },
         providerSpecificData,
         modelId,
         modelsUrl: usesAlibabaRegionalEndpoint ? "" : entry.testKeyModelsUrl || entry.modelsUrl,

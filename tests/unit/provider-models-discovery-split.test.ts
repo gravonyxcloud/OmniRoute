@@ -75,6 +75,23 @@ test("helpers.buildNamedOpenAiStyleHeaders adds the reka X-Api-Key only for reka
   assert.equal(buildNamedOpenAiStyleHeaders("openai", "tok")["X-Api-Key"], undefined);
 });
 
+test("helpers.buildNamedOpenAiStyleHeaders adds OpenCode CLI identity headers for the opencode family [#5997]", () => {
+  const headers = buildNamedOpenAiStyleHeaders("opencode-go", "tok");
+  assert.equal(headers["Authorization"], "Bearer tok");
+  assert.equal(headers["User-Agent"], "opencode/1.18.31");
+  assert.equal(headers["x-opencode-client"], "desktop");
+  assert.equal(headers["x-opencode-project"], "global");
+  assert.match(headers["x-opencode-request"] ?? "", /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+  assert.match(headers["x-opencode-session"] ?? "", /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+  assert.notEqual(headers["x-opencode-request"], headers["x-opencode-session"]);
+});
+
+test("helpers.buildNamedOpenAiStyleHeaders does not fabricate identity for non-opencode providers", () => {
+  const headers = buildNamedOpenAiStyleHeaders("openai", "tok");
+  assert.equal(headers["x-opencode-client"], undefined);
+  assert.equal(headers["User-Agent"], undefined);
+});
+
 test("helpers.mergeLocalCatalogModels dedupes by id, registry wins", () => {
   const merged = mergeLocalCatalogModels(
     [{ id: "a", name: "A" }],
