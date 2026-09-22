@@ -83,55 +83,128 @@ function isFirstPartyHost(value: string): boolean {
   );
 }
 
-function validateCookie(value: unknown): asserts value is ChatGptWebStorageCookie {
-  if (
-    !isRecord(value) ||
-    typeof value.name !== "string" ||
-    !value.name ||
-    typeof value.value !== "string" ||
-    typeof value.domain !== "string" ||
-    typeof value.path !== "string" ||
-    !value.path.startsWith("/") ||
-    typeof value.expires !== "number" ||
-    !Number.isFinite(value.expires) ||
-    typeof value.httpOnly !== "boolean" ||
-    typeof value.secure !== "boolean" ||
-    !["Strict", "Lax", "None"].includes(String(value.sameSite))
-  ) {
-    throw new Error("ChatGPT Web browser storage state contains an invalid cookie");
-  }
-  if (!isFirstPartyHost(value.domain)) {
-    throw new Error("ChatGPT Web browser storage state contains a foreign cookie domain");
-  }
+const SAME_SITE_NORMALIZATIONS: Record<string, ChatGptWebStorageCookie["sameSite"]> = {
+  lax: "Lax",
+  strict: "Strict",
+  none: "None",
+  no_restriction: "None",
+  "no-restriction": "None",
+  unspecified: "Lax",
+  undefined: "Lax",
+};
+
+function normalizeSameSite(value: unknown): ChatGptWebStorageCookie["sameSite"] {
+  const key = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return SAME_SITE_NORMALIZATIONS[key] ?? "Lax";
 }
 
-function validateOrigin(value: unknown): asserts value is ChatGptWebStorageOrigin {
-  if (!isRecord(value) || typeof value.origin !== "string" || !Array.isArray(value.localStorage)) {
-    throw new Error("ChatGPT Web browser storage state contains an invalid origin");
+function toBoolean(value: unknown): boolean {
+  return value === true || value === 1 || value === "true" || value === "1";
+}
+
+function normalizeCookie(value: unknown): ChatGptWebStorageCookie {
+  if (!isRecord(value) || typeof value.name !== "string" || !value.name) {
+    throw new Error("ChatGPT Web browser storage state contains an invalid cookie");
   }
-  let url: URL;
+
+  // A Chrome-extension / CDP cookie export is the common source for these states.
+  // Its `expires` field may be absent (session cookie) or spelled `expirationDate`,
+  // sameSite may be lowercase or CDP-flavored ("no_restriction"/"unspecified"), and
+  // host-only session cookies sometimes ship without `path` or `domain`. Any single
+  // variation previously rejected the WHOLE export — intermittent "invalid cookie"
+  // failures. Normalize tolerantly but keep the first-party domain boundary hard.
+  const domain =
+    typeof value.domain === "string" && value.domain.trim() ? value.domain.trim() : ".chatgpt.com";
+  if (!isFirstPartyHost(domain)) {
+    throw new Error("ChatGPT Web browser storage state contains a foreign cookie domain");
+  }
+
+  const cookieValue = typeof value.value === "string" ? value.value : String(value.value ?? "");
+  const path = typeof value.path === "string" && value.path.startsWith("/") ? value.path : "/";
+
+  const rawExpires =
+    typeof value.expires === "number"
+      ? value.expires
+      : typeof value.expirationDate === "number"
+        ? value.expirationDate
+        : typeof value.expires === "string" && value.expires.trim() !== ""
+          ? Number(value.expires)
+          : -1;
+  const expires = Number.isFinite(rawExpires) ? rawExpires : -1;
+
+  return {
+    name: value.name,
+    value: cookieValue,
+    domain,
+    path,
+    expires,
+    httpOnly: toBoolean(value.httpOnly),
+    secure: toBoolean(value.secure),
+    sameSite: normalizeSameSite(value.sameSite),
+  };
+}
+
+function normalizeOrigin(value: unknown): ChatGptWebStorageOrigin {
+  const originText =
+    typeof value === "string"
+      ? value
+      : isRecord(value) && typeof value.origin === "string"
+        ? value.origin
+        : "";
+
+  let url: URL | null = null;
   try {
-    url = new URL(value.origin);
+    url = originText ? new URL(originText) : null;
   } catch {
-    throw new Error("ChatGPT Web browser storage state contains an invalid origin");
+    url = null;
   }
-  if (url.protocol !== "https:" || !isFirstPartyHost(url.hostname)) {
-    throw new Error("ChatGPT Web browser storage state contains a foreign origin");
-  }
-  for (const entry of value.localStorage) {
-    if (!isRecord(entry) || typeof entry.name !== "string" || typeof entry.value !== "string") {
-      throw new Error("ChatGPT Web browser storage state contains invalid local storage");
+
+  // A parseable first-party origin is kept as-is; something missing or unparseable
+  // collapses to the canonical chatgpt.com origin so a partial export does not kill
+  // the whole state. A *parseable* foreign origin is rejected — the first-party
+  // boundary is the same security rule cookies already enforce.
+  let origin: string;
+  if (url !== null) {
+    if (url.protocol !== "https:" || !isFirstPartyHost(url.hostname)) {
+      throw new Error("ChatGPT Web browser storage state contains a foreign origin");
     }
+    origin = url.origin;
+  } else {
+    origin = "https://chatgpt.com";
   }
+
+  const rawStorage = isRecord(value) && Array.isArray(value.localStorage) ? value.localStorage : [];
+  const localStorage = rawStorage.map((entry) => {
+    const name = isRecord(entry) && typeof entry.name === "string" ? entry.name : "";
+    const entryValue = isRecord(entry)
+      ? typeof entry.value === "string"
+        ? entry.value
+        : String(entry.value ?? "")
+      : "";
+    return { name, value: entryValue };
+  });
+
+  return { origin, localStorage };
 }
 
 export function normalizeChatGptWebStorageState(value: unknown): ChatGptWebStorageState {
-  if (!isRecord(value) || !Array.isArray(value.cookies) || !Array.isArray(value.origins)) {
+  if (!isRecord(value) || !Array.isArray(value.cookies)) {
     throw new Error("ChatGPT Web browser storage state is invalid");
   }
-  for (const cookie of value.cookies) validateCookie(cookie);
-  for (const origin of value.origins) validateOrigin(origin);
-  return structuredClone(value) as unknown as ChatGptWebStorageState;
+  const cookies = value.cookies.map(normalizeCookie);
+
+  // Playwright exports always include `origins`; Chrome-extension cookie exports do
+  // not. Tolerate the missing key when there ARE cookies (default to chatgpt.com),
+  // but keep rejecting an empty cookie-less state as malformed.
+  const origins = Array.isArray(value.origins)
+    ? value.origins.map(normalizeOrigin)
+    : cookies.length > 0
+      ? [{ origin: "https://chatgpt.com", localStorage: [] }]
+      : (() => {
+          throw new Error("ChatGPT Web browser storage state is invalid");
+        })();
+
+  return { cookies, origins };
 }
 
 function contentText(value: unknown): string {

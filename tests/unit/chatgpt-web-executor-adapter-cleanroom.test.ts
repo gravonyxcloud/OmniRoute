@@ -311,6 +311,132 @@ describe("ChatGPT Web clean-room storage state", () => {
     );
     assert.throws(() => normalizeChatGptWebStorageState({ cookies: [] }), /invalid/);
   });
+
+  test("tolerates Chrome-extension / CDP cookie-export variations (intermittent invalid regression)", () => {
+    // A single non-canonical field on any cookie (extension `expirationDate`,
+    // CDP-flavored `sameSite`, host-only session cookies without `path`/`domain`,
+    // string `expires`, missing `origins` key) previously rejected the WHOLE export
+    // — intermittent "invalid cookie" failures. All must normalize to a usable state.
+    const normalized = normalizeChatGptWebStorageState({
+      cookies: [
+        {
+          name: "session",
+          value: "s0",
+          expirationDate: 1_800_000_000,
+          httpOnly: true,
+          secure: true,
+          sameSite: "no_restriction",
+        },
+        {
+          name: "csrf",
+          value: "c0",
+          domain: "chatgpt.com",
+          path: "/api",
+          expires: "1750000000",
+          httpOnly: 1,
+          sameSite: "lax",
+        },
+        {
+          name: "fts",
+          value: "x",
+          domain: ".chatgpt.com",
+          path: "/",
+          expires: -1,
+          sameSite: "unspecified",
+        },
+      ],
+    });
+
+    assert.equal(normalized.cookies.length, 3);
+    assert.deepEqual(
+      normalized.cookies.map(({ name, domain, path, sameSite }) => ({
+        name,
+        domain,
+        path,
+        sameSite,
+      })),
+      [
+        { name: "session", domain: ".chatgpt.com", path: "/", sameSite: "None" },
+        { name: "csrf", domain: "chatgpt.com", path: "/api", sameSite: "Lax" },
+        { name: "fts", domain: ".chatgpt.com", path: "/", sameSite: "Lax" },
+      ]
+    );
+    assert.equal(normalized.cookies[0].expires, 1_800_000_000);
+    assert.equal(normalized.cookies[1].expires, 1_750_000_000);
+    assert.equal(normalized.cookies[1].httpOnly, true);
+    // Missing `origins` collapses to the canonical chatgpt.com origin.
+    assert.deepEqual(normalized.origins, [{ origin: "https://chatgpt.com", localStorage: [] }]);
+  });
+
+  test("tolerates unparseable origins and partial localStorage instead of rejecting the export", () => {
+    const normalized = normalizeChatGptWebStorageState({
+      cookies: [
+        {
+          name: "session",
+          value: "secret",
+          domain: ".chatgpt.com",
+          path: "/",
+          expires: -1,
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax",
+        },
+      ],
+      origins: [
+        { origin: "", localStorage: [{ name: "k", value: "v" }, { name: "partial" }] },
+        "not-a-url",
+      ],
+    });
+
+    assert.equal(normalized.origins.length, 2);
+    assert.equal(normalized.origins[0].origin, "https://chatgpt.com");
+    assert.deepEqual(normalized.origins[0].localStorage, [
+      { name: "k", value: "v" },
+      { name: "partial", value: "" },
+    ]);
+    assert.deepEqual(normalized.origins[1], { origin: "https://chatgpt.com", localStorage: [] });
+  });
+
+  test("still rejects a parseable foreign origin", () => {
+    assert.throws(
+      () =>
+        normalizeChatGptWebStorageState({
+          cookies: [
+            {
+              name: "session",
+              value: "secret",
+              domain: ".chatgpt.com",
+              path: "/",
+              expires: -1,
+              httpOnly: true,
+              secure: true,
+              sameSite: "Lax",
+            },
+          ],
+          origins: [{ origin: "https://evil.example.com", localStorage: [] }],
+        }),
+      /foreign origin/
+    );
+    assert.throws(
+      () =>
+        normalizeChatGptWebStorageState({
+          cookies: [
+            {
+              name: "session",
+              value: "secret",
+              domain: ".chatgpt.com",
+              path: "/",
+              expires: -1,
+              httpOnly: true,
+              secure: true,
+              sameSite: "Lax",
+            },
+          ],
+          origins: [{ origin: "http://chatgpt.com", localStorage: [] }],
+        }),
+      /foreign origin/
+    );
+  });
 });
 
 describe("ChatGPT Web clean-room executor response adapter", () => {
