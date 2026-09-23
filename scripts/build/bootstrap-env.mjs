@@ -4,7 +4,11 @@
  *
  * Auto-generates required secrets (JWT_SECRET, STORAGE_ENCRYPTION_KEY) if
  * missing or empty, persists them to {DATA_DIR}/server.env so they survive
- * restarts, Docker volume remounts, and upgrades.
+ * restarts, Docker volume remounts, and upgrades. Also auto-setups a safe
+ * management password (#13679): generates a random INITIAL_PASSWORD when none
+ * (or only the well-known "CHANGEME") is configured, and rotates any stored
+ * bcrypt hash that still verifies "CHANGEME" — a zero-config deploy never
+ * boots remotely-loginable with a well-known default.
  *
  * Works across all deployment modes:
  *   - npm / app runners:  called from run-standalone.mjs and run-next.mjs
@@ -186,6 +190,95 @@ function writeEnvFile(filePath, env) {
   writeFileSync(filePath, lines.join("\n"), "utf8");
 }
 
+// ── Management password auto-setup (#13679: never boot well-known default) ────
+// A zero-config deploy must never boot remotely-loginable with the well-known
+// "CHANGEME". When no strong INITIAL_PASSWORD is configured we generate a random
+// one and persist it to server.env (survives restarts + volume remounts). When a
+// stored bcrypt hash still verifies "CHANGEME" we rotate it in place — healing
+// volumes that were first booted before this bootstrap existed.
+const WELL_KNOWN_DEFAULT_PASSWORD = "CHANGEME";
+const MANAGEMENT_PASSWORD_SALT_ROUNDS = 12;
+
+function generateRandomManagementPassword() {
+  // 32 hex chars from 16 random bytes — never an easily-guessable default.
+  return randomBytes(16).toString("hex");
+}
+
+function isStoredHashOf(password, hash, log) {
+  if (typeof hash !== "string" || hash.length === 0 || !hash.startsWith("$2")) return false;
+  try {
+    // bcryptjs is a loose dependency of bin/cli/settings-store.mjs
+    // (reset-password) and is copied into the standalone by assembleStandalone,
+    // so require() resolves in the container the same way it does for the CLI.
+    const bcrypt = require("bcryptjs");
+    return bcrypt.compareSync(password, hash);
+  } catch (error) {
+    log(`⚠️  Could not verify stored management password: ${error.message}`);
+    return false;
+  }
+}
+
+function readStoredManagementPasswordHash(dataDir, log) {
+  const dbPath = join(dataDir, "storage.sqlite");
+  if (!existsSync(dbPath)) return null;
+  try {
+    const Database = require("better-sqlite3");
+    const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    try {
+      const hasTable = !!db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get("key_value");
+      if (!hasTable) return null;
+      const row = db
+        .prepare("SELECT value FROM key_value WHERE namespace = 'settings' AND key = ?")
+        .get("password");
+      let value = row?.value;
+      if (typeof value === "string") {
+        try {
+          value = JSON.parse(value);
+        } catch {}
+      }
+      return typeof value === "string" && value.length > 0 ? value : null;
+    } finally {
+      db.close();
+    }
+  } catch (error) {
+    if (!isNativeSqliteLoadError(error)) {
+      log(`⚠️  Could not inspect stored management password: ${error.message}`);
+    }
+    return null;
+  }
+}
+
+function rotateStoredManagementPasswordHash(dataDir, password, log) {
+  try {
+    const Database = require("better-sqlite3");
+    const db = new Database(join(dataDir, "storage.sqlite"), { fileMustExist: true });
+    try {
+      db.pragma("journal_mode = WAL");
+      db.prepare(
+        `CREATE TABLE IF NOT EXISTS key_value (
+          namespace TEXT NOT NULL,
+          key TEXT NOT NULL,
+          value TEXT NOT NULL,
+          PRIMARY KEY (namespace, key)
+        )`
+      ).run();
+      const bcrypt = require("bcryptjs");
+      const passwordHash = bcrypt.hashSync(password, MANAGEMENT_PASSWORD_SALT_ROUNDS);
+      db.prepare(
+        "INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('settings', 'password', ?)"
+      ).run(JSON.stringify(passwordHash));
+    } finally {
+      db.close();
+    }
+    return true;
+  } catch (error) {
+    log(`⚠️  Could not rotate stored management password: ${error.message}`);
+    return false;
+  }
+}
+
 // ── Main bootstrap function ──────────────────────────────────────────────────
 /**
  * @param {{ dataDirOverride?: string; quiet?: boolean }} options
@@ -259,6 +352,39 @@ export function bootstrapEnv({ dataDirOverride, quiet = false } = {}) {
     log("✨ API_KEY_SECRET auto-generated (first run)");
   }
 
+  // ── Auto-setup a safe management password (never a well-known default) ──────
+  // Runs BEFORE the persist block below so a generated password lands in
+  // server.env like the other auto-generated secrets. Stored-hash rotation is
+  // deliberate: while a bcrypt hash exists, INITIAL_PASSWORD is ignored by
+  // ensurePersistentManagementPasswordHash, so only a DB-side rotation heals a
+  // volume whose login hash still verifies "CHANGEME".
+  const storedManagementPasswordHash = readStoredManagementPasswordHash(dataDir, log);
+  const suppliedPassword = merged.INITIAL_PASSWORD?.trim();
+
+  if (
+    storedManagementPasswordHash &&
+    isStoredHashOf(WELL_KNOWN_DEFAULT_PASSWORD, storedManagementPasswordHash, log)
+  ) {
+    const rotated = generateRandomManagementPassword();
+    if (rotateStoredManagementPasswordHash(dataDir, rotated, log)) {
+      merged.INITIAL_PASSWORD = rotated;
+      log(
+        `🔑 Stored default management password rotated. Save it now — new management password: ${rotated}`
+      );
+    }
+  } else if (
+    !storedManagementPasswordHash &&
+    (!suppliedPassword || suppliedPassword === WELL_KNOWN_DEFAULT_PASSWORD)
+  ) {
+    const generated = generateRandomManagementPassword();
+    persisted.INITIAL_PASSWORD = generated;
+    merged.INITIAL_PASSWORD = generated;
+    needsPersist = true;
+    log(
+      `🔑 Management password auto-generated (no strong INITIAL_PASSWORD provided). Save it now — management password: ${generated}`
+    );
+  }
+
   // ── Persist new secrets ────────────────────────────────────────────────────
   if (needsPersist) {
     try {
@@ -286,11 +412,6 @@ export function bootstrapEnv({ dataDirOverride, quiet = false } = {}) {
       log(`   • ${label} (${keys.join(" or ")}) — set in .env or ${serverEnvPath}`);
     }
     log("   These providers will not work until configured.");
-  }
-
-  // ── Warn about default password ────────────────────────────────────────────
-  if (merged.INITIAL_PASSWORD === "CHANGEME" || !merged.INITIAL_PASSWORD?.trim()) {
-    log("⚠️  INITIAL_PASSWORD is not set — using default 'CHANGEME'. Change it in Settings!");
   }
 
   // ── Decrypt-probe: verify STORAGE_ENCRYPTION_KEY matches encrypted data (#1622) ─

@@ -14,8 +14,60 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
+import bcrypt from "bcryptjs";
 
 import { bootstrapEnv } from "../../scripts/build/bootstrap-env.mjs";
+
+function seedSettingsPassword(dbPath, plaintext) {
+  const db = new Database(dbPath);
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS key_value (
+      namespace TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      PRIMARY KEY (namespace, key)
+    )`);
+    // bootstrapEnv's hasEncryptedCredentials() probes this table; an empty one
+    // keeps STORAGE_ENCRYPTION_KEY generation from refusing our seeded volume.
+    db.exec(`CREATE TABLE IF NOT EXISTS provider_connections (
+      id TEXT PRIMARY KEY,
+      access_token TEXT,
+      refresh_token TEXT,
+      api_key TEXT,
+      id_token TEXT
+    )`);
+    const hash = bcrypt.hashSync(plaintext, 4);
+    db.prepare(
+      "INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('settings', 'password', ?)"
+    ).run(JSON.stringify(hash));
+    return hash;
+  } finally {
+    db.close();
+  }
+}
+
+function readStoredPassword(dbPath) {
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const row = db
+      .prepare("SELECT value FROM key_value WHERE namespace = 'settings' AND key = ?")
+      .get("password");
+    const value = row?.value;
+    if (typeof value !== "string") return null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  } finally {
+    db.close();
+  }
+}
+
+function assertStrongPassword(password) {
+  assert.ok(typeof password === "string" && password.length >= 8, "expected a strong password");
+  assert.notEqual(password, "CHANGEME");
+}
 
 function withTempEnv(fn) {
   const originalCwd = process.cwd();
@@ -163,5 +215,77 @@ test("bootstrapEnv ignores blank dataDirOverride values", () => {
     const env = bootstrapEnv({ dataDirOverride: "   ", quiet: true });
 
     assert.equal(env.JWT_SECRET, "jwt-from-dot-env");
+  });
+});
+
+test("bootstrapEnv auto-generates a random management password when INITIAL_PASSWORD is unset (#13679)", () => {
+  withTempEnv(({ dataDir }) => {
+    process.env.DATA_DIR = dataDir;
+    fs.mkdirSync(dataDir, { recursive: true });
+
+    const env = bootstrapEnv({ quiet: true });
+
+    assertStrongPassword(env.INITIAL_PASSWORD);
+    const serverEnv = fs.readFileSync(path.join(dataDir, "server.env"), "utf8");
+    const persistedLine = serverEnv
+      .split(/\r?\n/)
+      .find((line) => line.startsWith("INITIAL_PASSWORD="));
+    assert.ok(persistedLine, "generated password must be persisted to server.env");
+    assert.equal(persistedLine.split("=")[1], env.INITIAL_PASSWORD);
+  });
+});
+
+test("bootstrapEnv replaces an explicit CHANGEME INITIAL_PASSWORD with a random one (#13679)", () => {
+  withTempEnv(({ dataDir }) => {
+    process.env.DATA_DIR = dataDir;
+    process.env.INITIAL_PASSWORD = "CHANGEME";
+    fs.mkdirSync(dataDir, { recursive: true });
+
+    const env = bootstrapEnv({ quiet: true });
+
+    assertStrongPassword(env.INITIAL_PASSWORD);
+  });
+});
+
+test("bootstrapEnv keeps a strong operator-provided INITIAL_PASSWORD (#13679)", () => {
+  withTempEnv(({ dataDir }) => {
+    process.env.DATA_DIR = dataDir;
+    process.env.INITIAL_PASSWORD = "UmaSenhaBemForte123";
+    fs.mkdirSync(dataDir, { recursive: true });
+
+    const env = bootstrapEnv({ quiet: true });
+
+    assert.equal(env.INITIAL_PASSWORD, "UmaSenhaBemForte123");
+  });
+});
+
+test("bootstrapEnv rotates a stored hash that verifies CHANGEME (#13679)", () => {
+  withTempEnv(({ dataDir }) => {
+    process.env.DATA_DIR = dataDir;
+    fs.mkdirSync(dataDir, { recursive: true });
+    const dbPath = path.join(dataDir, "storage.sqlite");
+    seedSettingsPassword(dbPath, "CHANGEME");
+
+    const env = bootstrapEnv({ quiet: true });
+
+    assertStrongPassword(env.INITIAL_PASSWORD);
+    const storedHash = readStoredPassword(dbPath);
+    assert.ok(storedHash, "expected a stored password hash after rotation");
+    assert.equal(bcrypt.compareSync(env.INITIAL_PASSWORD, storedHash), true);
+    assert.equal(bcrypt.compareSync("CHANGEME", storedHash), false);
+  });
+});
+
+test("bootstrapEnv leaves a stored hash that is not CHANGEME untouched (#13679)", () => {
+  withTempEnv(({ dataDir }) => {
+    process.env.DATA_DIR = dataDir;
+    fs.mkdirSync(dataDir, { recursive: true });
+    const dbPath = path.join(dataDir, "storage.sqlite");
+    const originalHash = seedSettingsPassword(dbPath, "CredencialFortissima1");
+
+    const env = bootstrapEnv({ quiet: true });
+
+    assert.equal(env.INITIAL_PASSWORD, undefined);
+    assert.equal(readStoredPassword(dbPath), originalHash);
   });
 });
