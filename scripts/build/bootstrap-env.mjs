@@ -26,7 +26,7 @@
  */
 
 import { randomBytes, createDecipheriv, scryptSync, createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -46,6 +46,19 @@ function resolveDataDir(overridePath, env = process.env) {
   const configured = env.DATA_DIR?.trim();
   if (configured) return resolve(configured);
 
+  // Preserve the legacy `~/.omniroute` path when it exists (see dataPaths.ts
+  // getDefaultDataDir). Splitting between the two resolvers would write the
+  // bootstrap .env / server.env into a different dir than the runtime DB —
+  // the CHANGEME .env then lands where the server never looks.
+  const legacyDir = join(homedir(), ".omniroute");
+  if (existsSync(legacyDir)) {
+    try {
+      if (statSync(legacyDir).isDirectory()) return legacyDir;
+    } catch {
+      // Ignore stat errors and continue to the platform default.
+    }
+  }
+
   if (process.platform === "win32") {
     const appData = env.APPDATA || join(homedir(), "AppData", "Roaming");
     return join(appData, "omniroute");
@@ -54,7 +67,7 @@ function resolveDataDir(overridePath, env = process.env) {
   const xdg = env.XDG_CONFIG_HOME?.trim();
   if (xdg) return join(resolve(xdg), "omniroute");
 
-  return join(homedir(), ".omniroute");
+  return legacyDir;
 }
 
 function getPreferredEnvFilePath(env = process.env) {

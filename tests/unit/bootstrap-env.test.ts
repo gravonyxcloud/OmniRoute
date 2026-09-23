@@ -303,3 +303,32 @@ test("bootstrapEnv leaves a stored strong hash untouched when no INITIAL_PASSWOR
     assert.equal(readStoredPassword(dbPath), originalHash);
   });
 });
+
+test("bootstrapEnv preserves the legacy ~/.omniroute dir over APPDATA when it exists (resolver parity)", () => {
+  withTempEnv(({ tempHome }) => {
+    // Make os.homedir() resolve under the temp root on every platform so the
+    // legacy-dir check is deterministic and does not touch the real user home.
+    process.env.USERPROFILE = tempHome;
+    process.env.HOME = tempHome;
+    const legacyDir = path.join(tempHome, ".omniroute");
+    fs.mkdirSync(legacyDir, { recursive: true });
+    // APPDATA points at a DIFFERENT dir — a resolver that ignores the legacy
+    // dir (like the old win32 branch) would wrongly create the .env there.
+    process.env.APPDATA = path.join(tempHome, "appdata");
+    fs.mkdirSync(process.env.APPDATA, { recursive: true });
+
+    const env = bootstrapEnv({ quiet: true });
+
+    const expectedEnvPath = path.join(legacyDir, ".env");
+    assert.ok(
+      fs.existsSync(expectedEnvPath),
+      `expected .env created in the legacy dir: ${expectedEnvPath}`
+    );
+    assert.equal(
+      fs.existsSync(path.join(process.env.APPDATA, "omniroute", ".env")),
+      false,
+      "must NOT create .env under the APPDATA default when a legacy ~/.omniroute exists"
+    );
+    assert.equal(env.INITIAL_PASSWORD, "CHANGEME");
+  });
+});

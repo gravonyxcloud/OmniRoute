@@ -174,9 +174,8 @@ async function loginMaxaiEmail(
   body: { step?: unknown; email?: unknown; code?: unknown }
 ): Promise<NextResponse> {
   const { randomUUID } = await import("node:crypto");
-  const { requestMaxaiEmailCode, verifyMaxaiEmailCode } = await import(
-    "@omniroute/open-sse/executors/maxai/emailLogin.ts"
-  );
+  const { requestMaxaiEmailCode, verifyMaxaiEmailCode } =
+    await import("@omniroute/open-sse/executors/maxai/emailLogin.ts");
 
   const psd = (connection.providerSpecificData ?? {}) as Record<string, unknown>;
   const step = String(body.step || "request");
@@ -309,11 +308,15 @@ export async function POST(
   // {step:"request",email} emails a code; {step:"verify",code} mints + persists.
   if (providerSlug === "maxai" || providerSlug === "mx") {
     try {
-      return await loginMaxaiEmail(id, provider as Record<string, unknown>, body as {
-        step?: unknown;
-        email?: unknown;
-        code?: unknown;
-      });
+      return await loginMaxaiEmail(
+        id,
+        provider as Record<string, unknown>,
+        body as {
+          step?: unknown;
+          email?: unknown;
+          code?: unknown;
+        }
+      );
     } catch (err) {
       const msg = sanitizeErrorMessage(err instanceof Error ? err.message : err);
       return NextResponse.json(
@@ -370,6 +373,56 @@ export async function POST(
       const msg = sanitizeErrorMessage(err instanceof Error ? err.message : err);
       return NextResponse.json(
         { success: false, error: `Login endpoint error: ${msg}` },
+        { status: 500 }
+      );
+    }
+  }
+
+  // ChatGPT Web Clean Room (chatgpt-web): real account sign-in through a headed
+  // Chrome window instead of pasting a static Storage-State. loginToChatGpt
+  // harvests a Playwright storage-state from the signed-in temporary-chat session,
+  // verifies the composer renders, and returns the cookie/origin set the clean-room
+  // executor already consumes via providerSpecificData.storageState.
+  if (providerSlug === "chatgpt-web") {
+    try {
+      const { startChatGptWebLogin } =
+        await import("@omniroute/open-sse/services/chatgptWebLogin.ts");
+      const result = await startChatGptWebLogin(
+        typeof body.timeout === "number" ? body.timeout : undefined
+      );
+      if (!result.success || !result.storageState) {
+        return NextResponse.json(result, { status: 400 });
+      }
+      try {
+        await updateProviderConnection(id, {
+          apiKey: JSON.stringify(result.storageState),
+          providerSpecificData: {
+            storageState: result.storageState,
+            signedInAt: Date.now(),
+            accountSurfaceUrl: result.accountSurfaceUrl,
+            solAvailable: result.solAvailable,
+            proAvailable: result.proAvailable,
+          },
+        });
+      } catch (err) {
+        const msg = sanitizeErrorMessage(err instanceof Error ? err.message : err);
+        return NextResponse.json(
+          { success: false, error: `Extracted but failed to persist: ${msg}` },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({
+        success: true,
+        storageStateSaved: true,
+        accountSurfaceUrl: result.accountSurfaceUrl,
+        solAvailable: result.solAvailable,
+        proAvailable: result.proAvailable,
+        persisted: true,
+      });
+    } catch (err) {
+      const msg = sanitizeErrorMessage(err instanceof Error ? err.message : err);
+      return NextResponse.json(
+        { success: false, error: `ChatGPT Web sign-in error: ${msg}` },
         { status: 500 }
       );
     }
