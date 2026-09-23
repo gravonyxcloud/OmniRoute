@@ -220,7 +220,8 @@ async function toOutcome(
   attempt: ChatCoreExecutorResult,
   model: string,
   connectionId: string,
-  provider: string
+  provider: string,
+  sourceFormat?: string
 ): Promise<ProviderExecutionOutcome> {
   const status = attempt.response.status;
   if (status >= 200 && status < 300) {
@@ -263,19 +264,25 @@ async function toOutcome(
     body,
     retryAfterMs: null,
   });
+  const passthrough = sourceFormat === "claude";
   const result = createErrorResult(
     restatement.status,
     message,
     restatement.retryAfterMs,
     fields.code,
-    fields.type
+    fields.type,
+    body,
+    { passthrough, clientSafe: !passthrough }
   );
   return {
     kind: "error",
     result: {
       success: false,
       status: result.status,
-      response: attempt.response,
+      // `clientSafe` builds a generic per-status body for the client (no upstream
+      // provider/model/reason); `attempt.response` carries the raw upstream body —
+      // only preserved for the Claude passthrough contract.
+      response: passthrough ? attempt.response : result.response,
       error: result.error,
       errorCode: result.errorCode,
       errorType: result.errorType,
@@ -349,7 +356,8 @@ export async function runProviderExecutionPipeline(
         attempt,
         wire.currentModel,
         currentConnectionId(connection),
-        target.provider
+        target.provider,
+        target.sourceFormat
       );
     }
 
@@ -507,7 +515,8 @@ export async function runProviderExecutionPipeline(
           lastAttempt,
           wire.currentModel,
           currentConnectionId(connection),
-          target.provider
+          target.provider,
+          target.sourceFormat
         );
       }
     }
@@ -538,7 +547,13 @@ export async function runProviderExecutionPipeline(
       }
     }
 
-    return toOutcome(attempt, wire.currentModel, currentConnectionId(connection), target.provider);
+    return toOutcome(
+      attempt,
+      wire.currentModel,
+      currentConnectionId(connection),
+      target.provider,
+      target.sourceFormat
+    );
   }
 
   if (lastAttempt) {
@@ -546,7 +561,8 @@ export async function runProviderExecutionPipeline(
       lastAttempt,
       wire.currentModel,
       currentConnectionId(connection),
-      target.provider
+      target.provider,
+      target.sourceFormat
     );
   }
   return leaseMismatch(wire.currentModel, currentConnectionId(connection));

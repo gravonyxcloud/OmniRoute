@@ -5,7 +5,11 @@ import {
   sanitizeErrorMessage,
   sanitizeUpstreamDetails,
 } from "./errorSanitization.ts";
-import { getDefaultErrorMessage, getErrorInfo } from "../config/errorConfig.ts";
+import {
+  getClientSafeErrorMessage,
+  getDefaultErrorMessage,
+  getErrorInfo,
+} from "../config/errorConfig.ts";
 import { normalizePayloadForLog } from "@/lib/logPayloads";
 import type { ModelCooldownErrorPayload } from "@/types";
 import { buildPassthroughErrorResponse } from "./upstreamErrorPassthrough.ts";
@@ -368,10 +372,18 @@ export function buildErrorBody(
   statusCode: number,
   message: string,
   upstreamDetails?: unknown,
-  classification?: ErrorBodyClassification
+  classification?: ErrorBodyClassification,
+  opts?: { clientSafe?: boolean }
 ): ErrorResponseBody {
   const errorInfo = getErrorInfo(statusCode);
-  const safeMessage = sanitizeErrorMessage(message) || getDefaultErrorMessage(statusCode);
+  // When relaying an UPSTREAM provider failure, the client must only ever see a
+  // generic per-status message — never the provider/model/reason (see
+  // CLIENT_SAFE_ERROR_MESSAGES). The full diagnostic still lives in result.error
+  // / rawMessage and the operator's logs. Opt-in so local validation errors and
+  // operator-facing endpoints keep their specific (already sanitized) text.
+  const safeMessage = opts?.clientSafe
+    ? getClientSafeErrorMessage(statusCode)
+    : sanitizeErrorMessage(message) || getDefaultErrorMessage(statusCode);
   const safeReason =
     typeof classification?.reason === "string" && isSafePublicErrorIdentifier(classification.reason)
       ? classification.reason
@@ -386,7 +398,7 @@ export function buildErrorBody(
     },
   };
 
-  if (upstreamDetails !== undefined && upstreamDetails !== null) {
+  if (!opts?.clientSafe && upstreamDetails !== undefined && upstreamDetails !== null) {
     const sanitized = sanitizeUpstreamDetails(upstreamDetails);
     if (sanitized !== null && typeof sanitized === "object" && !Array.isArray(sanitized)) {
       body.upstream_details = sanitized as Record<string, unknown>;
@@ -929,7 +941,7 @@ export function createErrorResult(
   errorCode?: string,
   errorType?: string,
   upstreamDetails?: unknown,
-  opts?: { passthrough?: boolean }
+  opts?: { passthrough?: boolean; clientSafe?: boolean }
 ) {
   const body = buildErrorBody(statusCode, message, upstreamDetails, {
     code: errorCode,
@@ -972,6 +984,28 @@ export function createErrorResult(
   // Add retryAfterMs if available (for Antigravity quota errors)
   if (retryAfterMs) {
     result.retryAfterMs = retryAfterMs;
+  }
+
+  // Opt-in client-safe relay: the client only sees a generic per-status message
+  // (no provider/model/reason) when the caller relays an UPSTREAM provider
+  // failure. Only swaps `result.response`; `result.error`/`rawMessage`/
+  // `errorType`/`errorCode` stay untouched so server-side classification never
+  // sees a different value depending on this flag.
+  if (opts?.clientSafe) {
+    const clientSafeBody = buildErrorBody(
+      statusCode,
+      message,
+      undefined,
+      {
+        code: errorCode,
+        type: errorType,
+      },
+      { clientSafe: true }
+    );
+    result.response = new Response(JSON.stringify(clientSafeBody), {
+      status: statusCode,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   // Opt-in relay of the recursively sanitized upstream JSON shape (Claude Code

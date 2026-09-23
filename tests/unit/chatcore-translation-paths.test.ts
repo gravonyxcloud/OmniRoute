@@ -3009,7 +3009,10 @@ test("chatCore propagates budget errors without an executor-level emergency hop"
   assert.equal(result.status, 402);
   assert.equal(calls.length, 1, "no executor-level emergency hop may fire");
   const body = (await result.response.json()) as any;
-  assert.match(String(body?.error?.message ?? ""), /insufficient funds/);
+  // Client-safe relay: the upstream "insufficient funds" reason is masked to a
+  // generic per-status message; the full diagnostic stays server-side.
+  assert.equal(body?.error?.message, "Payment required");
+  assert.match(String(result.rawMessage ?? result.error ?? ""), /insufficient funds/);
   assert.ok(
     !calls.some((c: any) => String(c.body?.model ?? "").includes("gpt-oss-120b")),
     "emergency fallback model must not be called at executor level"

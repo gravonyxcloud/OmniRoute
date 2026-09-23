@@ -54,6 +54,33 @@ export const DEFAULT_ERROR_MESSAGES: Record<number, string> = {
   504: "Gateway timeout",
 };
 
+// Outbound client-facing messages when an UPSTREAM provider failure is relayed.
+// Always generic by status: no provider name, no model name, no upstream reason
+// (the operator's diagnosis lives in server logs / dashboards). Exposed on the
+// branch of buildErrorBody that relays provider failures, so the end client can
+// never read which provider/model/reason a failure came from.
+export const CLIENT_SAFE_ERROR_MESSAGES: Record<number, string> = {
+  400: "Bad request",
+  401: "Authentication failed",
+  402: "Payment required",
+  403: "Forbidden",
+  404: "Not found",
+  406: "Not acceptable",
+  408: "Request timeout",
+  410: "Gone",
+  429: "Too many requests",
+  499: "Client disconnected",
+  500: "Internal server error",
+  501: "Not implemented",
+  502: "Bad gateway",
+  503: "Service unavailable",
+  504: "Gateway timeout",
+};
+
+export function getClientSafeErrorMessage(statusCode: number): string {
+  return CLIENT_SAFE_ERROR_MESSAGES[statusCode] || "An error occurred";
+}
+
 // Exponential backoff config for rate limits.
 // Preserve OmniRoute's existing 2-minute cap to avoid changing runtime behavior.
 export const BACKOFF_CONFIG = {

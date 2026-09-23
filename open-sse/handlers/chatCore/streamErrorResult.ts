@@ -69,15 +69,25 @@ export function createStreamingErrorResult(
   statusCode: number,
   message: string,
   code?: string,
-  type?: string
+  type?: string,
+  opts?: { clientSafe?: boolean }
 ) {
-  const errorBody = buildErrorBody(statusCode, message, undefined, { code, type });
+  const errorBody = buildErrorBody(
+    statusCode,
+    message,
+    undefined,
+    { code, type },
+    { clientSafe: opts?.clientSafe }
+  );
 
   const body = `data: ${JSON.stringify(errorBody)}\n\ndata: [DONE]\n\n`;
 
   return {
     success: false as const,
     status: statusCode,
+    // #7360: `error` stays the full message for internal classification; only the
+    // SSE payload above (the client-visible surface) becomes a generic per-status
+    // message when opts.clientSafe is set.
     error: message,
     response: new Response(body, {
       status: statusCode,

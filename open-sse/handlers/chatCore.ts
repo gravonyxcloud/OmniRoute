@@ -90,7 +90,10 @@ import {
 import { recoverAnthropicThinkingSignature } from "./chatCore/thinkingSignatureRecovery.ts";
 import { runProviderExecutionPipeline } from "./chatCore/providerExecutionPipeline.ts";
 import { runNonStreamingProviderLeg } from "./chatCore/nonStreamingProviderLeg.ts";
-import type { NonStreamingProviderLegResult } from "@/lib/skills/toolLoopTypes.ts";
+import type {
+  ChatCoreErrorResult,
+  NonStreamingProviderLegResult,
+} from "@/lib/skills/toolLoopTypes.ts";
 import {
   applyServerOwnedToolLoopIfNeeded,
   derivePostInjectionRequestIdentity,
@@ -4084,6 +4087,12 @@ export async function handleChatCore({
   };
 
   let pipelineRecovered = false;
+  // The pipeline already builds a fully classified error outcome (rawMessage,
+  // upstreamErrorBody, errorCode/type) whose `response` is the client-safe body.
+  // When the streaming leg relays a pipeline error, seed the providerFailure
+  // label from these fields so it does NOT re-parse the masked body and lose the
+  // diagnostic text.
+  let pipelineErrorOutcome: ChatCoreErrorResult | null = null;
   if (stream) {
     try {
       const pipelineOutcome = await runProviderExecutionPipeline({
@@ -4187,6 +4196,7 @@ export async function handleChatCore({
       pipelineRecovered = true;
       currentModel = pipelineOutcome.model;
       if (pipelineOutcome.kind === "error") {
+        pipelineErrorOutcome = pipelineOutcome.result;
         providerResponse = pipelineOutcome.result.response;
         providerUrl = "";
         providerHeaders = normalizeHeaders(pipelineOutcome.result.response.headers);
@@ -4375,7 +4385,8 @@ export async function handleChatCore({
           failureStatus,
           failureMessage,
           upstreamErrorCode,
-          upstreamErrorType
+          upstreamErrorType,
+          { clientSafe: true }
         );
         localLimiterErrors.markTrustedLocalRateLimitResponse(result.response, error);
         return {
@@ -4389,7 +4400,9 @@ export async function handleChatCore({
         failureMessage,
         null,
         upstreamErrorCode,
-        upstreamErrorType
+        upstreamErrorType,
+        undefined,
+        { clientSafe: true }
       );
       localLimiterErrors.markTrustedLocalRateLimitResponse(result.response, error);
       return result;
@@ -4398,7 +4411,25 @@ export async function handleChatCore({
     let parsedStatusCode = providerResponse.status;
     let parsedMessage = "";
     let parsedRetryAfterMs: number | null = null;
+    let parsedUpstreamErrorCode: string | undefined;
+    let parsedUpstreamErrorType: string | undefined;
     let upstreamErrorBody: unknown = null;
+
+    // Stream-leg pipeline error relay: the outcome already carries the fully
+    // classified upstream error (rawMessage/upstreamErrorBody/errorCode/type) and
+    // its `response` is the client-safe masked body. Feed those fields into the
+    // providerFailure label below verbatim so it does NOT re-parse the masked body
+    // (which would collapse the diagnostic to the generic per-status message).
+    if (pipelineErrorOutcome) {
+      upstreamErrorParsed = true;
+      parsedStatusCode = pipelineErrorOutcome.status;
+      parsedMessage =
+        pipelineErrorOutcome.rawMessage || pipelineErrorOutcome.error || "";
+      parsedRetryAfterMs = pipelineErrorOutcome.retryAfterMs ?? null;
+      upstreamErrorBody = pipelineErrorOutcome.upstreamErrorBody ?? null;
+      parsedUpstreamErrorCode = pipelineErrorOutcome.errorCode;
+      parsedUpstreamErrorType = pipelineErrorOutcome.errorType;
+    }
 
     // Track whether stream_options was present and stripped — if so, 401/403 after
     // that may be from the modification rather than a genuine auth failure, so we
@@ -4601,6 +4632,8 @@ export async function handleChatCore({
         statusCode = parsedStatusCode;
         message = parsedMessage;
         retryAfterMs = parsedRetryAfterMs;
+        upstreamErrorCode = parsedUpstreamErrorCode;
+        upstreamErrorType = parsedUpstreamErrorType;
       } else {
         const details = await parseUpstreamError(providerResponse, provider);
         statusCode = details.statusCode;
@@ -4795,7 +4828,10 @@ export async function handleChatCore({
                 upstreamErrorCode,
                 upstreamErrorType,
                 upstreamErrorBody,
-                { passthrough: sourceFormat === FORMATS.CLAUDE }
+                {
+                  passthrough: sourceFormat === FORMATS.CLAUDE,
+                  clientSafe: sourceFormat !== FORMATS.CLAUDE,
+                }
               );
             }
           } catch {
@@ -4815,7 +4851,10 @@ export async function handleChatCore({
               upstreamErrorCode,
               upstreamErrorType,
               upstreamErrorBody,
-              { passthrough: sourceFormat === FORMATS.CLAUDE }
+              {
+                passthrough: sourceFormat === FORMATS.CLAUDE,
+                clientSafe: sourceFormat !== FORMATS.CLAUDE,
+              }
             );
           }
         } else {
@@ -4835,7 +4874,10 @@ export async function handleChatCore({
             upstreamErrorCode,
             upstreamErrorType,
             upstreamErrorBody,
-            { passthrough: sourceFormat === FORMATS.CLAUDE }
+            {
+              passthrough: sourceFormat === FORMATS.CLAUDE,
+              clientSafe: sourceFormat !== FORMATS.CLAUDE,
+            }
           );
         }
       } else if (isContextOverflowError(statusCode, message)) {
@@ -4887,7 +4929,10 @@ export async function handleChatCore({
                 upstreamErrorCode,
                 upstreamErrorType,
                 upstreamErrorBody,
-                { passthrough: sourceFormat === FORMATS.CLAUDE }
+                {
+                  passthrough: sourceFormat === FORMATS.CLAUDE,
+                  clientSafe: sourceFormat !== FORMATS.CLAUDE,
+                }
               );
             }
           } catch {
@@ -4907,7 +4952,10 @@ export async function handleChatCore({
               upstreamErrorCode,
               upstreamErrorType,
               upstreamErrorBody,
-              { passthrough: sourceFormat === FORMATS.CLAUDE }
+              {
+                passthrough: sourceFormat === FORMATS.CLAUDE,
+                clientSafe: sourceFormat !== FORMATS.CLAUDE,
+              }
             );
           }
         } else {
@@ -4927,7 +4975,10 @@ export async function handleChatCore({
             upstreamErrorCode,
             upstreamErrorType,
             upstreamErrorBody,
-            { passthrough: sourceFormat === FORMATS.CLAUDE }
+            {
+              passthrough: sourceFormat === FORMATS.CLAUDE,
+              clientSafe: sourceFormat !== FORMATS.CLAUDE,
+            }
           );
         }
       } else {
@@ -4954,7 +5005,10 @@ export async function handleChatCore({
           upstreamErrorCode,
           upstreamErrorType,
           upstreamErrorBody,
-          { passthrough: sourceFormat === FORMATS.CLAUDE }
+          {
+            passthrough: sourceFormat === FORMATS.CLAUDE,
+            clientSafe: sourceFormat !== FORMATS.CLAUDE,
+          }
         );
       }
       // ── End T5 ───────────────────────────────────────────────────────────────
