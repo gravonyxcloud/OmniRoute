@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { setUserAgentHeader } from "../executors/base.ts";
 import { generateSessionId } from "../services/sessionManager.ts";
 
@@ -11,7 +11,7 @@ export const DEFAULT_OPENCODE_USER_AGENT = "opencode/1.18.31";
 
 /** Canonical OpenCode session id shape: `ses_` + 12 hex + 14 base62. */
 export const OPENCODE_SESSION_PATTERN = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
-/** Same shape for the request id, which the upstream accepts but does not validate. */
+/** Same shape for the request id. Since 2026-09-19 the upstream also validates its value. */
 export const OPENCODE_REQUEST_PATTERN = /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
 
 const MINIMUM_USER_AGENT_MINOR = 17;
@@ -124,19 +124,57 @@ function base62From(bytes: Buffer, length: number): string {
   return Array.from(bytes.subarray(0, length), (byte) => BASE62[byte % 62]).join("");
 }
 
+// The upstream decodes the id's value, not just its shape. The opencode CLI derives the
+// 12-hex time field from the wall clock: the low 48 bits of `(Date.now() * 0x1000 +
+// counter)`, the bits inverted for the session id and used verbatim for the request id
+// (measured on the live free tier 2026-09-19 — an arbitrary hex answers 403 FreeTierError,
+// "can only be used from within OpenCode"; the algorithm matches a real CLI install via
+// linux.do/138213). The counter only disambiguates two ids minted in the same millisecond.
+const OPENCODE_TIME_BITS = 0xffffffffffffn;
+let opencodeLastMs = 0;
+let opencodeCounter = 0;
+
+/** The 12-hex time field of a real opencode id minted against the current wall clock. */
+function opencodeTimeHex(inverted: boolean): string {
+  const ts = Date.now();
+  if (ts !== opencodeLastMs) {
+    opencodeLastMs = ts;
+    opencodeCounter = 1;
+  } else {
+    opencodeCounter += 1;
+  }
+  const v = BigInt(ts) * 0x1000n + BigInt(opencodeCounter);
+  return ((inverted ? ~v : v) & OPENCODE_TIME_BITS).toString(16).padStart(12, "0");
+}
+
+// One id per conversation keeps one upstream session — and therefore prompt caching —
+// stable across requests, exactly as the CLI keeps a single `ses_` per session. Bounded
+// like the in-memory session store; nothing here should outlive a conversation.
+const OPENCODE_ID_CACHE = new Map<string, string>();
+const OPENCODE_ID_CACHE_MAX = 200;
+
 /**
  * Render an id in the canonical OpenCode shape (`<prefix>` + 12 hex + 14 base62).
  *
- * The upstream checks the shape and not the value: 12 arbitrary hex digits pass, so
- * there is no need to reproduce the client's own id algorithm (timestamp plus counter).
- * With a seed the result is deterministic, which is what keeps a conversation on one
- * upstream session — and therefore keeps prompt caching warm — across requests.
+ * The 12-hex time field reproduces the client's own id algorithm (timestamp plus counter),
+ * which the upstream has been decoding since 2026-09-19; the 14 base62 tail is random, as
+ * in the real CLI. A seeded id is minted once and recalled, keeping a conversation on one
+ * upstream session across requests; an unseeded one is fresh each call, as a request id
+ * should be when no client value anchors it.
  */
 function canonicalId(prefix: "ses_" | "msg_", seed?: string): string {
-  const bytes = seed
-    ? createHash("sha256").update(`opencode\u0000${prefix}\u0000${seed}`).digest()
-    : randomBytes(32);
-  return `${prefix}${bytes.subarray(0, 6).toString("hex")}${base62From(bytes.subarray(6), 14)}`;
+  if (seed !== undefined) {
+    const key = `${prefix}\u0000${seed}`;
+    const cached = OPENCODE_ID_CACHE.get(key);
+    if (cached !== undefined) return cached;
+    const id = `${prefix}${opencodeTimeHex(prefix === "ses_")}${base62From(randomBytes(14), 14)}`;
+    if (OPENCODE_ID_CACHE.size >= OPENCODE_ID_CACHE_MAX) {
+      OPENCODE_ID_CACHE.delete(OPENCODE_ID_CACHE.keys().next().value as string);
+    }
+    OPENCODE_ID_CACHE.set(key, id);
+    return id;
+  }
+  return `${prefix}${opencodeTimeHex(prefix === "ses_")}${base62From(randomBytes(14), 14)}`;
 }
 
 /**
@@ -191,8 +229,9 @@ function findHeader(headers: Record<string, string>, name: string): string | und
  *   from datacenter IPs with FreeUsageLimitError 429. (#5997, follow-up #10229)
  * @param options.sessionBody - Request body fields used to generate a
  *   conversation-stable session fingerprint (model, system, messages or input, tools).
- *   When provided, x-opencode-session is a deterministic hash instead of a random
- *   UUID, so upstream prompt caching hits across requests in the same conversation.
+ *   When provided, x-opencode-session is a single id minted against the wall clock and
+ *   remembered for the conversation, instead of a fresh id per request, so upstream prompt
+ *   caching hits across requests of the same conversation.
  */
 export function forwardOpencodeClientHeaders(
   headers: Record<string, string>,
@@ -285,7 +324,8 @@ function applyCliDefaults(
   headers["x-opencode-project"] ||= cliDefaults.project;
   // Both ids go out in the canonical shape. A client value already in that shape is kept;
   // anything else (a UUID from a generic client, an opaque conversation key) is translated
-  // deterministically, so one client conversation still maps to one upstream session.
+  // into a single remembered id keyed on it, so one client conversation still maps to one
+  // upstream session.
   const clientRequestId = headers["x-opencode-request"]?.trim();
   headers["x-opencode-request"] =
     clientRequestId && OPENCODE_REQUEST_PATTERN.test(clientRequestId)
@@ -297,4 +337,8 @@ function applyCliDefaults(
       ? clientSessionId
       : canonicalId("ses_", clientSessionId)
     : canonicalId("ses_", generateSessionId(sessionBody ?? null) ?? undefined);
+  // The free tier reads the session under either spelling (#13121), so mirror the canonical
+  // id to the alias — the fix that unblocked the tier. A client-supplied x-session-id is
+  // already set here and is left untouched (client values win).
+  headers["x-session-id"] ||= headers["x-opencode-session"];
 }

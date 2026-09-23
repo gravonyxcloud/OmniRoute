@@ -1,20 +1,42 @@
 /**
  * opencodeFreeTierContract.ts — the request contract OpenCode Zen's free tier enforces.
  *
- * Measured against the live endpoint on 2026-09-17, on three models and both the Chat
- * Completions and Responses surfaces: the upstream answers 403 FreeTierError unless the
- * request carries all four of
+ * First measured against the live endpoint on 2026-09-17, on three models and both the
+ * Chat Completions and Responses surfaces: the upstream answers 403 FreeTierError unless
+ * the request carries all four of
  *
  *   1. `stream: true` in the body,
- *   2. a non-empty `tools` array (the content is not inspected),
- *   3. a session header shaped `ses_` + 12 hex + 14 base62 (the shape is checked, the
- *      value is not — 12 arbitrary hex digits pass),
+ *   2. a `tools` array declaring the official agentic client's file-search quartet
+ *      `{bash, glob, grep, read}`. Re-measured 2026-09-19 against the live endpoint with a
+ *      genuine `opencode/1.18.31` User-Agent and canonical session id held constant: a
+ *      body with NO tools answers 403 FreeTierError, the same body with the quartet answers
+ *      200, and the quartet plus an extra declared name answers 200 too — so a caller tool
+ *      list is preserved verbatim and the missing quartet entries are merged in.
+ *
+ *      Which names the upstream takes also moves between days (measured 2026-09-18: one
+ *      made-up name accepted on `big-pickle` and refused on two other free models the day
+ *      before). The default quartet is what the official client itself declares right now;
+ *      names observed on real accepted traffic or configured by the operator
+ *      (OPENCODE_FREE_TIER_PLACEHOLDER_TOOLS) replace the default, see
+ *      opencodeToolObservation.ts. `_noop` — the historical default, and a name the client
+ *      itself used to emit — is refused on the live tier since 2026-09-19.
+ *
+ *   3. a session header shaped `ses_` + 12 hex + 14 base62 (since 2026-09-19 the value is
+ *      checked too: the 12 hex must decode to a recent wall clock, the encoding the real
+ *      CLI computes — an arbitrary hex answers 403 FreeTierError "can only be used from
+ *      within OpenCode"),
  *   4. a `User-Agent` carrying `opencode/<version>` with version >= 1.17 (an older
  *      version answers 426 UpgradeRequired rather than 403).
  *
- * Removing any single one of the four turns a 200 into a 403. Paid models on the same
- * host are not gated (a paid model without tools answers 401 CreditsError), which is why
- * `requiresFreeTierRequestContract` narrows the contract to free-tier models.
+ * Note an exception from 2026-09-19: the official client's own service requests — title
+ * generation, compaction — pass with NO tools, because the upstream recognizes their
+ * system prompt; a request from any other caller with no tools answers 403, which is why
+ * the quartet is the default for requests that declare none.
+ *
+ * On 2026-09-17 removing any single one of the four turned a 200 into a 403; the tools
+ * clause has since moved (see above). Paid models on the same host are not gated (a paid
+ * model without tools answers 401 CreditsError), which is why `requiresFreeTierRequestContract`
+ * narrows the contract to free-tier models.
  *
  * The module also owns the free-model catalog — the catalog is what decides whether the
  * contract applies, so the two belong together and the executor imports them from here —
@@ -23,6 +45,7 @@
  */
 import { parseSSEToOpenAIResponse, parseSSEToResponsesOutput } from "../handlers/sseParser.ts";
 import {
+  getObservedToolNames,
   noteRefusedBorrowedToolNames,
   recordAcceptedToolNames,
   resolvePlaceholderNames,
@@ -146,7 +169,26 @@ export function requiresFreeTierRequestContract(
   return isGatedFreeTierRequest(surface, provider, model) && isBodyContractEnabled();
 }
 
-/** The placeholder tool name the official client uses for the same purpose. */
+/**
+ * The tool names the official agentic client always declares on its free-tier build
+ * requests, and the baseline this relay falls back to when nothing has been observed or
+ * configured: `{bash, glob, grep, read}`.
+ *
+ * Measured 2026-09-19 against the live endpoint with genuine CLI identity headers held
+ * constant: this exact set answers 200 on a request that answered 403 with none ("can
+ * only be used from within OpenCode"). Upstream proxy fixes converged on the same quartet
+ * (decolua/9router#4105 + #4132). The set is exported so tests can pin it.
+ */
+export const DEFAULT_FINGERPRINT_TOOL_NAMES: readonly string[] = ["bash", "glob", "grep", "read"];
+
+/**
+ * The tool name the official client uses on some surfaces when it has nothing to declare.
+ *
+ * NOT the default here: `_noop` was refused on the live free tier on 2026-09-19 while the
+ * current default quartet was accepted, so guessing it would break the very requests this
+ * contract repairs. The name is exported for reference and for tests that pin a
+ * placeholder deliberately.
+ */
 const PLACEHOLDER_TOOL_NAME = "_noop";
 export const DEFAULT_PLACEHOLDER_TOOL_NAME = PLACEHOLDER_TOOL_NAME;
 
@@ -155,12 +197,15 @@ export const DEFAULT_PLACEHOLDER_TOOL_NAME = PLACEHOLDER_TOOL_NAME;
  *
  * The upstream inspects which names a request declares, and what it accepts differs by
  * model and moves over time (measured 2026-09-18: one made-up name is accepted on
- * `big-pickle` and refused on two other free models that had accepted it the day before).
- * That is an observation about someone else's service, not a fact about this project, so
- * it belongs in configuration rather than in a constant that needs a release to change.
+ * `big-pickle` and refused on two other free models that had accepted it the day before;
+ * re-measured 2026-09-19: `_noop` itself is refused while the quartet `{bash, glob, grep,
+ * read}` is accepted). That is an observation about someone else's service, not a fact
+ * about this project, so it belongs in configuration rather than in a constant that needs
+ * a release to change.
  *
- * Empty or unset falls back to the built-in name, so an install that sets nothing keeps
- * the previous behaviour. Read per call, so a change takes effect immediately.
+ * Empty or unset means the request falls back to the default quartet above when the
+ * observation store has nothing for this surface, model and session. Read per call, so a
+ * change takes effect immediately.
  */
 export function configuredPlaceholderToolNames(): string[] {
   const raw = process.env.OPENCODE_FREE_TIER_PLACEHOLDER_TOOLS || "";
@@ -178,54 +223,69 @@ const PLACEHOLDER_TOOL_DESCRIPTION =
 const PLACEHOLDER_TOOL_PARAMETERS = { type: "object", properties: {} } as const;
 
 /**
- * An empty `tools` array counts as no tools: it is the exact shape the upstream refuses
- * (upstream anomalyco/opencode#49433 reports it from the client's own compaction path),
- * so it has to be filled like an absent one rather than passed through.
- */
-function hasTools(body: Record<string, unknown>): boolean {
-  return Array.isArray(body.tools) && body.tools.length > 0;
-}
-
-/**
  * Bring a free-tier request up to the upstream contract, without overriding anything the
- * caller already decided: client tools are kept as they are, and the placeholder tool is
- * only added when the caller sent none. Idempotent.
+ * caller already decided. The mandatory streaming flag is forced unconditionally. Tools
+ * are handled like this:
  *
- * The placeholder differs per surface: Chat Completions takes the nested function shape,
- * the Responses surface takes the flat one. Neither carries a `tool_choice` — the upstream
- * rejects any value but "auto" (measured 2026-09-18: 400 invalid_request_error, `only
- * "auto" is supported for tool_choice`), so a `tool_choice` the caller did not send is
- * never added, and one the caller did send travels unchanged. Any other body format only
- * gets the streaming flag: injecting a tool shape blind would be a guess.
+ * - a caller tool list is preserved VERBATIM, and only the declared names missing from
+ *   the current accepted set are appended as no-op placeholders (measured 2026-09-19: the
+ *   quartet plus extra declared names all answer 200, so extras are safe while no tools
+ *   at all answers 403);
+ * - a request that declares no tools gets the FULL current set — the default quartet
+ *   `{bash, glob, grep, read}`, or the observed/configured set when known — as no-op
+ *   placeholders.
  *
- * Which names go in is resolved by `resolvePlaceholderNames`, because the upstream does
- * inspect them.
+ * Idempotent: re-applying to a body that already declares the full set changes nothing
+ * beyond the streaming flag already set. `tool_choice` is never added (the upstream
+ * rejects any value but "auto"); a caller-supplied one travels unchanged. Any body format
+ * other than the two known surfaces only gets the streaming flag: injecting a tool shape
+ * blind would be a guess.
+ *
+ * Which names make the "current set" is resolved by `prepareFreeTierRequest` — the
+ * observed/configured names when known, else `DEFAULT_FINGERPRINT_TOOL_NAMES`.
  */
 export function applyFreeTierRequestContract<T>(
   body: T,
   requestFormat: string | null,
-  placeholderNames: readonly string[] = [PLACEHOLDER_TOOL_NAME]
+  placeholderNames: readonly string[] = []
 ): T {
   if (!body || typeof body !== "object" || Array.isArray(body)) return body;
   const record = body as Record<string, unknown>;
   const next: Record<string, unknown> = { ...record, stream: true };
 
-  if (hasTools(next)) return next as T;
+  const effectiveNames =
+    placeholderNames.length > 0 ? placeholderNames : DEFAULT_FINGERPRINT_TOOL_NAMES;
+  const currentNames = new Set(clientToolNamesOf(next));
+  const missingNames = effectiveNames.filter((name) => !currentNames.has(name));
+  if (missingNames.length === 0) return next as T;
 
-  const names = placeholderNames.length > 0 ? placeholderNames : [PLACEHOLDER_TOOL_NAME];
+  const missingTools = placeholderTools(missingNames, requestFormat);
+  if (missingTools.length === 0) return next as T;
 
+  const callerTools = Array.isArray(next.tools) ? (next.tools as unknown[]) : [];
+  next.tools = [...callerTools, ...missingTools];
+  return next as T;
+}
+
+/**
+ * Render the accepted tool names in the shape the surface takes.
+ *
+ * Chat Completions nests the declaration under `function`; the Responses surface takes it
+ * flat. Either way it is a name in a list declaring an empty parameter object — never a
+ * tool the model could usefully call. An unrecognized request format yields no tools at
+ * all.
+ */
+function placeholderTools(names: readonly string[], requestFormat: string | null): unknown[] {
   if (requestFormat === "openai-responses") {
-    next.tools = names.map((name) => ({
+    return names.map((name) => ({
       type: "function",
       name,
       description: PLACEHOLDER_TOOL_DESCRIPTION,
       parameters: PLACEHOLDER_TOOL_PARAMETERS,
     }));
-    return next as T;
   }
-
   if (requestFormat === "openai" || requestFormat === null) {
-    next.tools = names.map((name) => ({
+    return names.map((name) => ({
       type: "function",
       function: {
         name,
@@ -233,10 +293,8 @@ export function applyFreeTierRequestContract<T>(
         parameters: PLACEHOLDER_TOOL_PARAMETERS,
       },
     }));
-    return next as T;
   }
-
-  return next as T;
+  return [];
 }
 
 function clientToolNamesOf(body: unknown): string[] {
@@ -257,8 +315,9 @@ function clientToolNamesOf(body: unknown): string[] {
  * Bring one request up to the contract and report what it ended up declaring.
  *
  * Single entry point for the executor: it decides whether the contract applies to this
- * surface and model, resolves the placeholder names, applies the body changes, and hands
- * back the attempt so the outcome can be fed to `noteFreeTierOutcome`.
+ * surface and model, resolves the placeholder names (observed → configured → the default
+ * quartet), applies the body changes, and hands back the attempt so the outcome can be
+ * fed to `noteFreeTierOutcome`.
  */
 export function prepareFreeTierRequest<T>(
   body: T,
@@ -270,8 +329,17 @@ export function prepareFreeTierRequest<T>(
 ): { body: T; attempt: FreeTierContractAttempt | null } {
   const clientToolNames = clientToolNamesOf(body);
   if (!requiresFreeTierRequestContract(surface, provider, model)) return { body, attempt: null };
-  const names = resolvePlaceholderNames(provider, model, session, configuredPlaceholderToolNames());
-  const borrowed = clientToolNames.length === 0 && names.length > 0;
+  const configured = configuredPlaceholderToolNames();
+  const names = resolvePlaceholderNames(provider, model, session, configured);
+  // `borrowed` means the names came from the observation store rather than from the caller,
+  // the operator, or the default quartet — the only case where a refusal says anything
+  // about that store. Names from the store replace the quartet; the quartet itself is rebuilt
+  // from measured fact, so a refusal on it must not charge the store.
+  const storeNames =
+    (session ? getObservedToolNames(provider, model, session) : null) ??
+    getObservedToolNames(provider, model) ??
+    null;
+  const borrowed = clientToolNames.length === 0 && (storeNames?.length ?? 0) > 0;
   return {
     body: applyFreeTierRequestContract(body, requestFormat, names),
     attempt: { provider, model, session, borrowed, clientToolNames },

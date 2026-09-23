@@ -2,10 +2,24 @@
  * OpenCode Zen free-tier request contract.
  *
  * Since 2026-09-17 the free tier answers 403 FreeTierError unless the request carries
- * all four of: `stream: true`, a non-empty `tools` array, an `x-opencode-session` (or
- * `x-session-id`) shaped `ses_` + 12 hex + 14 base62, and a `User-Agent` containing
- * `opencode/<version >= 1.17>`. Removing any one of the four turns a 200 into a 403, and
- * a version below 1.17 answers 426 instead.
+ * a `stream: true`, a `tools` array whose names the upstream currently accepts, an
+ * `x-opencode-session` (or `x-session-id`) shaped `ses_` + 12 hex + 14 base62, and a
+ * `User-Agent` containing `opencode/<version >= 1.17>`. A version below 1.17 answers 426
+ * instead.
+ *
+ * The tools condition is narrower than "a tools array": the upstream inspects WHICH names
+ * are declared (measured 2026-09-19). The default is the official client's own file-search
+ * quartet `{bash, glob, grep, read}`: a generic request with NO tools answers 403 while the
+ * same body carrying the quartet answers 200, and the quartet plus an extra name answers
+ * 200 too. A caller tool list is preserved verbatim and the missing quartet entries are
+ * merged in. `_noop` — the name that used to pass — is refused (measured 2026-09-19), so
+ * the default never guesses it; a name observed on real accepted traffic or configured by
+ * the operator replaces the quartet.
+ *
+ * Measured again on 2026-09-19: the session/request id VALUE is now decoded, not just
+ * shaped — the 12 hex must be the wall-clock encoding the real CLI computes, so arbitrary
+ * hex that used to pass now answers 403 ("can only be used from within OpenCode"). The
+ * synthesized ids are tested separately in opencode-free-tier-session-timestamp-value.test.ts.
  *
  * Measured again on 2026-09-18, and the tools condition is narrower than it first looked:
  * the upstream inspects which names are declared. One made-up name, twelve made-up names
@@ -23,6 +37,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  DEFAULT_FINGERPRINT_TOOL_NAMES,
   applyFreeTierRequestContract,
   configuredPlaceholderToolNames,
   noteFreeTierOutcome,
@@ -79,13 +94,17 @@ test("the surface is told apart by base url, so the `oc` alias needs no special 
   assert.equal(surfaceFromBaseUrl(undefined), "other");
 });
 
-test("chat completions: the contract adds streaming and a placeholder tool, and no tool_choice", () => {
+test("chat completions: with no known names the contract adds the default tool quartet", () => {
+  // Measured 2026-09-19: no tools answers 403 FreeTierError while the official client's
+  // file-search quartet {bash, glob, grep, read} answers 200, so the default is that set
+  // rather than a guessed/empty one. tool_choice is still never imposed.
   const body = applyFreeTierRequestContract(CHAT_BODY(), "openai") as Record<string, unknown>;
   assert.equal(body.stream, true);
-  const tools = body.tools as Array<{ type: string; function: { name: string } }>;
-  assert.equal(tools.length, 1);
-  assert.equal(tools[0].type, "function");
-  assert.equal(tools[0].function.name, "_noop");
+  const tools = body.tools as Array<{ function: { name: string } }>;
+  assert.deepEqual(
+    tools.map((t) => t.function.name),
+    [...DEFAULT_FINGERPRINT_TOOL_NAMES]
+  );
   // The upstream answers 400 `only "auto" is supported for tool_choice` (measured
   // 2026-09-18 on the Chat Completions surface), so none is imposed here either.
   assert.equal("tool_choice" in body, false);
@@ -120,17 +139,23 @@ test("responses: several placeholder names keep the flat shape and no tool_choic
   assert.equal("tool_choice" in body, false);
 });
 
-test("an empty tools array counts as no tools", () => {
-  // It is the exact shape the upstream refuses — the official client sends it on its own
-  // compaction path (upstream anomalyco/opencode#49433).
+test("an empty tools array counts as no tools and is filled with the default quartet", () => {
+  // The official client sends this exact shape on its own compaction path
+  // (upstream anomalyco/opencode#49433). Like an absent `tools`, it is filled — the
+  // upstream refuses it and answers 403 as if no tools were declared, and the missing
+  // quartet entries have to be there for the request to go through.
   const body = applyFreeTierRequestContract({ ...CHAT_BODY(), tools: [] }, "openai") as Record<
     string,
     unknown
   >;
-  assert.equal((body.tools as unknown[]).length, 1);
+  const tools = body.tools as Array<{ function: { name: string } }>;
+  assert.deepEqual(
+    tools.map((t) => t.function.name),
+    [...DEFAULT_FINGERPRINT_TOOL_NAMES]
+  );
 });
 
-test("responses: the placeholder tool is flat and tool_choice stays absent", () => {
+test("responses: with no known names the default quartet keeps the flat shape, tool_choice absent", () => {
   // The upstream Responses surface rejects tool_choice with a 400 invalid_request_error
   // (measured on both "none" and {type:"none"}), so the contract must not send it there.
   const body = applyFreeTierRequestContract(RESPONSES_BODY(), "openai-responses") as Record<
@@ -139,13 +164,16 @@ test("responses: the placeholder tool is flat and tool_choice stays absent", () 
   >;
   assert.equal(body.stream, true);
   const tools = body.tools as Array<{ type: string; name: string }>;
-  assert.equal(tools.length, 1);
-  assert.equal(tools[0].type, "function");
-  assert.equal(tools[0].name, "_noop");
+  assert.deepEqual(
+    tools.map((t) => t.name),
+    [...DEFAULT_FINGERPRINT_TOOL_NAMES]
+  );
   assert.equal("tool_choice" in body, false);
 });
 
-test("client-supplied tools are never replaced, and no tool_choice is imposed", () => {
+test("client-supplied tools are preserved verbatim and the missing quartet entries are merged in", () => {
+  // Measured 2026-09-19: the quartet plus an extra declared name answers 200, so a caller
+  // list is kept as it is and only the missing quartet entries are appended.
   const clientTools = [
     { type: "function", function: { name: "search", parameters: { type: "object" } } },
   ];
@@ -153,8 +181,28 @@ test("client-supplied tools are never replaced, and no tool_choice is imposed", 
     { ...CHAT_BODY(), tools: clientTools },
     "openai"
   ) as Record<string, unknown>;
-  assert.deepEqual(body.tools, clientTools);
+  const tools = body.tools as Array<{ function: { name: string; parameters?: object } }>;
+  assert.deepEqual(tools[0], clientTools[0], "the caller tool is untouched");
+  assert.deepEqual(
+    tools.slice(1).map((t) => t.function.name),
+    [...DEFAULT_FINGERPRINT_TOOL_NAMES]
+  );
   assert.equal("tool_choice" in body, false);
+  assert.equal(body.stream, true);
+});
+
+test("a caller that already declares the full quartet changes nothing", () => {
+  const clientTools = [
+    { type: "function", function: { name: "bash" } },
+    { type: "function", function: { name: "glob" } },
+    { type: "function", function: { name: "grep" } },
+    { type: "function", function: { name: "read" } },
+  ];
+  const body = applyFreeTierRequestContract(
+    { ...CHAT_BODY(), tools: clientTools },
+    "openai"
+  ) as Record<string, unknown>;
+  assert.deepEqual(body.tools, clientTools);
   assert.equal(body.stream, true);
 });
 
@@ -166,10 +214,13 @@ test("a client tool_choice is preserved", () => {
   assert.equal(body.tool_choice, "auto");
 });
 
-test("applying the contract twice does not duplicate the placeholder tool", () => {
-  const once = applyFreeTierRequestContract(CHAT_BODY(), "openai");
+test("applying the contract twice keeps a placeholder and fills the missing quartet, no duplicates", () => {
+  const once = applyFreeTierRequestContract(CHAT_BODY(), "openai", ["read"]);
   const twice = applyFreeTierRequestContract(once, "openai") as Record<string, unknown>;
-  assert.equal((twice.tools as unknown[]).length, 1);
+  const tools = twice.tools as Array<{ function: { name: string } }>;
+  const names = tools.map((t) => t.function.name);
+  assert.equal(new Set(names).size, names.length, "no name is duplicated");
+  assert.deepEqual(names, ["read", "bash", "glob", "grep"]);
 });
 
 test("an unknown body format only gets the streaming flag", () => {
@@ -300,7 +351,12 @@ test("transformRequest: the contract is applied for a free model and skipped for
     null as never
   ) as Record<string, unknown>;
   assert.equal(free.stream, true);
-  assert.equal((free.tools as unknown[]).length, 1);
+  // Nothing observed/configured: the default quartet is used (measured 2026-09-19).
+  const freeTools = free.tools as Array<{ function: { name: string } }>;
+  assert.deepEqual(
+    freeTools.map((t) => t.function.name),
+    [...DEFAULT_FINGERPRINT_TOOL_NAMES]
+  );
 
   const paid = executor.transformRequest(
     "gpt-5.6-luna",
@@ -342,7 +398,12 @@ test("a JSON caller gets a JSON body back even though the upstream request was s
     })) as { response: Response };
 
     assert.equal(seen[0]?.stream, true, "the upstream request was streamed");
-    assert.equal((seen[0]?.tools as unknown[]).length, 1, "and carried the placeholder tool");
+    // Nothing observed/configured: it carried the default quartet (measured 2026-09-19).
+    const seenTools = seen[0]?.tools as Array<{ function: { name: string } }>;
+    assert.deepEqual(
+      seenTools.map((t) => t.function.name),
+      [...DEFAULT_FINGERPRINT_TOOL_NAMES]
+    );
     assert.match(result.response.headers.get("content-type") ?? "", /application\/json/);
     const json = (await result.response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
@@ -460,7 +521,11 @@ test("configured placeholder names are parsed, bad entries dropped, unset stays 
   }
 });
 
-test("with nothing observed and nothing configured, the built-in placeholder is used", () => {
+test("with nothing observed and nothing configured, the default quartet goes out and nothing is borrowed", () => {
+  // Measured 2026-09-19: the official client's own quartet {bash, glob, grep, read} answers
+  // 200 on a request that answers 403 with no tools, so a bare request carries the quartet.
+  // The quartet is rebuilt from measured fact, not learned, so a refusal on it must not be
+  // charged against the store either.
   _resetToolObservationForTests();
   const { body, attempt } = prepareFreeTierRequest(
     CHAT_BODY(),
@@ -472,9 +537,8 @@ test("with nothing observed and nothing configured, the built-in placeholder is 
   const tools = (body as Record<string, unknown>).tools as Array<{ function: { name: string } }>;
   assert.deepEqual(
     tools.map((t) => t.function.name),
-    ["_noop"]
+    [...DEFAULT_FINGERPRINT_TOOL_NAMES]
   );
-  // Nothing was borrowed, so a refusal here must not be charged against the store.
   assert.equal(attempt?.borrowed, false);
 });
 

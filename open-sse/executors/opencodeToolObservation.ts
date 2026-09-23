@@ -139,7 +139,11 @@ export function getObservedToolNames(
  *
  * Order of resolution: what this very conversation was last seen declaring, then what any
  * conversation on this surface and model was, then what the operator configured, then
- * nothing — which leaves the caller on the built-in placeholder.
+ * `DEFAULT_FINGERPRINT_TOOL_NAMES` — the official client's own `{bash, glob, grep, read}`
+ * quartet, which answers 200 on a request that answers 403 with no tools (measured
+ * 2026-09-19). The callers of this helper feed the resolved names straight into
+ * `applyFreeTierRequestContract`, which is where the no-names-at-all case falls back to
+ * the quartet.
  *
  * The first step is the one that matters. The official client sends its service requests —
  * title generation, compaction — without tools while the build requests of the same
