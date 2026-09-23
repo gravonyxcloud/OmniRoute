@@ -56,10 +56,11 @@ echo "INITIAL_PASSWORD=$(openssl rand -hex 24)" >> .env
 ```
 
 If you skip this: `JWT_SECRET`/`API_KEY_SECRET` are auto-generated and
-persisted on first boot, and the dashboard requires setup from `localhost`
-before it accepts any password — safer than a literal default, but a real
-`INITIAL_PASSWORD` is still recommended so a non-interactive first boot has
-a known credential to log in with.
+persisted on first boot. When no `.env` exists anywhere, the bootstrap creates
+one in the data dir with the default `INITIAL_PASSWORD=CHANGEME` (the
+non-loopback login gate keeps that well-known default unreachable remotely),
+so a real `INITIAL_PASSWORD` in your project `.env` remains the recommended
+path for a non-interactive first boot with a known credential.
 
 ### 4. Mount the project .env for secrets
 

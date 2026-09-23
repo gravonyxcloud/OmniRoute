@@ -4,11 +4,14 @@
  *
  * Auto-generates required secrets (JWT_SECRET, STORAGE_ENCRYPTION_KEY) if
  * missing or empty, persists them to {DATA_DIR}/server.env so they survive
- * restarts, Docker volume remounts, and upgrades. Also auto-setups a safe
- * management password (#13679): generates a random INITIAL_PASSWORD when none
- * (or only the well-known "CHANGEME") is configured, and rotates any stored
- * bcrypt hash that still verifies "CHANGEME" — a zero-config deploy never
- * boots remotely-loginable with a well-known default.
+ * restarts, Docker volume remounts, and upgrades. The management password is
+ * operator-owned: INITIAL_PASSWORD set in .env or process.env is respected
+ * verbatim — bootstrap never generates or rotates a random one. When no .env
+ * exists anywhere, bootstrap creates one (in DATA_DIR) with the default
+ * INITIAL_PASSWORD=CHANGEME so every install has a visible file to edit. A
+ * stored bcrypt hash that still verifies "CHANGEME" is rotated ONLY to a strong
+ * INITIAL_PASSWORD supplied by the operator (the non-loopback login gate keeps
+ * CHANGEME unreachable remotely, so the well-known default stays safe).
  *
  * Works across all deployment modes:
  *   - npm / app runners:  called from run-standalone.mjs and run-next.mjs
@@ -190,19 +193,17 @@ function writeEnvFile(filePath, env) {
   writeFileSync(filePath, lines.join("\n"), "utf8");
 }
 
-// ── Management password auto-setup (#13679: never boot well-known default) ────
-// A zero-config deploy must never boot remotely-loginable with the well-known
-// "CHANGEME". When no strong INITIAL_PASSWORD is configured we generate a random
-// one and persist it to server.env (survives restarts + volume remounts). When a
-// stored bcrypt hash still verifies "CHANGEME" we rotate it in place — healing
-// volumes that were first booted before this bootstrap existed.
+// ── Management password (#13679: operator-owned, never a hidden random) ───────
+// The operator alone owns the dashboard password. bootstrap NEVER generates a
+// random one. A strong INITIAL_PASSWORD set in .env / process.env is
+// authoritative and the stored bcrypt hash is kept in sync with it, so the .env
+// password is the password that logs in (healing volumes whose hash still
+// verifies "CHANGEME" or that older bootstraps handed a random). When no .env
+// exists anywhere, bootstrap creates DATA_DIR/.env with the well-known default
+// so every install has a visible file to edit. INITIAL_PASSWORD written to
+// server.env by older bootstraps is ignored and cleaned up on the next rewrite.
 const WELL_KNOWN_DEFAULT_PASSWORD = "CHANGEME";
 const MANAGEMENT_PASSWORD_SALT_ROUNDS = 12;
-
-function generateRandomManagementPassword() {
-  // 32 hex chars from 16 random bytes — never an easily-guessable default.
-  return randomBytes(16).toString("hex");
-}
 
 function isStoredHashOf(password, hash, log) {
   if (typeof hash !== "string" || hash.length === 0 || !hash.startsWith("$2")) return false;
@@ -352,37 +353,54 @@ export function bootstrapEnv({ dataDirOverride, quiet = false } = {}) {
     log("✨ API_KEY_SECRET auto-generated (first run)");
   }
 
-  // ── Auto-setup a safe management password (never a well-known default) ──────
-  // Runs BEFORE the persist block below so a generated password lands in
-  // server.env like the other auto-generated secrets. Stored-hash rotation is
-  // deliberate: while a bcrypt hash exists, INITIAL_PASSWORD is ignored by
-  // ensurePersistentManagementPasswordHash, so only a DB-side rotation heals a
-  // volume whose login hash still verifies "CHANGEME".
+  // ── Management password: respect .env / create .env with default ───────────
+  // Policy (operator request, replaces the #13679 random-password generation):
+  //   1. A strong INITIAL_PASSWORD set in .env or process.env is used verbatim —
+  //      never replaced by a random one. If the stored bcrypt hash still verifies
+  //      "CHANGEME", it is rotated to that supplied password so the .env value
+  //      actually logs in (a stored hash would otherwise win).
+  //   2. When no .env file exists anywhere and no strong INITIAL_PASSWORD is
+  //      supplied, bootstrap CREATES the preferred .env with the default
+  //      INITIAL_PASSWORD=CHANGEME — a visible file the operator can edit.
   const storedManagementPasswordHash = readStoredManagementPasswordHash(dataDir, log);
   const suppliedPassword = merged.INITIAL_PASSWORD?.trim();
+  const isStrongSuppliedPassword =
+    !!suppliedPassword && suppliedPassword !== WELL_KNOWN_DEFAULT_PASSWORD;
 
-  if (
-    storedManagementPasswordHash &&
-    isStoredHashOf(WELL_KNOWN_DEFAULT_PASSWORD, storedManagementPasswordHash, log)
-  ) {
-    const rotated = generateRandomManagementPassword();
-    if (rotateStoredManagementPasswordHash(dataDir, rotated, log)) {
-      merged.INITIAL_PASSWORD = rotated;
-      log(
-        `🔑 Stored default management password rotated. Save it now — new management password: ${rotated}`
-      );
+  // Older bootstraps persisted a generated INITIAL_PASSWORD into server.env —
+  // drop it there so it can never win over .env / process.env on a future boot.
+  delete persisted.INITIAL_PASSWORD;
+
+  if (isStrongSuppliedPassword) {
+    if (
+      storedManagementPasswordHash &&
+      !isStoredHashOf(suppliedPassword, storedManagementPasswordHash, log)
+    ) {
+      if (rotateStoredManagementPasswordHash(dataDir, suppliedPassword, log)) {
+        log(
+          `🔑 Stored management password synced to the supplied INITIAL_PASSWORD from ${
+            preferredEnvPath ?? "the environment"
+          }.`
+        );
+      }
     }
   } else if (
-    !storedManagementPasswordHash &&
-    (!suppliedPassword || suppliedPassword === WELL_KNOWN_DEFAULT_PASSWORD)
+    !preferredEnvPath &&
+    (!storedManagementPasswordHash ||
+      isStoredHashOf(WELL_KNOWN_DEFAULT_PASSWORD, storedManagementPasswordHash, log))
   ) {
-    const generated = generateRandomManagementPassword();
-    persisted.INITIAL_PASSWORD = generated;
-    merged.INITIAL_PASSWORD = generated;
-    needsPersist = true;
-    log(
-      `🔑 Management password auto-generated (no strong INITIAL_PASSWORD provided). Save it now — management password: ${generated}`
-    );
+    const defaultEnvPath = join(dataDir, ".env");
+    try {
+      mkdirSync(dataDir, { recursive: true });
+      writeEnvFile(defaultEnvPath, { INITIAL_PASSWORD: WELL_KNOWN_DEFAULT_PASSWORD });
+      merged.INITIAL_PASSWORD = WELL_KNOWN_DEFAULT_PASSWORD;
+      log(
+        `🔑 No .env found — created ${defaultEnvPath} with INITIAL_PASSWORD=${WELL_KNOWN_DEFAULT_PASSWORD}. ` +
+          "Edit this file (or set INITIAL_PASSWORD elsewhere) to define the management password."
+      );
+    } catch (error) {
+      log(`⚠️  Could not create ${defaultEnvPath}: ${error.message}`);
+    }
   }
 
   // ── Persist new secrets ────────────────────────────────────────────────────

@@ -95,7 +95,7 @@ The warnings come from stale peer-dependency ranges in third-party packages Omni
 
 | Problem                                                    | Solution                                                                                                                                                  |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| First login not working                                    | Set `INITIAL_PASSWORD` in `.env` (no hardcoded default)                                                                                                   |
+| First login not working                                    | Set `INITIAL_PASSWORD` in `.env`; if none exists, bootstrap creates `.env` in `DATA_DIR` with `CHANGEME` (see SELF_HOST_GUIDE)                            |
 | Dashboard opens on wrong port                              | Set `PORT=20128` and `NEXT_PUBLIC_BASE_URL=http://localhost:20128`                                                                                        |
 | No logs written to disk                                    | Set `APP_LOG_TO_FILE=true` and verify call log capture is enabled                                                                                         |
 | EACCES: permission denied                                  | Set `DATA_DIR=/path/to/writable/dir` to override `~/.omniroute`                                                                                           |

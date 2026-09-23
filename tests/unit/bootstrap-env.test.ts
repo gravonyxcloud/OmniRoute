@@ -64,11 +64,6 @@ function readStoredPassword(dbPath) {
   }
 }
 
-function assertStrongPassword(password) {
-  assert.ok(typeof password === "string" && password.length >= 8, "expected a strong password");
-  assert.notEqual(password, "CHANGEME");
-}
-
 function withTempEnv(fn) {
   const originalCwd = process.cwd();
   const originalEnv = { ...process.env };
@@ -218,24 +213,25 @@ test("bootstrapEnv ignores blank dataDirOverride values", () => {
   });
 });
 
-test("bootstrapEnv auto-generates a random management password when INITIAL_PASSWORD is unset (#13679)", () => {
+test("bootstrapEnv creates DATA_DIR/.env with the default CHANGEME password when no .env exists (#13679)", () => {
   withTempEnv(({ dataDir }) => {
     process.env.DATA_DIR = dataDir;
     fs.mkdirSync(dataDir, { recursive: true });
 
     const env = bootstrapEnv({ quiet: true });
 
-    assertStrongPassword(env.INITIAL_PASSWORD);
-    const serverEnv = fs.readFileSync(path.join(dataDir, "server.env"), "utf8");
-    const persistedLine = serverEnv
-      .split(/\r?\n/)
-      .find((line) => line.startsWith("INITIAL_PASSWORD="));
-    assert.ok(persistedLine, "generated password must be persisted to server.env");
-    assert.equal(persistedLine.split("=")[1], env.INITIAL_PASSWORD);
+    const dotEnvPath = path.join(dataDir, ".env");
+    assert.ok(fs.existsSync(dotEnvPath), "a .env must be created in DATA_DIR");
+    const dotEnv = fs.readFileSync(dotEnvPath, "utf8");
+    assert.ok(
+      dotEnv.includes("INITIAL_PASSWORD=CHANGEME"),
+      "created .env must carry the default INITIAL_PASSWORD=CHANGEME"
+    );
+    assert.equal(env.INITIAL_PASSWORD, "CHANGEME");
   });
 });
 
-test("bootstrapEnv replaces an explicit CHANGEME INITIAL_PASSWORD with a random one (#13679)", () => {
+test("bootstrapEnv respects an explicit CHANGEME INITIAL_PASSWORD and never randomizes it (#13679)", () => {
   withTempEnv(({ dataDir }) => {
     process.env.DATA_DIR = dataDir;
     process.env.INITIAL_PASSWORD = "CHANGEME";
@@ -243,11 +239,11 @@ test("bootstrapEnv replaces an explicit CHANGEME INITIAL_PASSWORD with a random 
 
     const env = bootstrapEnv({ quiet: true });
 
-    assertStrongPassword(env.INITIAL_PASSWORD);
+    assert.equal(env.INITIAL_PASSWORD, "CHANGEME");
   });
 });
 
-test("bootstrapEnv keeps a strong operator-provided INITIAL_PASSWORD (#13679)", () => {
+test("bootstrapEnv keeps a strong operator-provided INITIAL_PASSWORD verbatim (#13679)", () => {
   withTempEnv(({ dataDir }) => {
     process.env.DATA_DIR = dataDir;
     process.env.INITIAL_PASSWORD = "UmaSenhaBemForte123";
@@ -259,24 +255,42 @@ test("bootstrapEnv keeps a strong operator-provided INITIAL_PASSWORD (#13679)", 
   });
 });
 
-test("bootstrapEnv rotates a stored hash that verifies CHANGEME (#13679)", () => {
+test("bootstrapEnv rotates a stored CHANGEME hash to a strong supplied INITIAL_PASSWORD (#13679)", () => {
   withTempEnv(({ dataDir }) => {
     process.env.DATA_DIR = dataDir;
+    process.env.INITIAL_PASSWORD = "UmaSenhaBemForte123";
     fs.mkdirSync(dataDir, { recursive: true });
     const dbPath = path.join(dataDir, "storage.sqlite");
     seedSettingsPassword(dbPath, "CHANGEME");
 
     const env = bootstrapEnv({ quiet: true });
 
-    assertStrongPassword(env.INITIAL_PASSWORD);
+    assert.equal(env.INITIAL_PASSWORD, "UmaSenhaBemForte123");
     const storedHash = readStoredPassword(dbPath);
-    assert.ok(storedHash, "expected a stored password hash after rotation");
-    assert.equal(bcrypt.compareSync(env.INITIAL_PASSWORD, storedHash), true);
+    assert.ok(storedHash, "expected a stored password hash");
+    assert.equal(bcrypt.compareSync("UmaSenhaBemForte123", storedHash), true);
     assert.equal(bcrypt.compareSync("CHANGEME", storedHash), false);
   });
 });
 
-test("bootstrapEnv leaves a stored hash that is not CHANGEME untouched (#13679)", () => {
+test("bootstrapEnv syncs a previously-random stored hash to the .env INITIAL_PASSWORD (#13679)", () => {
+  withTempEnv(({ dataDir }) => {
+    process.env.DATA_DIR = dataDir;
+    process.env.INITIAL_PASSWORD = "UmaSenhaBemForte123";
+    fs.mkdirSync(dataDir, { recursive: true });
+    const dbPath = path.join(dataDir, "storage.sqlite");
+    seedSettingsPassword(dbPath, "randomOldPass456");
+
+    const env = bootstrapEnv({ quiet: true });
+
+    assert.equal(env.INITIAL_PASSWORD, "UmaSenhaBemForte123");
+    const storedHash = readStoredPassword(dbPath);
+    assert.equal(bcrypt.compareSync("UmaSenhaBemForte123", storedHash), true);
+    assert.equal(bcrypt.compareSync("randomOldPass456", storedHash), false);
+  });
+});
+
+test("bootstrapEnv leaves a stored strong hash untouched when no INITIAL_PASSWORD is supplied (#13679)", () => {
   withTempEnv(({ dataDir }) => {
     process.env.DATA_DIR = dataDir;
     fs.mkdirSync(dataDir, { recursive: true });
