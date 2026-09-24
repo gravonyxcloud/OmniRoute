@@ -52,6 +52,14 @@ ENV DASHBOARD_ALLOW_EMBED=$DASHBOARD_ALLOW_EMBED
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# Build-time memory budget: mirror main Dockerfile to avoid OOM on 16 GB runners
+# Turbopack is native/Rust and compiles outside V8 heap; worker RSS ~4.5 GB per process.
+# See docker-build-memory-budget.test.ts for the measured arithmetic.
+ARG OMNIROUTE_BUILD_MEMORY_MB=6144
+ENV NODE_OPTIONS="--max-old-space-size=${OMNIROUTE_BUILD_MEMORY_MB}"
+ARG OMNIROUTE_BUILD_WORKERS=2
+ENV CIRCLE_NODE_TOTAL=${OMNIROUTE_BUILD_WORKERS}
+
 # Bun native Next.js build execution
 RUN bun run --quiet build
 

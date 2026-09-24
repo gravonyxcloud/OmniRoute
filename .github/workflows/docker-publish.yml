@@ -86,28 +86,15 @@ jobs:
             exit 0
           fi
 
-          # 2) Decide whether to promote :latest. Floating channels are never
-          # eligible, and the helper independently fails closed for non-semver.
+          # 2) Fork convention: every published versioned build moves :latest / :latest-web.
+          # Floating channels (main, next) keep their own tags and never grab :latest.
           PROMOTE="false"
           if [ "$VERSION" = "main" ] || [ "$VERSION" = "next" ]; then
             PROMOTE="false"
-          elif printf '%s' "$VERSION" | grep -qE -- '-(rc|alpha|beta|pre|next)'; then
-            echo "Pre-release identifier detected — skipping :latest."
-            PROMOTE="false"
           elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            # Fork convention: every manual publish becomes :latest / :latest-web
-            # unless explicitly disabled at dispatch time.
             PROMOTE="${PROMOTE_INPUT:-true}"
           else
-            git fetch --tags --quiet || true
-            # Decide via the extracted helper, which folds VERSION into the
-            # candidate set so the result is independent of git-tag sync timing
-            # on `release` events (#5301). Without that, the freshly-created tag
-            # is often not yet visible here and :latest stays a release behind.
-            PROMOTE=$(git tag -l 'v[0-9]*' | bash scripts/ci/should-promote-latest.sh "$VERSION")
-            if [ "$PROMOTE" != "true" ]; then
-              echo "Version $VERSION is not the highest stable semver. Not promoting :latest."
-            fi
+            PROMOTE="true"
           fi
           echo "promote_latest=$PROMOTE" >> "$GITHUB_OUTPUT"
 
@@ -287,6 +274,7 @@ jobs:
           DOCKER_BUILDKIT_INLINE_CACHE: 1
 
       - name: Export digests
+        if: always() && steps.build.outputs.digest != '' && steps.build-web.outputs.digest != ''
         env:
           DIGEST_BASE: ${{ steps.build.outputs.digest }}
           DIGEST_WEB: ${{ steps.build-web.outputs.digest }}
@@ -308,6 +296,7 @@ jobs:
           fi
 
       - name: Upload base digests
+        if: always() && steps.build.outputs.digest != ''
         uses: actions/upload-artifact@v7
         with:
           name: digests-base-${{ matrix.arch }}
@@ -316,6 +305,7 @@ jobs:
           retention-days: 1
 
       - name: Upload web digests
+        if: always() && steps.build-web.outputs.digest != ''
         uses: actions/upload-artifact@v7
         with:
           name: digests-web-${{ matrix.arch }}
@@ -324,6 +314,7 @@ jobs:
           retention-days: 1
 
       - name: Upload bun-base digests
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: digests-bun-base-${{ matrix.arch }}
@@ -336,6 +327,7 @@ jobs:
           retention-days: 1
 
       - name: Upload bun-web digests
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: digests-bun-web-${{ matrix.arch }}
