@@ -8,6 +8,10 @@
 
 ---
 
+## [3.8.56] — TBD
+
+- ChatGPT Web bridge loader now respects the page content security policy.
+
 ## [3.8.51] — TBD
 
 _Living section — reconciled 2026-09-15 from all cycle commits (`091589089c` → `c0f92ec98a`, 916 non-merge commits). Bullets carry the merged PR and its author; direct pushes are listed with their commit hash. Regenerated at each `/generate-release` phase._
