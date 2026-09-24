@@ -7,6 +7,7 @@ import {
   normalizeChatGptWebStorageState,
   prepareChatGptWebBrowserRequest,
   resolveChatGptWebChromeExecutable,
+  shouldUseHeadlessChatGptWebBrowser,
 } from "../../open-sse/utils/chatgptWebExecutorAdapter.ts";
 import { resolveChatGptWebAttachments } from "../../open-sse/utils/chatgptWebAttachments.ts";
 import type { ChatGptWebBrowserSession } from "../../open-sse/utils/chatgptWebBrowserSession.ts";
@@ -252,6 +253,11 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
 });
 
 describe("ChatGPT Web clean-room storage state", () => {
+  test("uses headless Chromium in containers that have no display server", () => {
+    assert.equal(shouldUseHeadlessChatGptWebBrowser(true), true);
+    assert.equal(shouldUseHeadlessChatGptWebBrowser(false), false);
+  });
+
   test("prefers an explicit installed Chrome path for the headed first-party session", () => {
     const checked: string[] = [];
     const resolved = resolveChatGptWebChromeExecutable("/custom/chrome", {

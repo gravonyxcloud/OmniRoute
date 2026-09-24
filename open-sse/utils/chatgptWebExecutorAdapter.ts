@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import { isRunningInContainer } from "../../src/shared/utils/containerEnv.ts";
 import { acquireBrowserContext, openPage } from "../services/browserPool.ts";
 import type { ExecuteInput, ProviderCredentials } from "../executors/base.ts";
 import {
@@ -388,6 +389,20 @@ export function resolveChatGptWebChromeExecutable(
   );
 }
 
+/**
+ * The desktop flow deliberately uses a headed browser because it most closely
+ * matches an interactive ChatGPT session. Docker hosts such as EasyPanel do
+ * not provide an X display, however, so Chromium exits immediately when asked
+ * to create a window. BrowserPool already supplies the Docker-safe sandbox and
+ * shared-memory flags; selecting headless here keeps that same browser path
+ * usable in a container.
+ */
+export function shouldUseHeadlessChatGptWebBrowser(
+  runningInContainer = isRunningInContainer()
+): boolean {
+  return runningInContainer;
+}
+
 async function createDefaultSession(
   input: ChatGptWebSessionFactoryInput
 ): Promise<ChatGptWebBrowserSession> {
@@ -404,7 +419,7 @@ async function createDefaultSession(
     timezone: input.timezone,
     proxyProviderKey: "chatgpt-web",
     warmupUrl: CHATGPT_WEB_PAGE_URL,
-    headless: false,
+    headless: shouldUseHeadlessChatGptWebBrowser(),
     executablePath: input.chromeExecutablePath,
   });
   const page =

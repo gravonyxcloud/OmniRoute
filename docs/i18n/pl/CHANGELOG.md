@@ -8,6 +8,10 @@
 
 ---
 
+## [3.8.59] — TBD
+
+- **fix(chatgpt-web):** launch Chromium headlessly when OmniRoute runs in a container, preventing EasyPanel and other display-less Docker deployments from closing the browser before ChatGPT model tests start.
+
 ## [3.8.58] — TBD
 
 - **fix(release):** use the per-platform Electron standalone build while the shared archive packer is unstable, allowing desktop release jobs to proceed without the failing cross-platform packing step.
