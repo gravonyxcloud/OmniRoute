@@ -293,26 +293,6 @@ async function discoverFirstPartyModule(page: Page): Promise<FirstPartyModuleRes
   });
 }
 
-function buildBridgeModuleSource(
-  assetUrl: string,
-  contract: ChatGptWebFirstPartyModuleContract
-): string {
-  const urlLiteral = JSON.stringify(requireChatGptAssetUrl(assetUrl));
-  const contractLiteral = JSON.stringify(contract);
-  const keyLiteral = JSON.stringify(FIRST_PARTY_BRIDGE_KEY);
-  return [
-    `import * as upstream from ${urlLiteral};`,
-    `const names = ${contractLiteral};`,
-    `window[${keyLiteral}] = {`,
-    `finalizeRequirements: upstream[names.finalizeRequirements],`,
-    `proofManager: upstream[names.proofManager],`,
-    `turnstileManager: upstream[names.turnstileManager],`,
-    `requestClient: upstream[names.requestClient],`,
-    `buildSentinelHeaders: upstream[names.buildSentinelHeaders]`,
-    `};`,
-  ].join("");
-}
-
 async function ensureFirstPartyBridge(page: Page): Promise<void> {
   const ready = await page.evaluate((key) => {
     const root = globalThis as typeof globalThis & Record<string, unknown>;
@@ -321,31 +301,25 @@ async function ensureFirstPartyBridge(page: Page): Promise<void> {
   if (ready) return;
 
   const { assetUrl, contract } = await discoverFirstPartyModule(page);
-  const moduleSource = buildBridgeModuleSource(assetUrl, contract);
   await page.evaluate(
-    ({ bridgeKey, moduleSource: source }) =>
-      new Promise<void>((resolve, reject) => {
-        const root = globalThis as typeof globalThis & Record<string, unknown>;
-        if (typeof root[bridgeKey] === "object" && root[bridgeKey] !== null) {
-          resolve();
-          return;
-        }
-        const blobUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
-        const script = document.createElement("script");
-        script.type = "module";
-        script.src = blobUrl;
-        script.onload = () => {
-          URL.revokeObjectURL(blobUrl);
-          if (typeof root[bridgeKey] === "object" && root[bridgeKey] !== null) resolve();
-          else reject(new Error("ChatGPT Web first-party bridge did not initialize"));
-        };
-        script.onerror = () => {
-          URL.revokeObjectURL(blobUrl);
-          reject(new Error("ChatGPT Web first-party bridge module failed to load"));
-        };
-        document.head.appendChild(script);
-      }),
-    { bridgeKey: FIRST_PARTY_BRIDGE_KEY, moduleSource }
+    async ({ bridgeKey, assetUrl: url, contract: names }) => {
+      const root = globalThis as typeof globalThis & Record<string, unknown>;
+      if (typeof root[bridgeKey] === "object" && root[bridgeKey] !== null) return;
+
+      // Import the validated first-party URL in the page's module context. A blob
+      // script is rejected by ChatGPT's CSP even when its imported asset is allowed.
+      // Keep this import native: the callback is serialized and runs in Chromium,
+      // where server-side bundler helpers are unavailable.
+      const upstream = await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ url);
+      root[bridgeKey] = {
+        finalizeRequirements: upstream[names.finalizeRequirements],
+        proofManager: upstream[names.proofManager],
+        turnstileManager: upstream[names.turnstileManager],
+        requestClient: upstream[names.requestClient],
+        buildSentinelHeaders: upstream[names.buildSentinelHeaders],
+      };
+    },
+    { bridgeKey: FIRST_PARTY_BRIDGE_KEY, assetUrl: requireChatGptAssetUrl(assetUrl), contract }
   );
 }
 
