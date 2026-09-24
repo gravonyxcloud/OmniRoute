@@ -6,6 +6,10 @@
 
 ## [3.8.31] — 2026-06-20
 
+## [3.8.58] — TBD
+
+- **fix(release):** use the per-platform Electron standalone build while the shared archive packer is unstable, allowing desktop release jobs to proceed without the failing cross-platform packing step.
+
 ## [3.8.57] — TBD
 
 - **fix(chatgpt-web):** recover an incomplete first-party bridge left by a page refresh or hot reload, so ChatGPT Web models continue to work in Combo health checks and OpenAI-compatible `/v1` requests. Extend the Combo smoke-test window for `gpt-5-6-pro` to 120 seconds.

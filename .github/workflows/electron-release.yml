@@ -73,11 +73,11 @@ jobs:
     # once on ubuntu; every leg then restores the byte-verified archive and
     # re-forks its native optionals (scripts/build/standaloneBundle.mjs).
     #
-    # Rollback lever: set the repo variable ELECTRON_SHARED_STANDALONE=disabled.
-    # This job then skips, every leg falls back to building its own web bundle
-    # (the legacy step below), and the pipeline behaves exactly like pre-Stage 8 —
-    # no revert needed.
-    if: ${{ !cancelled() && needs.validate.result == 'success' && vars.ELECTRON_SHARED_STANDALONE != 'disabled' }}
+    # The shared archive has failed repeatedly while packing a valid standalone
+    # tree. Keep it opt-in until that packer is repaired: each platform already
+    # has the legacy standalone-build fallback below, which avoids making the
+    # whole desktop release depend on one cross-platform archive.
+    if: ${{ !cancelled() && needs.validate.result == 'success' && vars.ELECTRON_SHARED_STANDALONE == 'enabled' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
