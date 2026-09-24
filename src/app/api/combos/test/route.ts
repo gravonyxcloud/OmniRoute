@@ -13,6 +13,17 @@ import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 
 export const COMBO_TEST_TIMEOUT_MS = 60_000;
 export const COMBO_TEST_TOTAL_TIMEOUT_MS = 180_000;
+const CHATGPT_WEB_PRO_TIMEOUT_MS = 120_000;
+
+function comboTargetTimeoutMs(target: ResolvedComboTarget): number {
+  // The Pro picker performs an upstream reasoning pass before producing even a
+  // tiny smoke-test reply. Its normal first token can exceed the generic
+  // provider probe window, which made a healthy ChatGPT Web Pro connection
+  // appear broken only in Combo tests.
+  return target.provider === "chatgpt-web" && /(?:^|\/)gpt-5-6-pro$/i.test(target.modelStr)
+    ? CHATGPT_WEB_PRO_TIMEOUT_MS
+    : COMBO_TEST_TIMEOUT_MS;
+}
 
 async function getInternalApiKey(): Promise<string | null> {
   // Combo health-check probes hit /v1/chat/completions, which enforces
@@ -57,6 +68,7 @@ async function testComboTarget(
   parentSignal: AbortSignal | null = null
 ) {
   const startTime = Date.now();
+  const timeoutMs = comboTargetTimeoutMs(target);
   try {
     // Issue #2359: combo entries with a malformed/missing modelStr surfaced
     // as `e.startsWith is not a function` / similar TypeError 500s. Coerce
@@ -79,7 +91,7 @@ async function testComboTarget(
     const testBody = buildComboTestRequestBody(modelStr, isEmbedding);
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), COMBO_TEST_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const combinedSignal = parentSignal
       ? AbortSignal.any([parentSignal, controller.signal])
       : controller.signal;
@@ -151,7 +163,7 @@ async function testComboTarget(
       errorMessage =
         parentSignal?.aborted === true
           ? sanitizeErrorMessage("Client disconnected")
-          : `Timeout (${COMBO_TEST_TIMEOUT_MS / 1000}s)`;
+          : `Timeout (${timeoutMs / 1000}s)`;
     } else {
       errorMessage = sanitizeErrorMessage(err.message);
     }

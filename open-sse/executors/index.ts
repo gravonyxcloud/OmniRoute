@@ -187,7 +187,11 @@ const lazyExecutors: Record<string, () => Promise<BaseExecutor>> = {
 // aliases fail at module load, exactly as loudly as a duplicate object key
 // would have failed at lint time. Instances materialize on first use (#11220).
 for (const [alias, load] of Object.entries(lazyExecutors)) {
-  registerLazyExecutor(alias, load);
+  // Turbopack can re-evaluate this module during a hot update while preserving
+  // the registry module instance. The aliases are immutable built-ins, so an
+  // existing registration is the same declaration from the prior evaluation;
+  // keep it instead of terminating the dev server with a duplicate-alias error.
+  if (!hasRegisteredExecutor(alias)) registerLazyExecutor(alias, load);
 }
 
 // #6699 — providers that exist ONLY as Cloud Agent task-API entries

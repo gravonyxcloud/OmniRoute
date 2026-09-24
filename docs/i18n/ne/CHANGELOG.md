@@ -94,6 +94,10 @@
 - **feat(cli):** run `omniroute serve --tray` as a detached desktop process after server and tray readiness, with graphical login auto-start support.
 - **feat(routing):** add client-, provider-, and model-neutral exclusive managed session connection leases with API-key-bound generation fencing, durable SQLite ownership, explicit allowlist policy, and bounded 429 capacity retry semantics.
 
+## [3.8.57] — TBD
+
+- **fix(chatgpt-web):** recover an incomplete first-party bridge left by a page refresh or hot reload, so ChatGPT Web models continue to work in Combo health checks and OpenAI-compatible `/v1` requests. Extend the Combo smoke-test window for `gpt-5-6-pro` to 120 seconds.
+
 ## [3.8.56] — TBD
 
 - ChatGPT Web bridge loader now respects the page content security policy.

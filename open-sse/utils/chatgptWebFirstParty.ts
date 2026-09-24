@@ -296,7 +296,21 @@ async function discoverFirstPartyModule(page: Page): Promise<FirstPartyModuleRes
 async function ensureFirstPartyBridge(page: Page): Promise<void> {
   const ready = await page.evaluate((key) => {
     const root = globalThis as typeof globalThis & Record<string, unknown>;
-    return typeof root[key] === "object" && root[key] !== null;
+    const bridge = root[key] as {
+      finalizeRequirements?: unknown;
+      proofManager?: { getEnforcementToken?: unknown };
+      turnstileManager?: { getEnforcementToken?: unknown };
+      requestClient?: { safePost?: unknown };
+      buildSentinelHeaders?: unknown;
+    } | null;
+    return Boolean(
+      bridge &&
+      typeof bridge.finalizeRequirements === "function" &&
+      typeof bridge.proofManager?.getEnforcementToken === "function" &&
+      typeof bridge.turnstileManager?.getEnforcementToken === "function" &&
+      typeof bridge.requestClient?.safePost === "function" &&
+      typeof bridge.buildSentinelHeaders === "function"
+    );
   }, FIRST_PARTY_BRIDGE_KEY);
   if (ready) return;
 
@@ -304,7 +318,27 @@ async function ensureFirstPartyBridge(page: Page): Promise<void> {
   await page.evaluate(
     async ({ bridgeKey, assetUrl: url, contract: names }) => {
       const root = globalThis as typeof globalThis & Record<string, unknown>;
-      if (typeof root[bridgeKey] === "object" && root[bridgeKey] !== null) return;
+      const existing = root[bridgeKey] as {
+        finalizeRequirements?: unknown;
+        proofManager?: { getEnforcementToken?: unknown };
+        turnstileManager?: { getEnforcementToken?: unknown };
+        requestClient?: { safePost?: unknown };
+        buildSentinelHeaders?: unknown;
+      } | null;
+      const existingReady = Boolean(
+        existing &&
+        typeof existing.finalizeRequirements === "function" &&
+        typeof existing.proofManager?.getEnforcementToken === "function" &&
+        typeof existing.turnstileManager?.getEnforcementToken === "function" &&
+        typeof existing.requestClient?.safePost === "function" &&
+        typeof existing.buildSentinelHeaders === "function"
+      );
+      if (existingReady) return;
+
+      // A previous page version can leave an incomplete bridge behind after a
+      // failed import or an HMR refresh. Replace it instead of treating the
+      // presence of any object as success.
+      delete root[bridgeKey];
 
       // Import the validated first-party URL in the page's module context. A blob
       // script is rejected by ChatGPT's CSP even when its imported asset is allowed.

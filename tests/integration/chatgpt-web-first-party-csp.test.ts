@@ -46,6 +46,19 @@ test("loads the first-party bridge with a CSP that forbids blob scripts", async 
       selection: { kind: "free", thinkEnabled: false },
     });
     assert.equal(result, "data: [DONE]\n\n");
+
+    // A stale page from an earlier bundle can retain a partial bridge. The
+    // next request must repair it instead of merely seeing an object and then
+    // failing later with "request client is unavailable".
+    await page.evaluate(() => {
+      (globalThis as Record<string, unknown>).__omnirouteChatGptFirstPartyV1 = {};
+    });
+    const repaired = await executeChatGptWebFirstPartyTurn(page, {
+      prompt: "Bridge repair regression probe",
+      attachments: [],
+      selection: { kind: "free", thinkEnabled: false },
+    });
+    assert.equal(repaired, "data: [DONE]\n\n");
     assert.equal(await page.locator('script[src^="blob:"]').count(), 0);
   } finally {
     globalThis.fetch = originalFetch;
