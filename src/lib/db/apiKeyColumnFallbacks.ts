@@ -67,4 +67,12 @@ export const API_KEY_COLUMN_FALLBACKS = [
     definition:
       "catalog_scope TEXT NOT NULL DEFAULT 'all' CHECK (catalog_scope IN ('all', 'combos', 'models'))",
   },
+  { name: "customer_email", definition: "customer_email TEXT" },
+  { name: "plan_id", definition: "plan_id TEXT" },
+  { name: "plan_days", definition: "plan_days INTEGER" },
+  { name: "plan_started_at", definition: "plan_started_at TEXT" },
+  {
+    name: "renewals_count",
+    definition: "renewals_count INTEGER NOT NULL DEFAULT 0",
+  },
 ] as const;

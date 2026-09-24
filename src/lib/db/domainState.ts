@@ -13,7 +13,7 @@
 import { getDbInstance } from "./core";
 
 type JsonRecord = Record<string, unknown>;
-type BudgetResetInterval = "daily" | "weekly" | "monthly";
+type BudgetResetInterval = "daily" | "weekly" | "monthly" | "hourly";
 
 interface BudgetConfigRecord {
   dailyLimitUsd: number;

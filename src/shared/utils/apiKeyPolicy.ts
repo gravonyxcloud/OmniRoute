@@ -80,6 +80,7 @@ export interface ApiKeyMetadata {
   allowedCombos?: string[];
   allowedConnections?: string[];
   allowedQuotas?: string[];
+  catalogScope?: "all" | "combos" | "models";
   noLog?: boolean;
   autoResolve?: boolean;
   budget?: number;
@@ -620,6 +621,22 @@ async function validateModelAccess(context: PolicyContext): Promise<Response | n
       } catch {
         requestedComboName = null;
       }
+    }
+  }
+  if (apiKeyInfo.catalogScope === "combos") {
+    // Combos-only keys may dispatch exclusively to stored OmniRoute combos.
+    // `auto/*` ids are virtual (never a stored combo) and direct provider
+    // models pass through only when they resolve to an existing combo name.
+    const isVirtualAuto = modelStr.startsWith("auto/");
+    if (isVirtualAuto || !requestedComboName) {
+      return policyErrorResponse(
+        request,
+        HTTP_STATUS.FORBIDDEN,
+        `Model "${modelStr}" is not a stored OmniRoute combo for this API key`,
+        `This API key may only use combos created in OmniRoute. Choose a combo name or combo/<name>.`,
+        "invalid_request_error",
+        HTTP_STATUS.BAD_REQUEST
+      );
     }
   }
   if (requestedComboName || !hasModelRestrictions) return null;

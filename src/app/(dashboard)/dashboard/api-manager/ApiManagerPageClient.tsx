@@ -37,7 +37,12 @@ import type { CatalogScope } from "./components/ApiKeyCatalogScopeSelect";
 import { AllowedCombosSection } from "./components/AllowedCombosSection";
 import ProviderModelPermissionList from "./components/ProviderModelPermissionList";
 import RoutingEntryLink from "@/shared/components/routing/RoutingEntryLink";
+import PlansEntryLink from "./components/PlansEntryLink";
 import { ALL_COMBOS_ACCESS_RULE } from "@/shared/constants/comboAccess";
+import {
+  API_KEY_PLAN_IDS,
+  API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR,
+} from "@/shared/constants/apiKeyPlans";
 
 // Constants for validation
 const MAX_KEY_NAME_LENGTH = 200;
@@ -83,6 +88,17 @@ function sanitizeInput(input: string): string {
     .replace(/'/g, "")
     .trim()
     .slice(0, MAX_KEY_NAME_LENGTH);
+}
+
+function formatTokensShort(count: number): string {
+  if (count >= 1_000_000_000) return `${(count / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(count);
+}
+
+function formatTokensFull(count: number): string {
+  return count.toLocaleString("en-US");
 }
 
 // Validate key name
@@ -144,6 +160,10 @@ interface ApiKey {
   disableNonPublicModels?: boolean;
   allowUsageCommand?: boolean;
   chaosModeEnabled?: boolean;
+  planId?: string | null;
+  planDays?: number | null;
+  renewalsCount?: number | null;
+  customerEmail?: string | null;
   usageLimitEnabled?: boolean;
   dailyUsageLimitUsd?: number | null;
   weeklyUsageLimitUsd?: number | null;
@@ -232,7 +252,14 @@ export default function ApiManagerPageClient() {
   const [newKeySelfUsageEnabled, setNewKeySelfUsageEnabled] = useState(true);
   const [newKeyAccountQuotaEnabled, setNewKeyAccountQuotaEnabled] = useState(false);
   const [newKeyAllowUsageCommand, setNewKeyAllowUsageCommand] = useState(false);
+  const [newKeyPlanId, setNewKeyPlanId] = useState("");
+  const [newKeyCustomerEmail, setNewKeyCustomerEmail] = useState("");
   const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [renewedKeyInfo, setRenewedKeyInfo] = useState<{
+    id: string;
+    planId: string | null;
+    expiresAt: string | null;
+  } | null>(null);
   const [editingKey, setEditingKey] = useState<ApiKey | null>(null);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
   const [searchModel, setSearchModel] = useState("");
@@ -651,6 +678,8 @@ export default function ApiManagerPageClient() {
             selfAccountQuotaEnabled: newKeyAccountQuotaEnabled,
           }),
           allowUsageCommand: newKeyAllowUsageCommand,
+          planId: newKeyPlanId || undefined,
+          customerEmail: newKeyCustomerEmail.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -663,6 +692,8 @@ export default function ApiManagerPageClient() {
         setNewKeySelfUsageEnabled(true);
         setNewKeyAccountQuotaEnabled(false);
         setNewKeyAllowUsageCommand(false);
+        setNewKeyPlanId("");
+        setNewKeyCustomerEmail("");
         setShowAddModal(false);
       } else {
         setCreateError(extractApiErrorMessage(data, t("failedCreateKey")));
@@ -738,6 +769,38 @@ export default function ApiManagerPageClient() {
     if (!key || !key.id) return;
     setEditingKey(key);
     setShowPermissionsModal(true);
+  };
+
+  const handleRenewKey = async (key: ApiKey) => {
+    if (!key?.id || !key.planId) return;
+    if (!confirm(t("renewConfirm"))) return;
+
+    setIsSubmitting(true);
+    clearPageError();
+
+    try {
+      const res = await fetch(`/api/keys/${encodeURIComponent(key.id)}/renew`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planId: key.planId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setRenewedKeyInfo({
+          id: key.id,
+          planId: data.planId ?? key.planId,
+          expiresAt: data.expiresAt ?? null,
+        });
+        await fetchData();
+      } else {
+        setPageError(extractApiErrorMessage(data, t("failedRenewKey")));
+      }
+    } catch (error) {
+      console.error("Error renewing key:", error);
+      setPageError(t("failedRenewKey"));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCopyExistingKey = async (keyId: string) => {
@@ -1022,7 +1085,8 @@ export default function ApiManagerPageClient() {
         </Button>
       </div>
 
-      <RoutingEntryLink />
+<RoutingEntryLink />
+      <PlansEntryLink />
 
       {/* Filter Bar — shown when there are keys */}
       {keys.length > 0 && (
@@ -1297,6 +1361,31 @@ export default function ApiManagerPageClient() {
                           {t("localUsageCommandBadge")}
                         </span>
                       )}
+                      {key.planId && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-700 dark:text-violet-300 text-[11px] font-medium">
+                          <span className="material-symbols-outlined text-[12px]">
+                            subscriptions
+                          </span>
+                          {t("planLabel")}: {key.planId && t(`plan${key.planId}`)}
+                          {typeof key.renewalsCount === "number" && key.renewalsCount > 0 && (
+                            <span>· {t("renewalsBadge", { count: key.renewalsCount })}</span>
+                          )}
+                        </span>
+                      )}
+                      {key.planId && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[11px] font-medium">
+                          <span className="material-symbols-outlined text-[12px]">bolt</span>
+                          {t("planTokenLimitBadge", {
+                            count: formatTokensShort(API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR),
+                          })}
+                        </span>
+                      )}
+                      {key.customerEmail && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-700 dark:text-sky-300 text-[11px] font-medium">
+                          <span className="material-symbols-outlined text-[12px]">mail</span>
+                          {key.customerEmail}
+                        </span>
+                      )}
                       {key.usageLimitEnabled === true && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium">
                           <span className="material-symbols-outlined text-[12px]">paid</span>
@@ -1401,6 +1490,15 @@ export default function ApiManagerPageClient() {
                     >
                       <span className="material-symbols-outlined text-[18px]">refresh</span>
                     </button>
+                    {key.planId && (
+                      <button
+                        onClick={() => handleRenewKey(key)}
+                        className="p-2 hover:bg-sky-500/10 rounded text-text-muted hover:text-sky-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
+                        title={t("renewKey")}
+                      >
+                        <span className="material-symbols-outlined text-[18px]">event_repeat</span>
+                      </button>
+                    )}
                     <button
                       onClick={() => handleOpenPermissions(key)}
                       className="p-2 hover:bg-primary/10 rounded text-text-muted hover:text-primary opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
@@ -1498,6 +1596,8 @@ export default function ApiManagerPageClient() {
           setNewKeySelfUsageEnabled(true);
           setNewKeyAccountQuotaEnabled(false);
           setNewKeyAllowUsageCommand(false);
+          setNewKeyPlanId("");
+          setNewKeyCustomerEmail("");
           setNameError(null);
           setCreateError(null);
         }}
@@ -1540,6 +1640,45 @@ export default function ApiManagerPageClient() {
               <span className="material-symbols-outlined text-[14px]">admin_panel_settings</span>
               {newKeyManageEnabled ? tc("enabled") : tc("disabled")}
             </button>
+          </div>
+          <div className="flex flex-col gap-3 p-3 rounded-lg border border-border bg-surface/40">
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-text-main">{t("planLabel")}</p>
+              <p className="text-xs text-text-muted">{t("planLabelDesc")}</p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <select
+                value={newKeyPlanId}
+                onChange={(e) => {
+                  setNewKeyPlanId(e.target.value);
+                  setCreateError(null);
+                }}
+                className="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-main outline-none focus:border-primary"
+                aria-label={t("planLabel")}
+              >
+                <option value="">{t("planNone")}</option>
+                {API_KEY_PLAN_IDS.map((planId) => (
+                  <option key={planId} value={planId}>
+                    {t(`plan${planId}`)}
+                  </option>
+                ))}
+              </select>
+              <Input
+                value={newKeyCustomerEmail}
+                onChange={(e) => {
+                  setNewKeyCustomerEmail(e.target.value);
+                  setCreateError(null);
+                }}
+                placeholder={t("customerEmailPlaceholder")}
+                aria-label={t("customerEmail")}
+                className="sm:max-w-[50%]"
+              />
+            </div>
+            <p className="text-xs text-text-muted">
+              {t("planTokenLimitHint", {
+                count: formatTokensFull(API_KEY_PLAN_DEFAULT_TOKENS_PER_HOUR),
+              })}
+            </p>
           </div>
           <div className="flex flex-col gap-3 p-3 rounded-lg border border-border bg-surface/40">
             <div className="flex flex-col gap-1">
@@ -1628,6 +1767,8 @@ export default function ApiManagerPageClient() {
                 setNewKeySelfUsageEnabled(true);
                 setNewKeyAccountQuotaEnabled(false);
                 setNewKeyAllowUsageCommand(false);
+                setNewKeyPlanId("");
+                setNewKeyCustomerEmail("");
                 setNameError(null);
                 setCreateError(null);
               }}
@@ -1675,6 +1816,40 @@ export default function ApiManagerPageClient() {
             </Button>
           </div>
           <Button onClick={() => setCreatedKey(null)} fullWidth>
+            {t("done")}
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Renewed Key Modal */}
+      <Modal
+        isOpen={!!renewedKeyInfo}
+        title={t("renewKey")}
+        onClose={() => setRenewedKeyInfo(null)}
+      >
+        <div className="flex flex-col gap-4">
+          <div className="bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-outlined text-sky-600 dark:text-sky-400">
+                event_repeat
+              </span>
+              <div>
+                <p className="text-sm text-sky-800 dark:text-sky-200 font-medium mb-1">
+                  {t("renewedSuccess", {
+                    date: renewedKeyInfo?.expiresAt
+                      ? new Date(renewedKeyInfo.expiresAt).toLocaleDateString()
+                      : "-",
+                  })}
+                </p>
+                {renewedKeyInfo?.planId && (
+                  <p className="text-xs text-sky-700 dark:text-sky-300">
+                    {t("planLabel")}: {t(`plan${renewedKeyInfo.planId}`)}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+          <Button onClick={() => setRenewedKeyInfo(null)} fullWidth>
             {t("done")}
           </Button>
         </div>

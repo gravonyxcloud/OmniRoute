@@ -71,7 +71,8 @@ function normalizeScopeType(value: unknown): TokenLimitScopeType {
 }
 
 function normalizeResetInterval(value: unknown): BudgetResetInterval {
-  if (value === "daily" || value === "weekly" || value === "monthly") return value;
+  if (value === "daily" || value === "weekly" || value === "monthly" || value === "hourly")
+    return value;
   return "monthly";
 }
 
@@ -85,7 +86,7 @@ function ensureSchema() {
       scope_type      TEXT NOT NULL CHECK (scope_type IN ('model', 'provider', 'global')),
       scope_value     TEXT NOT NULL DEFAULT '',
       token_limit     INTEGER NOT NULL CHECK (token_limit > 0),
-      reset_interval  TEXT NOT NULL DEFAULT 'monthly' CHECK (reset_interval IN ('daily', 'weekly', 'monthly')),
+      reset_interval  TEXT NOT NULL DEFAULT 'monthly' CHECK (reset_interval IN ('daily', 'weekly', 'monthly', 'hourly')),
       reset_time      TEXT,
       enabled         INTEGER NOT NULL DEFAULT 1,
       created_at      TEXT NOT NULL DEFAULT (datetime('now')),
