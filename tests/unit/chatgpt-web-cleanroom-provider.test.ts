@@ -149,3 +149,28 @@ test("surfaces an exhausted Free image quota as 429 for sibling-account fallback
   assert.equal(response.response.status, 429);
   assert.match(await response.response.text(), /image upload limit/);
 });
+
+test("returns a generic tool capability error without adapter details", async () => {
+  const executor = new ChatGptWebExecutor();
+  const result = await executor.execute({
+    model: "gpt-5-6",
+    body: {
+      tools: [{ type: "function", function: { name: "example" } }],
+      messages: [{ role: "user", content: "hello" }],
+    },
+    stream: false,
+    credentials: {
+      connectionId: "connection",
+      apiKey: JSON.stringify({ cookies: [], origins: [] }),
+    },
+  });
+
+  assert.equal(result.response.status, 400);
+  const body = await result.response.json();
+  assert.deepEqual(body.error, {
+    message: "Tools are not supported by the selected model.",
+    type: "invalid_request_error",
+    code: "tools_not_supported",
+  });
+  assert.equal(JSON.stringify(body).includes("ChatGPT Web"), false);
+});

@@ -94,6 +94,12 @@
 - **feat(cli):** run `omniroute serve --tray` as a detached desktop process after server and tray readiness, with graphical login auto-start support.
 - **feat(routing):** add client-, provider-, and model-neutral exclusive managed session connection leases with API-key-bound generation fencing, durable SQLite ownership, explicit allowlist policy, and bounded 429 capacity retry semantics.
 
+## [3.8.60] — TBD
+
+### Fixed
+
+- **fix(chatgpt-web):** return the generic OpenAI-compatible `400 tools_not_supported` response when a tool-bearing request reaches the clean-room adapter. Combo aggregation now keeps provider and model identifiers out of this deterministic client error.
+
 ## [3.8.59] — TBD
 
 - **fix(chatgpt-web):** launch Chromium headlessly when OmniRoute runs in a container, preventing EasyPanel and other display-less Docker deployments from closing the browser before ChatGPT model tests start.

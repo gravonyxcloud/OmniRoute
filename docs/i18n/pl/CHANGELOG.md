@@ -8,6 +8,12 @@
 
 ---
 
+## [3.8.60] — TBD
+
+### Fixed
+
+- **fix(chatgpt-web):** return the generic OpenAI-compatible `400 tools_not_supported` response when a tool-bearing request reaches the clean-room adapter. Combo aggregation now keeps provider and model identifiers out of this deterministic client error.
+
 ## [3.8.59] — TBD
 
 - **fix(chatgpt-web):** launch Chromium headlessly when OmniRoute runs in a container, preventing EasyPanel and other display-less Docker deployments from closing the browser before ChatGPT model tests start.

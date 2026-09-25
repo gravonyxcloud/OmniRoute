@@ -38,11 +38,18 @@ export class ChatGptWebExecutor extends BaseExecutor {
       return await executeChatGptWebCleanRoom(input, this.deps);
     } catch (error) {
       const message = sanitizeErrorMessage(error);
+      const toolsUnsupported = /tools? (?:are|is) not supported/i.test(message);
       return makeExecutorErrorResult(
         statusForAdapterError(message),
-        message || "ChatGPT Web browser execution failed",
+        toolsUnsupported
+          ? "Tools are not supported by the selected model."
+          : message || "ChatGPT Web browser execution failed",
         input.body,
-        CHATGPT_WEB_URL
+        CHATGPT_WEB_URL,
+        undefined,
+        toolsUnsupported
+          ? { type: "invalid_request_error", code: "tools_not_supported" }
+          : undefined
       );
     }
   }

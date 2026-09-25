@@ -1138,15 +1138,16 @@ export function makeExecutorErrorResult(
   message: string,
   body: unknown,
   url: string,
-  extraResponseHeaders?: Record<string, string>
+  extraResponseHeaders?: Record<string, string>,
+  classification?: { type?: string; code?: string }
 ) {
   return {
     response: new Response(
       JSON.stringify({
         error: {
           message: sanitizeErrorMessage(message),
-          type: "upstream_error",
-          code: `HTTP_${status}`,
+          type: classification?.type ?? "upstream_error",
+          code: classification?.code ?? `HTTP_${status}`,
         },
       }),
       {

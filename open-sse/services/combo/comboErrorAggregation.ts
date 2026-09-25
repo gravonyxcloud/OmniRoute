@@ -18,14 +18,7 @@
  */
 
 export type ComboOutcomeKind =
-  | "quality"
-  | "auth"
-  | "rate_limit"
-  | "model"
-  | "provider"
-  | "timeout"
-  | "skipped"
-  | "upstream";
+  "quality" | "auth" | "rate_limit" | "model" | "provider" | "timeout" | "skipped" | "upstream";
 
 export interface ComboErrorEntry {
   model: string;
@@ -95,7 +88,8 @@ export function redactConnectionLabel(modelStr: string | null | undefined): stri
 /** Build the redacted, collision-free `model (status)` summary used by the
  *  global-combo-timeout diagnostics path. */
 export function buildRedactedSummary(
-  entries: Array<{ model: string; status: number }> | ReadonlyArray<{ model: string; status: number }>
+  entries:
+    Array<{ model: string; status: number }> | ReadonlyArray<{ model: string; status: number }>
 ): string {
   const slice = entries.slice(0, 5);
   const parts = slice.map((e) => `${redactConnectionLabel(e.model)} (${e.status})`).join(", ");
@@ -113,11 +107,21 @@ export function formatComboOutcomes(
   opts?: { redact?: boolean }
 ): string {
   if (!entries.length) return "";
+  // A tool-bearing request is invalid for every target in this particular
+  // adapter. Do not turn that one deterministic client error into an inventory
+  // of the combo's providers and models.
+  if (
+    entries.every((entry) =>
+      /tools? (?:are|is) not supported|does not support tools/i.test(entry.error || "")
+    )
+  ) {
+    return "Tools are not supported by the selected model.";
+  }
   const redact = opts?.redact !== false;
   const slice = entries.slice(0, 5);
   const parts = slice.map((e) => {
     const label = redact ? redactConnectionLabel(e.model) : e.model;
-    const kind = e.kind ? KIND_LABELS[e.kind] ?? e.kind : null;
+    const kind = e.kind ? (KIND_LABELS[e.kind] ?? e.kind) : null;
     // #10501: the raw upstream error TEXT can itself carry a connection/account
     // identifier (some openai-compatible proxies echo it back in the error body,
     // e.g. "invalid key for connection <uuid>") — redact it here too, not just

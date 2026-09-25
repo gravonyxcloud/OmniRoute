@@ -231,7 +231,7 @@ function contentText(value: unknown): string {
 
 function buildPrompt(body: JsonRecord): string {
   if (Array.isArray(body.tools) && body.tools.length > 0) {
-    throw new Error("ChatGPT Web clean-room adapter does not support tools yet");
+    throw new Error("Tools are not supported by the selected model.");
   }
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     throw new Error("ChatGPT Web clean-room adapter requires messages");
@@ -244,7 +244,7 @@ function buildPrompt(body: JsonRecord): string {
       throw new Error("ChatGPT Web clean-room adapter does not support tool messages yet");
     }
     if (Array.isArray(value.tool_calls) && value.tool_calls.length > 0) {
-      throw new Error("ChatGPT Web clean-room adapter does not support tools yet");
+      throw new Error("Tools are not supported by the selected model.");
     }
     return { role: value.role, text: contentText(value.content) };
   });

@@ -240,7 +240,7 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
           tools: [{ type: "function", function: { name: "tool" } }],
           messages: [{ role: "user", content: "hello" }],
         }),
-      /does not support tools/
+      /Tools are not supported by the selected model/
     );
     assert.throws(
       () =>
