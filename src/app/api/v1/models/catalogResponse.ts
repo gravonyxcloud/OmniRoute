@@ -41,7 +41,7 @@ import {
 import { extractApiKey } from "@/sse/services/auth";
 import { maybeOmitCatalogModelName } from "./catalogHelpers";
 import { applyCatalogPage, catalogJsonResponse, parseCatalogPage } from "./catalogPagination";
-import { isCodexModelCatalogClient } from "./catalogRequest";
+import { isCcDiscoveryModelCatalogClient, isCodexModelCatalogClient } from "./catalogRequest";
 
 /**
  * Post-filter chain applied AFTER the API-key filter, so variants and mirrors are
@@ -62,7 +62,14 @@ export async function applyCatalogPostFilters(
   }
 ): Promise<Array<Record<string, any>>> {
   const yieldTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
-  let finalModels = models;
+  // Claude Code's picker should expose the operator's routing surface, rather
+  // than every upstream model. A combo remains callable as its configured name;
+  // raw provider ids and built-in auto/* virtual routes are omitted here.
+  let finalModels = isCcDiscoveryModelCatalogClient(request)
+    ? models.filter(
+        (model) => model.owned_by === "combo" && !String(model.id ?? "").startsWith("auto/")
+      )
+    : models;
 
   // variants are only generated for surviving models.
   if (new URL(request.url).searchParams.get("configuredOnly") === "true") {

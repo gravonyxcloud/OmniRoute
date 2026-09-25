@@ -94,6 +94,12 @@
 - **feat(cli):** run `omniroute serve --tray` as a detached desktop process after server and tray readiness, with graphical login auto-start support.
 - **feat(routing):** add client-, provider-, and model-neutral exclusive managed session connection leases with API-key-bound generation fencing, durable SQLite ownership, explicit allowlist policy, and bounded 429 capacity retry semantics.
 
+## [3.8.63] — TBD
+
+### Fixed
+
+- **fix(catalog):** Claude Code model discovery now lists only configured combos and excludes built-in `auto/*` routes.
+- **fix(chatgpt-web):** emit estimated OpenAI-compatible input and output usage for browser-backed responses so usage history records successful calls.
 ## [3.8.62] — TBD
 
 ### Fixed

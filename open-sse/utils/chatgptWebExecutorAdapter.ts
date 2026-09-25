@@ -436,10 +436,21 @@ export function buildChatGptWebOpenAiResponse(
   model: string,
   result: ChatGptWebBrowserTurnResult,
   stream: boolean,
-  metadata: { id?: string; created?: number } = {}
+  metadata: { id?: string; created?: number; prompt?: string } = {}
 ): Response {
   const id = metadata.id ?? `chatcmpl-${randomUUID()}`;
   const created = metadata.created ?? Math.floor(Date.now() / 1000);
+  // The first-party browser flow does not expose token receipts. Emit a clear
+  // OpenAI-compatible estimate so proxy accounting and clients such as n8n do
+  // not record a successful request as zero usage.
+  const promptTokens = metadata.prompt ? Math.max(1, Math.ceil(metadata.prompt.length / 4)) : 0;
+  const completionTokens = result.text ? Math.max(1, Math.ceil(result.text.length / 4)) : 0;
+  const usage = {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+    estimated: true,
+  };
   if (!stream) {
     return Response.json({
       id,
@@ -453,6 +464,7 @@ export function buildChatGptWebOpenAiResponse(
           finish_reason: "stop",
         },
       ],
+      usage,
     });
   }
 
@@ -477,6 +489,14 @@ export function buildChatGptWebOpenAiResponse(
       created,
       model,
       choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    },
+    {
+      id,
+      object: "chat.completion.chunk",
+      created,
+      model,
+      choices: [],
+      usage,
     },
   ];
   return new Response(
@@ -514,5 +534,6 @@ export async function executeChatGptWebCleanRoom(
   return buildChatGptWebOpenAiResponse(input.model, result, input.stream, {
     id: deps.id?.(),
     created: deps.now ? Math.floor(deps.now() / 1000) : undefined,
+    prompt: prepared.prompt,
   });
 }

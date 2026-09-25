@@ -6,6 +6,12 @@
 
 ## [3.8.31] — 2026-06-20
 
+## [3.8.63] — TBD
+
+### Fixed
+
+- **fix(catalog):** Claude Code model discovery now lists only configured combos and excludes built-in `auto/*` routes.
+- **fix(chatgpt-web):** emit estimated OpenAI-compatible input and output usage for browser-backed responses so usage history records successful calls.
 ## [3.8.62] — TBD
 
 ### Fixed

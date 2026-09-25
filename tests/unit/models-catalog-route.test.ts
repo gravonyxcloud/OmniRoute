@@ -333,6 +333,29 @@ test("v1 models catalog keeps only visible combos when no providers are active",
   );
 });
 
+test("Claude Code discovery exposes only configured combos", async () => {
+  await seedConnection("openai", { name: "catalog-claude-code" });
+  await combosDb.createCombo({
+    name: "coding-router",
+    strategy: "priority",
+    models: ["openai/gpt-4o"],
+  });
+
+  const response = await v1ModelsCatalog.getUnifiedModelsResponse(
+    new Request("http://localhost/api/v1/models", {
+      headers: { "user-agent": "claude-cli/2.0" },
+    })
+  );
+  const body = (await response.json()) as { data: Array<{ id: string; owned_by: string }> };
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    body.data.map((model) => model.id),
+    ["coding-router"]
+  );
+  assert.ok(body.data.every((model) => model.owned_by === "combo"));
+});
+
 test("v1 models catalog derives combo metadata from known targets conservatively", async () => {
   try {
     modelsDevSync.saveModelsDevCapabilities({

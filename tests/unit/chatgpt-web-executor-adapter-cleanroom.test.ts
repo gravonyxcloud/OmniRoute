@@ -463,6 +463,12 @@ describe("ChatGPT Web clean-room executor response adapter", () => {
     assert.equal(json.object, "chat.completion");
     assert.equal(JSON.stringify(json).includes("conversation"), false);
     assert.equal(JSON.stringify(json).includes("turn"), false);
+    assert.deepEqual(json.usage, {
+      prompt_tokens: 0,
+      completion_tokens: 2,
+      total_tokens: 2,
+      estimated: true,
+    });
 
     const streamResponse = buildChatGptWebOpenAiResponse("gpt-5-6-thinking", turn, true, {
       id: "chatcmpl-cleanroom",
@@ -472,6 +478,7 @@ describe("ChatGPT Web clean-room executor response adapter", () => {
     assert.match(stream, /"role":"assistant"/);
     assert.match(stream, /"content":"answer"/);
     assert.match(stream, /"finish_reason":"stop"/);
+    assert.match(stream, /"estimated":true/);
     assert.ok(stream.endsWith("data: [DONE]\n\n"));
   });
 
