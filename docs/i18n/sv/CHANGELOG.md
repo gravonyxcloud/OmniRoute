@@ -6,6 +6,11 @@
 
 ## [3.8.31] — 2026-06-20
 
+## [3.8.64] — TBD
+
+### Fixed
+
+- **fix(chatgpt-web):** support client-executed function tools through an emulated browser text protocol, including tool-result history, named/required/none tool choice, parallel calls, OpenAI JSON/SSE output and Anthropic translation. Validate request-bound envelopes and argument schemas; preserve estimated usage. Live model compliance still depends on the ChatGPT browser session.
 ## [3.8.63] — TBD
 
 ### Fixed

@@ -226,7 +226,7 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     );
   });
 
-  test("rejects unknown models, tool turns, and unsupported content", () => {
+  test("rejects unknown models, invalid tools, and unsupported content", () => {
     assert.throws(
       () =>
         prepareChatGptWebBrowserRequest("unknown", {
@@ -237,10 +237,10 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     assert.throws(
       () =>
         prepareChatGptWebBrowserRequest("gpt-5.5", {
-          tools: [{ type: "function", function: { name: "tool" } }],
+          tools: [{ type: "unsupported_tool" }],
           messages: [{ role: "user", content: "hello" }],
         }),
-      /Tools are not supported by the selected model/
+      /Invalid tools request/
     );
     assert.throws(
       () =>

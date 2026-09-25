@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import {
+  prepareChatGptWebClientTools,
+  parseChatGptWebClientTools,
+  type ChatGptWebClientTools,
+} from "./chatgptWebClientTools.ts";
 
 import { isRunningInContainer } from "../../src/shared/utils/containerEnv.ts";
 import { acquireBrowserContext, openPage } from "../services/browserPool.ts";
@@ -51,6 +56,7 @@ export interface PreparedChatGptWebBrowserRequest {
   prompt: string;
   selection: ChatGptWebUiSelection;
   attachments: ChatGptWebAttachmentSource[];
+  tools?: ChatGptWebClientTools;
 }
 
 export interface ChatGptWebSessionFactoryInput {
@@ -230,9 +236,6 @@ function contentText(value: unknown): string {
 }
 
 function buildPrompt(body: JsonRecord): string {
-  if (Array.isArray(body.tools) && body.tools.length > 0) {
-    throw new Error("Tools are not supported by the selected model.");
-  }
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     throw new Error("ChatGPT Web clean-room adapter requires messages");
   }
@@ -240,13 +243,20 @@ function buildPrompt(body: JsonRecord): string {
     if (!isRecord(value) || typeof value.role !== "string") {
       throw new Error("ChatGPT Web clean-room adapter received an invalid message");
     }
-    if (!["system", "developer", "user", "assistant"].includes(value.role)) {
+    if (!["system", "developer", "user", "assistant", "tool"].includes(value.role)) {
       throw new Error("ChatGPT Web clean-room adapter does not support tool messages yet");
     }
+    let text =
+      value.content == null && value.role === "assistant" ? "" : contentText(value.content);
     if (Array.isArray(value.tool_calls) && value.tool_calls.length > 0) {
-      throw new Error("Tools are not supported by the selected model.");
+      text += `\nHistorical tool calls: ${JSON.stringify(value.tool_calls)}`;
     }
-    return { role: value.role, text: contentText(value.content) };
+    if (value.role === "tool") {
+      if (typeof value.tool_call_id !== "string" || !value.tool_call_id)
+        throw new Error("Invalid tools request.");
+      text = `Tool result for ${JSON.stringify(value.tool_call_id)}:\n${text}`;
+    }
+    return { role: value.role, text };
   });
 
   const prompt =
@@ -329,11 +339,20 @@ export function prepareChatGptWebBrowserRequest(
   body: unknown
 ): PreparedChatGptWebBrowserRequest {
   if (!isRecord(body)) throw new Error("ChatGPT Web clean-room adapter requires an object body");
-  const prompt = buildPrompt(body);
+  const tools = prepareChatGptWebClientTools(body);
+  const history = buildPrompt(body);
+  const prompt = tools ? `${history}\n\nSystem:\n${tools.prompt}` : history;
+  if (new TextEncoder().encode(prompt).byteLength > MAX_PROMPT_BYTES)
+    throw new Error("Request prompt is too large.");
   const attachments = extractChatGptWebAttachmentSources(
     body.messages as Array<{ role?: string; content?: unknown }>
   );
-  return { prompt, selection: resolveSelection(model, body), attachments };
+  return {
+    prompt,
+    selection: resolveSelection(model, body),
+    attachments,
+    ...(tools ? { tools } : {}),
+  };
 }
 
 function readStorageState(credentials: ProviderCredentials): ChatGptWebStorageState {
@@ -436,10 +455,12 @@ export function buildChatGptWebOpenAiResponse(
   model: string,
   result: ChatGptWebBrowserTurnResult,
   stream: boolean,
-  metadata: { id?: string; created?: number; prompt?: string } = {}
+  metadata: { id?: string; created?: number; prompt?: string; tools?: ChatGptWebClientTools } = {}
 ): Response {
   const id = metadata.id ?? `chatcmpl-${randomUUID()}`;
   const created = metadata.created ?? Math.floor(Date.now() / 1000);
+  const { content, toolCalls } = parseChatGptWebClientTools(result.text, metadata.tools);
+  const finishReason = toolCalls.length ? "tool_calls" : "stop";
   // The first-party browser flow does not expose token receipts. Emit a clear
   // OpenAI-compatible estimate so proxy accounting and clients such as n8n do
   // not record a successful request as zero usage.
@@ -460,8 +481,12 @@ export function buildChatGptWebOpenAiResponse(
       choices: [
         {
           index: 0,
-          message: { role: "assistant", content: result.text },
-          finish_reason: "stop",
+          message: {
+            role: "assistant",
+            content: content || (toolCalls.length ? null : ""),
+            ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+          },
+          finish_reason: finishReason,
         },
       ],
       usage,
@@ -481,14 +506,25 @@ export function buildChatGptWebOpenAiResponse(
       object: "chat.completion.chunk",
       created,
       model,
-      choices: [{ index: 0, delta: { content: result.text }, finish_reason: null }],
+      choices: [
+        {
+          index: 0,
+          delta: {
+            ...(content ? { content } : {}),
+            ...(toolCalls.length
+              ? { tool_calls: toolCalls.map((call, index) => ({ ...call, index })) }
+              : {}),
+          },
+          finish_reason: null,
+        },
+      ],
     },
     {
       id,
       object: "chat.completion.chunk",
       created,
       model,
-      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+      choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
     },
     {
       id,
@@ -535,5 +571,6 @@ export async function executeChatGptWebCleanRoom(
     id: deps.id?.(),
     created: deps.now ? Math.floor(deps.now() / 1000) : undefined,
     prompt: prepared.prompt,
+    tools: prepared.tools,
   });
 }

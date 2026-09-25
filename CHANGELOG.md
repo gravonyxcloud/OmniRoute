@@ -90,6 +90,11 @@
 - **feat(cli):** run `omniroute serve --tray` as a detached desktop process after server and tray readiness, with graphical login auto-start support.
 - **feat(routing):** add client-, provider-, and model-neutral exclusive managed session connection leases with API-key-bound generation fencing, durable SQLite ownership, explicit allowlist policy, and bounded 429 capacity retry semantics.
 
+## [3.8.64] — TBD
+
+### Fixed
+
+- **fix(chatgpt-web):** support client-executed function tools through an emulated browser text protocol, including tool-result history, named/required/none tool choice, parallel calls, OpenAI JSON/SSE output and Anthropic translation. Validate request-bound envelopes and argument schemas; preserve estimated usage. Live model compliance still depends on the ChatGPT browser session.
 ## [3.8.63] — TBD
 
 ### Fixed

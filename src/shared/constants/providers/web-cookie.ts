@@ -15,7 +15,7 @@ export const WEB_COOKIE_PROVIDERS = {
       "Paste Playwright-compatible storage-state JSON exported from a logged-in chatgpt.com browser context. Cookie headers and individual token values are not accepted.",
     subscriptionRisk: true,
     riskNoticeVariant: "webCookie",
-    toolCalling: "none",
+    toolCalling: "emulated",
   },
   "chatgpt-web-codex": {
     id: "chatgpt-web-codex",

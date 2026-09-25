@@ -32,7 +32,7 @@ test("registers only the clean-room ChatGPT Web routes observed in the first-par
   );
   assert.equal(REGISTRY["chatgpt-web"], chatgpt_webProvider);
   assert.equal(getRegistryEntry("chatgpt-web"), chatgpt_webProvider);
-  assert.equal(WEB_COOKIE_PROVIDERS["chatgpt-web"].toolCalling, "none");
+  assert.equal(WEB_COOKIE_PROVIDERS["chatgpt-web"].toolCalling, "emulated");
   assert.equal(AI_PROVIDERS["chatgpt-web"].id, "chatgpt-web");
   assert.equal(hasSpecializedExecutor("chatgpt-web"), true);
 });
@@ -150,12 +150,12 @@ test("surfaces an exhausted Free image quota as 429 for sibling-account fallback
   assert.match(await response.response.text(), /image upload limit/);
 });
 
-test("returns a generic tool capability error without adapter details", async () => {
+test("returns a generic error for unsupported tool definitions without adapter details", async () => {
   const executor = new ChatGptWebExecutor();
   const result = await executor.execute({
     model: "gpt-5-6",
     body: {
-      tools: [{ type: "function", function: { name: "example" } }],
+      tools: [{ type: "unsupported_tool" }],
       messages: [{ role: "user", content: "hello" }],
     },
     stream: false,
@@ -167,10 +167,6 @@ test("returns a generic tool capability error without adapter details", async ()
 
   assert.equal(result.response.status, 400);
   const body = await result.response.json();
-  assert.deepEqual(body.error, {
-    message: "Tools are not supported by the selected model.",
-    type: "invalid_request_error",
-    code: "tools_not_supported",
-  });
+  assert.match(body.error.message, /Invalid tools request\./);
   assert.equal(JSON.stringify(body).includes("ChatGPT Web"), false);
 });
