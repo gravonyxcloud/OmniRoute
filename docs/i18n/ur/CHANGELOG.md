@@ -6,6 +6,12 @@
 
 ## [3.8.31] — 2026-06-20
 
+## [3.8.62] — TBD
+
+### Fixed
+
+- **fix(playground):** keep the ChatGPT Web provider playground model selector populated with its curated model catalog while the general catalog is loading or unavailable.
+
 ## [3.8.61] — TBD
 
 ### Fixed

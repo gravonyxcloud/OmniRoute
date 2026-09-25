@@ -16,6 +16,21 @@ import { getProviderAlias } from "@/shared/constants/providers";
 
 const ENDPOINT = "/api/v1/chat/completions";
 
+// The clean-room ChatGPT Web catalog is curated and stable. Keep its provider
+// playground usable while the general catalog is rebuilding or unavailable;
+// the request itself still goes through the normal chat endpoint and validates
+// the selected model server-side.
+const CHATGPT_WEB_PLAYGROUND_MODELS = [
+  "gpt-5-6",
+  "gpt-5-6-thinking",
+  "gpt-5-6-pro",
+  "gpt-5.6-luna-free",
+  "gpt-5.6-luna-free-thinking",
+  "gpt-5-5-instant",
+  "gpt-5-5-thinking",
+  "gpt-5-5-pro",
+].map((id) => ({ id }));
+
 /** Header used to test a specific API key's policy from the dashboard playground
  *  without exposing the key secret to the browser — the gateway resolves the key
  *  by id server-side (see enforceApiKeyPolicy). */
@@ -147,6 +162,13 @@ export function LlmChatCard({
   const t = useTranslations("miniPlayground");
   const { keys } = useApiKey();
   const { models, loading, error, retry } = useProviderModels(providerId);
+  const providerModels =
+    models.length > 0
+      ? models
+      : providerId === "chatgpt-web"
+        ? CHATGPT_WEB_PLAYGROUND_MODELS
+        : models;
+  const modelsLoading = loading && providerModels.length === 0;
 
   const [internalSelectedKey, setInternalSelectedKey] = useState<string>("");
   const [internalModel, setInternalModel] = useState<string>(initialModel ?? "");
@@ -175,7 +197,7 @@ export function LlmChatCard({
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const firstModel = models[0]?.id ?? "";
+  const firstModel = providerModels[0]?.id ?? "";
   const effectiveModel = model || firstModel || initialModel || "";
   const routingPrefix = getProviderAlias(providerId);
   // Auto-prefix model with the provider's routing alias to avoid OmniRoute "Ambiguous model"
@@ -386,7 +408,8 @@ export function LlmChatCard({
     });
   }, [onControlsChange, handleClear, messages.length, streaming]);
 
-  const modelOptions = models.length > 0 ? models : initialModel ? [{ id: initialModel }] : [];
+  const modelOptions =
+    providerModels.length > 0 ? providerModels : initialModel ? [{ id: initialModel }] : [];
 
   return (
     <div
@@ -404,11 +427,13 @@ export function LlmChatCard({
             <select
               value={model || firstModel}
               onChange={(e) => setModel(e.target.value)}
-              disabled={loading}
+              disabled={modelsLoading}
               className="min-w-0 flex-1 rounded-md border border-border bg-bg-subtle text-xs px-2 py-1 text-text-main focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
             >
-              {modelOptions.length === 0 && !loading && <option value="">{initialModel || "—"}</option>}
-              {loading && <option value="">{t("loading") ?? "Loading…"}</option>}
+              {modelOptions.length === 0 && !modelsLoading && (
+                <option value="">{initialModel || "—"}</option>
+              )}
+              {modelsLoading && <option value="">{t("loading") ?? "Loading…"}</option>}
               {modelOptions.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.id}
