@@ -8,6 +8,13 @@
 
 ---
 
+## [3.8.65] — TBD
+
+### Fixed
+
+- **fix(chatgpt-web):** accept Codex Responses requests that mix client-executed functions with hosted tools, ignoring unsupported hosted declarations while preserving validated function calls and Responses SSE output.
+
+
 ## [3.8.64] — TBD
 
 ### Fixed

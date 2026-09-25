@@ -237,7 +237,7 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     assert.throws(
       () =>
         prepareChatGptWebBrowserRequest("gpt-5.5", {
-          tools: [{ type: "unsupported_tool" }],
+          tools: [{ type: "function", function: {} }],
           messages: [{ role: "user", content: "hello" }],
         }),
       /Invalid tools request/

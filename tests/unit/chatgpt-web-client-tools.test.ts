@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { executeChatGptWebCleanRoom } from "../../open-sse/utils/chatgptWebExecutorAdapter.ts";
 import { claudeToOpenAIRequest } from "../../open-sse/translator/request/claude-to-openai.ts";
 import { openaiToClaudeResponse } from "../../open-sse/translator/response/openai-to-claude.ts";
+import { convertResponsesApiFormat } from "../../open-sse/translator/helpers/responsesApiHelper.ts";
+import { createResponsesApiTransformStream } from "../../open-sse/transformer/responsesTransformer.ts";
 
 const tools = [
   {
@@ -200,4 +202,44 @@ test("a forced tool cannot select a different declared tool", async () => {
     ),
     /Invalid tool response/
   );
+});
+
+test("Codex Responses tools ignore hosted entries and return a function_call event", async () => {
+  const converted = convertResponsesApiFormat(
+    {
+      model: "chatgpt-web/gpt-5-6",
+      input: [{ type: "message", role: "user", content: "Read the project" }],
+      tools: [
+        { type: "web_search_preview" },
+        {
+          type: "function",
+          name: "read_file",
+          description: "Read a project file",
+          parameters: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+          },
+        },
+      ],
+      tool_choice: "auto",
+    },
+    null,
+    "chatgpt-web",
+    "gpt-5-6"
+  );
+  const response = await execute(
+    converted,
+    (prompt) => envelope(prompt, "read_file", { path: "package.json" }),
+    true
+  );
+  assert.ok(response.body);
+  const transformed = new Response(
+    response.body.pipeThrough(createResponsesApiTransformStream(null))
+  );
+  const events = await transformed.text();
+  assert.match(events, /response\.output_item\.added/);
+  assert.match(events, /function_call/);
+  assert.match(events, /read_file/);
+  assert.match(events, /package\.json/);
 });

@@ -31,8 +31,15 @@ export interface ChatGptWebClientTools {
 export function prepareChatGptWebClientTools(
   body: Record<string, unknown>
 ): ChatGptWebClientTools | undefined {
-  const parsed = z.array(definition).safeParse(body.tools ?? []);
-  if (!parsed.success) throw new Error("Invalid tools request.");
+  if (body.tools === undefined) return undefined;
+  if (!Array.isArray(body.tools)) throw new Error("Invalid tools request.");
+  const definitions = body.tools.flatMap((tool) => {
+    const record = tool && typeof tool === "object" && !Array.isArray(tool) ? tool : null;
+    if (record && "type" in record && record.type !== "function") return [];
+    const parsed = definition.safeParse(tool);
+    if (!parsed.success) throw new Error("Invalid tools request.");
+    return [parsed.data];
+  });
   const choice = body.tool_choice ?? "auto";
   if (choice === "none") return undefined;
   let selected: string | undefined;
@@ -45,10 +52,10 @@ export function prepareChatGptWebClientTools(
   } else if (choice !== "auto" && choice !== "required") {
     throw new Error("Invalid tools request.");
   }
-  const definitions = selected
-    ? parsed.data.filter((tool) => tool.function.name === selected)
-    : parsed.data;
-  if (!definitions.length) {
+  const selectedDefinitions = selected
+    ? definitions.filter((tool) => tool.function.name === selected)
+    : definitions;
+  if (!selectedDefinitions.length) {
     if (selected || choice === "required") throw new Error("Invalid tools request.");
     return undefined;
   }
@@ -57,7 +64,7 @@ export function prepareChatGptWebClientTools(
   const parallel = body.parallel_tool_calls !== false;
   const validators = new Map<string, ValidateFunction>();
   try {
-    for (const tool of definitions) {
+    for (const tool of selectedDefinitions) {
       const schema = tool.function.parameters ?? { type: "object" };
       const Validator = String(schema.$schema ?? "").includes("2020-12") ? Ajv2020 : Ajv;
       validators.set(
@@ -70,7 +77,7 @@ export function prepareChatGptWebClientTools(
   }
   return {
     nonce,
-    names: new Set(definitions.map((tool) => tool.function.name)),
+    names: new Set(selectedDefinitions.map((tool) => tool.function.name)),
     required,
     parallel,
     validators,
@@ -85,7 +92,7 @@ export function prepareChatGptWebClientTools(
       parallel
         ? "You may request multiple independent tools with separate envelopes."
         : "Request at most one tool in this turn.",
-      JSON.stringify(definitions),
+      JSON.stringify(selectedDefinitions),
     ].join("\n"),
   };
 }

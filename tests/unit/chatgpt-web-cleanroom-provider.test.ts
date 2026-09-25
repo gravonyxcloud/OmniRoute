@@ -155,7 +155,7 @@ test("returns a generic error for unsupported tool definitions without adapter d
   const result = await executor.execute({
     model: "gpt-5-6",
     body: {
-      tools: [{ type: "unsupported_tool" }],
+        tools: [{ type: "function", function: {} }],
       messages: [{ role: "user", content: "hello" }],
     },
     stream: false,
