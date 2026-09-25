@@ -155,7 +155,7 @@ test("returns a generic error for unsupported tool definitions without adapter d
   const result = await executor.execute({
     model: "gpt-5-6",
     body: {
-        tools: [{ type: "function", function: {} }],
+      tools: [{ type: "function", function: {} }],
       messages: [{ role: "user", content: "hello" }],
     },
     stream: false,
@@ -169,4 +169,30 @@ test("returns a generic error for unsupported tool definitions without adapter d
   const body = await result.response.json();
   assert.match(body.error.message, /Invalid tools request\./);
   assert.equal(JSON.stringify(body).includes("ChatGPT Web"), false);
+});
+
+test("reports bridge discovery failures as a generic 502 without internal details", async () => {
+  const executor = new ChatGptWebExecutor({
+    createSession: async () => ({
+      url: () => "https://chatgpt.com",
+      start: async () => async () => {},
+      submitPrompt: async () => "",
+    }),
+    runTurn: async () => {
+      throw new Error("ChatGPT Web first-party request module was not loaded");
+    },
+  });
+  const result = await executor.execute({
+    model: "gpt-5-6",
+    body: { messages: [{ role: "user", content: "hello" }] },
+    stream: false,
+    credentials: {
+      connectionId: "connection",
+      apiKey: JSON.stringify({ cookies: [], origins: [] }),
+    },
+  });
+  assert.equal(result.response.status, 502);
+  const body = await result.response.text();
+  assert.match(body, /Provider connection is temporarily unavailable/);
+  assert.doesNotMatch(body, /ChatGPT Web|request module|first-party/);
 });

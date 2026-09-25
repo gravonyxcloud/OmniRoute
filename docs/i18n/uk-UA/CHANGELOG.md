@@ -6,6 +6,13 @@
 
 ## [3.8.31] — 2026-06-20
 
+## [3.8.66] — TBD
+
+### Fixed
+
+- **fix(chatgpt-web):** discover first-party request modules across current ChatGPT script, preload, nested CDN, Next.js and official `cdn.oaistatic.com` assets; accept harmless minifier syntax changes and report bridge failures as a generic HTTP 502 without provider internals.
+
+
 ## [3.8.65] — TBD
 
 ### Fixed

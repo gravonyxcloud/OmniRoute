@@ -82,6 +82,24 @@ describe("ChatGPT Web first-party module contract discovery", () => {
     } satisfies ChatGptWebFirstPartyModuleContract);
   });
 
+  test("accepts quoted safePost paths and spaced ESM exports", () => {
+    const source = [
+      "async function aa(e,t){let[r,i]=await Promise.all([cc.getEnforcementToken(t,{forceSync:!0}),dd.getEnforcementToken(t)]);return[r,i]}",
+      "function ff(e=!1,t=`none`){return gg(`finalized`,e,t)}",
+      'async function hh(){return ee.safePost("/sentinel/chat-requirements/prepare",{})}',
+      "function ii(e,t,n,r,i,a){let o={};return e?.token?o[`OpenAI-Sentinel-Chat-Requirements-Token`]=e.token:o}",
+      "export { ff as A, cc as B, dd as C, ee as D, ii as E };",
+    ].join(";");
+
+    assert.deepEqual(parseChatGptWebFirstPartyModuleContract(source), {
+      finalizeRequirements: "A",
+      proofManager: "B",
+      turnstileManager: "C",
+      requestClient: "D",
+      buildSentinelHeaders: "E",
+    } satisfies ChatGptWebFirstPartyModuleContract);
+  });
+
   test("fails closed when an upstream asset no longer exposes the observed contract", () => {
     assert.throws(
       () => parseChatGptWebFirstPartyModuleContract("export{unrelated as A};"),
@@ -114,6 +132,27 @@ describe("ChatGPT Web first-party module contract discovery", () => {
         ]
       ),
       ["https://chatgpt.com/cdn/assets/4813494d-current.js"]
+    );
+  });
+
+  test("accepts nested CDN and Next assets while rejecting foreign scripts and query tricks", () => {
+    assert.deepEqual(
+      collectChatGptWebFirstPartyAssetCandidates(
+        [
+          "https://chatgpt.com/cdn/assets/chunks/bridge-current.js",
+          "https://chatgpt.com/_next/static/chunks/app/current.js",
+          "https://cdn.oaistatic.com/assets/chunks/bridge-current.js",
+          "https://example.com/cdn/assets/foreign.js",
+          "https://chatgpt.com/cdn/assets/not-js.css",
+          "https://chatgpt.com/cdn/assets/current.js?redirect=https://example.com/x.js",
+        ],
+        []
+      ),
+      [
+        "https://chatgpt.com/cdn/assets/chunks/bridge-current.js",
+        "https://chatgpt.com/_next/static/chunks/app/current.js",
+        "https://cdn.oaistatic.com/assets/chunks/bridge-current.js",
+      ]
     );
   });
 });

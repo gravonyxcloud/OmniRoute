@@ -51,7 +51,9 @@ interface BrowserConversationAttachment {
 }
 
 const CHATGPT_ORIGIN = "https://chatgpt.com";
-const CHATGPT_ASSET_PATH_RE = /^\/cdn\/assets\/[A-Za-z0-9_-]+\.js$/;
+const CHATGPT_ASSET_PATH_RE = /^(?:\/cdn\/assets\/|\/_next\/static\/)[A-Za-z0-9_./-]+\.js$/;
+const OAI_STATIC_ORIGIN = "https://cdn.oaistatic.com";
+const OAI_STATIC_ASSET_PATH_RE = /^\/assets\/[A-Za-z0-9_./-]+\.js$/;
 const OAI_UPLOAD_HOST_RE = /(?:^|\.)oaiusercontent\.com$/i;
 const FIRST_PARTY_BRIDGE_KEY = "__omnirouteChatGptFirstPartyV1";
 const FIRST_PARTY_ABORT_KEY = "__omnirouteChatGptAbortV1";
@@ -72,11 +74,13 @@ function escapeRegExp(value: string): string {
 }
 
 function exportedName(source: string, localName: string): string | null {
-  const exportStart = source.lastIndexOf("export{");
+  const exportMatch = Array.from(source.matchAll(/export\s*\{/g)).at(-1);
+  const exportStart = exportMatch?.index ?? -1;
   if (exportStart < 0) return null;
-  const exportBlock = source.slice(exportStart + "export{".length);
+  const brace = source.indexOf("{", exportStart);
+  const exportBlock = source.slice(brace + 1);
   const match = exportBlock.match(
-    new RegExp(`(?:^|,)${escapeRegExp(localName)} as ([A-Za-z_$][\\w$]*)`)
+    new RegExp(`(?:^|,)\\s*${escapeRegExp(localName)}\\s+as\\s+([A-Za-z_$][\\w$]*)`)
   );
   return match?.[1] ?? null;
 }
@@ -95,7 +99,7 @@ export function parseChatGptWebFirstPartyModuleContract(
     /Promise\.all\(\[([A-Za-z_$][\w$]*)\.getEnforcementToken\(t,\{forceSync:!0\}\),([A-Za-z_$][\w$]*)\.getEnforcementToken\(t\)\]\)/
   );
   const requestClientLocal = source.match(
-    /([A-Za-z_$][\w$]*)\.safePost\(`\/sentinel\/chat-requirements\/prepare`/
+    /([A-Za-z_$][\w$]*)\.safePost\((?:`|'|")\/sentinel\/chat-requirements\/prepare(?:`|'|")/
   )?.[1];
   const headerBuilderLocal = source.match(
     /function ([A-Za-z_$][\w$]*)\(e,t,n,r,i,a\)\{let o=\{\};return e\?\.token\?o\[`OpenAI-Sentinel-Chat-Requirements-Token`\]/
@@ -127,7 +131,10 @@ export function parseChatGptWebFirstPartyModuleContract(
 
 function requireChatGptAssetUrl(value: string): string {
   const url = new URL(value);
-  if (url.origin !== CHATGPT_ORIGIN || !CHATGPT_ASSET_PATH_RE.test(url.pathname)) {
+  const allowedPath =
+    (url.origin === CHATGPT_ORIGIN && CHATGPT_ASSET_PATH_RE.test(url.pathname)) ||
+    (url.origin === OAI_STATIC_ORIGIN && OAI_STATIC_ASSET_PATH_RE.test(url.pathname));
+  if (url.search.length > 0 || url.hash.length > 0 || !allowedPath) {
     throw new Error("ChatGPT Web exposed an invalid first-party asset URL");
   }
   return url.toString();
@@ -137,9 +144,13 @@ export function collectChatGptWebFirstPartyAssetCandidates(
   resourceUrls: readonly string[],
   modulePreloadUrls: readonly string[]
 ): string[] {
-  return Array.from(new Set([...resourceUrls, ...modulePreloadUrls])).filter(
-    (url) => url.includes("/cdn/assets/") && url.endsWith(".js")
-  );
+  return Array.from(new Set([...resourceUrls, ...modulePreloadUrls])).filter((value) => {
+    try {
+      return requireChatGptAssetUrl(value).length > 0;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Find first-party chunks referenced by an already-loaded ChatGPT module. */
@@ -149,7 +160,7 @@ export function extractChatGptWebFirstPartyAssetReferences(
 ): string[] {
   const references: string[] = [];
   const seen = new Set<string>();
-  const pattern = /["']\.\/([A-Za-z0-9_-]+\.js)["']/g;
+  const pattern = /["']\.\/([A-Za-z0-9_./-]+\.js)["']/g;
   for (let match = pattern.exec(source); match; match = pattern.exec(source)) {
     let assetUrl: string;
     try {
@@ -205,10 +216,18 @@ function discoveryError(error: unknown, fallback: string): Error {
 async function collectPageAssetCandidates(page: Page): Promise<string[]> {
   const sources = await page.evaluate(() => ({
     modulePreloadUrls: Array.from(
-      document.querySelectorAll<HTMLLinkElement>('link[rel="modulepreload"][href]'),
+      document.querySelectorAll<HTMLLinkElement>(
+        'link[rel="modulepreload"][href],link[rel="preload"][as="script"][href]'
+      ),
       (link) => link.href
     ),
-    resourceUrls: performance.getEntriesByType("resource").map((entry) => entry.name),
+    resourceUrls: [
+      ...performance.getEntriesByType("resource").map((entry) => entry.name),
+      ...Array.from(
+        document.querySelectorAll<HTMLScriptElement>("script[src]"),
+        (script) => script.src
+      ),
+    ],
   }));
   return collectChatGptWebFirstPartyAssetCandidates(
     sources.resourceUrls,

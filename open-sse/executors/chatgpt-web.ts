@@ -19,6 +19,11 @@ function statusForAdapterError(message: string): number {
   ) {
     return 429;
   }
+  if (
+    /first-party|browser execution|request client|request module|challenge bridge/i.test(message)
+  ) {
+    return 502;
+  }
   if (/request|messages|prompt|model|tools|text content|reasoning effort/i.test(message))
     return 400;
   return 502;
@@ -39,17 +44,25 @@ export class ChatGptWebExecutor extends BaseExecutor {
     } catch (error) {
       const message = sanitizeErrorMessage(error);
       const toolsUnsupported = /tools? (?:are|is) not supported/i.test(message);
+      const bridgeUnavailable =
+        /first-party|browser execution|request client|request module|challenge bridge/i.test(
+          message
+        );
       return makeExecutorErrorResult(
         statusForAdapterError(message),
         toolsUnsupported
           ? "Tools are not supported by the selected model."
-          : message || "ChatGPT Web browser execution failed",
+          : bridgeUnavailable
+            ? "Provider connection is temporarily unavailable."
+            : message || "ChatGPT Web browser execution failed",
         input.body,
         CHATGPT_WEB_URL,
         undefined,
         toolsUnsupported
           ? { type: "invalid_request_error", code: "tools_not_supported" }
-          : undefined
+          : bridgeUnavailable
+            ? { type: "provider_error", code: "provider_connection_unavailable" }
+            : undefined
       );
     }
   }
