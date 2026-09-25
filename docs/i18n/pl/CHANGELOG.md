@@ -8,6 +8,12 @@
 
 ---
 
+## [3.8.61] — TBD
+
+### Fixed
+
+- **fix(docker):** make Docker Hub README metadata updates non-blocking after a successful multi-architecture image publish.
+
 ## [3.8.60] — TBD
 
 ### Fixed

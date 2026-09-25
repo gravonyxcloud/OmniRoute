@@ -597,8 +597,11 @@ jobs:
 
       - name: Update Docker Hub description
         # Only refresh README/description when we actually promote :latest
-        # (avoids overwriting from main, next, or back-fill builds).
+        # (avoids overwriting from main, next, or back-fill builds). Registry
+        # metadata must never block publishing an image that has already passed
+        # its multi-architecture manifest build.
         if: needs.prepare.outputs.promote_latest == 'true'
+        continue-on-error: true
         uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
