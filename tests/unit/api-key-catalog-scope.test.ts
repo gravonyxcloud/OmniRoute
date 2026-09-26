@@ -76,19 +76,19 @@ test("R4: the route forwards catalogScope into the payload", () => {
   );
 });
 
-test("R5: the catalog skips exactly the rows the scope excludes", () => {
+test("R5: stored customer keys advertise only manually-created combos", () => {
   const catalog = read("src/app/api/v1/models/catalog.ts");
   assert.ok(
-    catalog.includes('const catalogScope = keyMeta.catalogScope ?? "all"'),
-    "the filter must read the key's scope, defaulting to all"
+    catalog.includes('m.owned_by === "combo"'),
+    "customer-key catalogs must drop raw provider-model rows"
   );
   assert.ok(
-    catalog.includes('if (catalogScope === "combos" && !isComboRow) continue;'),
-    "'combos' must drop provider-model rows"
+    catalog.includes('!String(m.id).startsWith("auto/")'),
+    "customer-key catalogs must drop built-in auto/* routes"
   );
   assert.ok(
-    catalog.includes('if (catalogScope === "models" && isComboRow) continue;'),
-    "'models' must drop combo rows"
+    catalog.includes("customerManualComboIds"),
+    "post-filters must not re-expand generated aliases into a customer catalog"
   );
 });
 
