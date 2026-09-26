@@ -51,8 +51,8 @@ test("isIdentityMaskingEnabled keeps masking on truthy values", () => {
 test("buildComboIdentityMaskText embeds the combo name", () => {
   const text = buildComboIdentityMaskText("  my-combo  ");
   assert.ok(text);
-  assert.match(text!, /public model identity is exactly "my-combo"/);
-  assert.match(text!, /answer exactly "my-combo"/);
+  assert.match(text!, /Public model identity: "my-combo"/);
+  assert.match(text!, /answer "my-combo"/);
 });
 
 test("buildComboIdentityMaskText returns null for missing/blank combo name", () => {
@@ -87,27 +87,27 @@ test("applyComboIdentityMask custom guidance cannot replace the combo identity",
   const out = applyComboIdentityMask(body, "route-a", "Be concise.");
   const sys = out.messages!.find((m: Record<string, unknown>) => m.role === "system");
   assert.match(sys.content, /Be concise/);
-  assert.match(sys.content, /answer exactly "route-a"/);
+  assert.match(sys.content, /answer "route-a"/);
 });
 
 test("applyComboIdentityMask false cannot disable combo identity", () => {
   const body = { messages: [{ role: "system", content: "keep me" }] };
   const out = applyComboIdentityMask(body, "route-a", false);
   assert.notEqual(out, body);
-  assert.match(out.messages![0].content, /answer exactly "route-a"/);
+  assert.match(out.messages![0].content, /answer "route-a"/);
 });
 
 test("applyComboIdentityMask 'false' string cannot disable combo identity", () => {
   const body = { messages: [] };
   const out = applyComboIdentityMask(body, "route-a", "false");
-  assert.match(out.messages![0].content, /answer exactly "route-a"/);
+  assert.match(out.messages![0].content, /answer "route-a"/);
 });
 
 test("applyComboIdentityMask remains mandatory even when direct masking env is off", () => {
   withEnv({ OMNIROUTE_IDENTITY_MASKING: "0" }, () => {
     const body = { messages: [] };
     const out = applyComboIdentityMask(body, "route-a", undefined);
-    assert.match(out.messages![0].content, /answer exactly "route-a"/);
+    assert.match(out.messages![0].content, /answer "route-a"/);
   });
 });
 
