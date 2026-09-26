@@ -79,7 +79,7 @@ test("applyComboIdentityMask injects into an openai body and returns a new objec
   assert.notEqual(out, body);
   const sys = out.messages!.find((m: Record<string, unknown>) => m.role === "system");
   assert.ok(sys, "a system message with the mask should exist");
-  assert.match(sys.content, /route "route-a"/);
+  assert.match(sys.content, /Public model identity: "route-a"/);
 });
 
 test("applyComboIdentityMask custom guidance cannot replace the combo identity", () => {
