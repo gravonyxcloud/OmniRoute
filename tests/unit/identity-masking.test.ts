@@ -51,8 +51,8 @@ test("isIdentityMaskingEnabled keeps masking on truthy values", () => {
 test("buildComboIdentityMaskText embeds the combo name", () => {
   const text = buildComboIdentityMaskText("  my-combo  ");
   assert.ok(text);
-  assert.match(text!, /route "my-combo"/);
-  assert.match(text!, /my-combo/);
+  assert.match(text!, /public model identity is exactly "my-combo"/);
+  assert.match(text!, /answer exactly "my-combo"/);
 });
 
 test("buildComboIdentityMaskText returns null for missing/blank combo name", () => {
@@ -82,31 +82,32 @@ test("applyComboIdentityMask injects into an openai body and returns a new objec
   assert.match(sys.content, /route "route-a"/);
 });
 
-test("applyComboIdentityMask string override wins", () => {
+test("applyComboIdentityMask custom guidance cannot replace the combo identity", () => {
   const body = { messages: [] };
-  const out = applyComboIdentityMask(body, "route-a", "Call yourself BANANA.");
+  const out = applyComboIdentityMask(body, "route-a", "Be concise.");
   const sys = out.messages!.find((m: Record<string, unknown>) => m.role === "system");
-  assert.match(sys.content, /BANANA/);
-  assert.doesNotMatch(out.messages![0].content, /route "route-a"/);
+  assert.match(sys.content, /Be concise/);
+  assert.match(sys.content, /answer exactly "route-a"/);
 });
 
-test("applyComboIdentityMask false disables masking for that combo", () => {
+test("applyComboIdentityMask false cannot disable combo identity", () => {
   const body = { messages: [{ role: "system", content: "keep me" }] };
   const out = applyComboIdentityMask(body, "route-a", false);
-  assert.equal(out, body);
+  assert.notEqual(out, body);
+  assert.match(out.messages![0].content, /answer exactly "route-a"/);
 });
 
-test("applyComboIdentityMask 'false' string disables masking", () => {
+test("applyComboIdentityMask 'false' string cannot disable combo identity", () => {
   const body = { messages: [] };
   const out = applyComboIdentityMask(body, "route-a", "false");
-  assert.equal(out, body);
+  assert.match(out.messages![0].content, /answer exactly "route-a"/);
 });
 
-test("applyComboIdentityMask global env off disables masking", () => {
+test("applyComboIdentityMask remains mandatory even when direct masking env is off", () => {
   withEnv({ OMNIROUTE_IDENTITY_MASKING: "0" }, () => {
     const body = { messages: [] };
     const out = applyComboIdentityMask(body, "route-a", undefined);
-    assert.equal(out, body);
+    assert.match(out.messages![0].content, /answer exactly "route-a"/);
   });
 });
 
