@@ -92,7 +92,7 @@ export function buildRedactedSummary(
     Array<{ model: string; status: number }> | ReadonlyArray<{ model: string; status: number }>
 ): string {
   const slice = entries.slice(0, 5);
-  const parts = slice.map((e) => `${redactConnectionLabel(e.model)} (${e.status})`).join(", ");
+  const parts = slice.map((e, index) => `target ${index + 1} (${e.status})`).join(", ");
   return entries.length > 5 ? `${parts}... (+${entries.length - 5})` : parts;
 }
 
@@ -119,18 +119,40 @@ export function formatComboOutcomes(
   }
   const redact = opts?.redact !== false;
   const slice = entries.slice(0, 5);
-  const parts = slice.map((e) => {
-    const label = redact ? redactConnectionLabel(e.model) : e.model;
+  const parts = slice.map((e, index) => {
     const kind = e.kind ? (KIND_LABELS[e.kind] ?? e.kind) : null;
-    // #10501: the raw upstream error TEXT can itself carry a connection/account
-    // identifier (some openai-compatible proxies echo it back in the error body,
-    // e.g. "invalid key for connection <uuid>") — redact it here too, not just
-    // the model label above, or the identifier leaks into the client-facing
-    // terminal message regardless of the label redaction.
-    const rawReason = e.error || `HTTP ${e.status}`;
-    const reason = redact ? redactConnectionLabel(rawReason) : rawReason;
+    if (!redact) {
+      const label = e.model;
+      const rawReason = e.error || `HTTP ${e.status}`;
+      const statusTxt = ` (HTTP ${e.status})`;
+      return kind
+        ? `${label}: ${kind} — ${rawReason}${statusTxt}`
+        : `${label}: ${rawReason}${statusTxt}`;
+    }
+
+    // Client-facing combo diagnostics must never reveal an upstream model,
+    // provider/vendor, account label, or raw upstream error body. Operators still
+    // have the complete target/error detail in internal logs and can opt into the
+    // unredacted formatter explicitly with { redact:false }.
+    const label = `target ${index + 1}`;
+    const publicReason =
+      e.kind === "quality"
+        ? "response validation failed"
+        : e.kind === "auth"
+          ? "authentication failed"
+          : e.kind === "rate_limit"
+            ? "temporarily rate limited"
+            : e.kind === "timeout"
+              ? "timed out"
+              : e.kind === "provider"
+                ? "temporarily unavailable"
+                : e.kind === "skipped"
+                  ? "skipped"
+                  : "request failed";
     const statusTxt = ` (HTTP ${e.status})`;
-    return kind ? `${label}: ${kind} — ${reason}${statusTxt}` : `${label}: ${reason}${statusTxt}`;
+    return kind
+      ? `${label}: ${kind} — ${publicReason}${statusTxt}`
+      : `${label}: ${publicReason}${statusTxt}`;
   });
   return entries.length > 5
     ? `${parts.join("; ")}... (+${entries.length - 5} more)`
