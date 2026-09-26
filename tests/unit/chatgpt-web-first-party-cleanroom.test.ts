@@ -100,6 +100,26 @@ describe("ChatGPT Web first-party module contract discovery", () => {
     } satisfies ChatGptWebFirstPartyModuleContract);
   });
 
+  test("finds required helpers across multiple ESM export blocks", () => {
+    const source = [
+      "async function aa(e,t){let[r,i]=await Promise.all([cc.getEnforcementToken(t,{forceSync:!0}),dd.getEnforcementToken(t)]);return[r,i]}",
+      "function ff(e=!1,t=`none`){return gg(`finalized`,e,t)}",
+      "async function hh(){return ee.safePost(`/sentinel/chat-requirements/prepare`,{})}",
+      "function ii(e,t,n,r,i,a){let o={};return e?.token?o[`OpenAI-Sentinel-Chat-Requirements-Token`]=e.token:o}",
+      "export{ff as A,cc as B};",
+      "export{unrelated as Z};",
+      "export{dd as C,ee as D,ii as E};",
+    ].join(";");
+
+    assert.deepEqual(parseChatGptWebFirstPartyModuleContract(source), {
+      finalizeRequirements: "A",
+      proofManager: "B",
+      turnstileManager: "C",
+      requestClient: "D",
+      buildSentinelHeaders: "E",
+    } satisfies ChatGptWebFirstPartyModuleContract);
+  });
+
   test("fails closed when an upstream asset no longer exposes the observed contract", () => {
     assert.throws(
       () => parseChatGptWebFirstPartyModuleContract("export{unrelated as A};"),
@@ -119,6 +139,22 @@ describe("ChatGPT Web first-party module contract discovery", () => {
     assert.deepEqual(extractChatGptWebFirstPartyAssetReferences(source, parent), [
       "https://chatgpt.com/cdn/assets/4813494d-current.js",
       "https://chatgpt.com/cdn/assets/lazy_chunk-2.js",
+    ]);
+  });
+
+  test("follows nested and absolute first-party chunk references", () => {
+    const parent = "https://chatgpt.com/cdn/assets/chunks/entry-current.js";
+    const source = [
+      'import("../shared-current.js");',
+      'import("/_next/static/chunks/app/runtime-current.js");',
+      'import("https://cdn.oaistatic.com/assets/chunks/sentinel-current.js");',
+      'import("https://example.com/assets/foreign.js");',
+    ].join("");
+
+    assert.deepEqual(extractChatGptWebFirstPartyAssetReferences(source, parent), [
+      "https://chatgpt.com/cdn/assets/shared-current.js",
+      "https://chatgpt.com/_next/static/chunks/app/runtime-current.js",
+      "https://cdn.oaistatic.com/assets/chunks/sentinel-current.js",
     ]);
   });
 

@@ -74,15 +74,20 @@ function escapeRegExp(value: string): string {
 }
 
 function exportedName(source: string, localName: string): string | null {
-  const exportMatch = Array.from(source.matchAll(/export\s*\{/g)).at(-1);
-  const exportStart = exportMatch?.index ?? -1;
-  if (exportStart < 0) return null;
-  const brace = source.indexOf("{", exportStart);
-  const exportBlock = source.slice(brace + 1);
-  const match = exportBlock.match(
-    new RegExp(`(?:^|,)\\s*${escapeRegExp(localName)}\\s+as\\s+([A-Za-z_$][\\w$]*)`)
-  );
-  return match?.[1] ?? null;
+  const exportBlocks = Array.from(source.matchAll(/export\s*\{([^}]*)\}/g)).reverse();
+  for (const exportBlock of exportBlocks) {
+    const body = exportBlock[1];
+    const aliased = body.match(
+      new RegExp(`(?:^|,)\\s*${escapeRegExp(localName)}\\s+as\\s+([A-Za-z_$][\\w$]*)\\s*(?:,|$)`)
+    );
+    if (aliased?.[1]) return aliased[1];
+
+    const direct = body.match(
+      new RegExp(`(?:^|,)\\s*${escapeRegExp(localName)}\\s*(?:,|$)`)
+    );
+    if (direct) return localName;
+  }
+  return null;
 }
 
 /**
@@ -160,11 +165,13 @@ export function extractChatGptWebFirstPartyAssetReferences(
 ): string[] {
   const references: string[] = [];
   const seen = new Set<string>();
-  const pattern = /["']\.\/([A-Za-z0-9_./-]+\.js)["']/g;
+  const pattern =
+    /["']((?:\.\.?\/|\/(?:cdn\/assets|_next\/static)\/|https:\/\/(?:chatgpt\.com\/(?:cdn\/assets|_next\/static)\/|cdn\.oaistatic\.com\/assets\/))[A-Za-z0-9_./-]+\.js)["']/g;
+
   for (let match = pattern.exec(source); match; match = pattern.exec(source)) {
     let assetUrl: string;
     try {
-      assetUrl = requireChatGptAssetUrl(new URL(`./${match[1]}`, parentAssetUrl).toString());
+      assetUrl = requireChatGptAssetUrl(new URL(match[1], parentAssetUrl).toString());
     } catch {
       continue;
     }
@@ -176,13 +183,51 @@ export function extractChatGptWebFirstPartyAssetReferences(
   return references;
 }
 
-async function readAssetSource(url: string): Promise<string> {
+async function readAssetSource(page: Page, url: string): Promise<string> {
+  const browserResult = await page
+    .evaluate(
+      async ({ maxBytes, timeoutMs, url: assetUrl }) => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const response = await fetch(assetUrl, {
+            cache: "force-cache",
+            credentials: "include",
+            redirect: "follow",
+            signal: controller.signal,
+          });
+          if (!response.ok) return null;
+
+          const declared = Number(response.headers.get("content-length") ?? "0");
+          if (Number.isFinite(declared) && declared > maxBytes) {
+            throw new Error("asset_too_large");
+          }
+
+          const source = await response.text();
+          const size = new TextEncoder().encode(source).byteLength;
+          if (size > maxBytes) throw new Error("asset_too_large");
+          return { finalUrl: response.url, source };
+        } finally {
+          clearTimeout(timeout);
+        }
+      },
+      { maxBytes: MAX_ASSET_SOURCE_BYTES, timeoutMs: ASSET_FETCH_TIMEOUT_MS, url }
+    )
+    .catch(() => null);
+
+  if (browserResult) {
+    requireChatGptAssetUrl(browserResult.finalUrl);
+    return browserResult.source;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ASSET_FETCH_TIMEOUT_MS);
   timeout.unref?.();
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { redirect: "follow", signal: controller.signal });
     if (!response.ok) throw new Error("ChatGPT Web first-party asset could not be loaded");
+    requireChatGptAssetUrl(response.url);
+
     const declared = Number(response.headers.get("content-length") ?? "0");
     if (Number.isFinite(declared) && declared > MAX_ASSET_SOURCE_BYTES) {
       throw new Error("ChatGPT Web first-party asset exceeded the size limit");
@@ -236,6 +281,7 @@ async function collectPageAssetCandidates(page: Page): Promise<string[]> {
 }
 
 async function inspectFirstPartyAsset(
+  page: Page,
   candidate: string,
   state: FirstPartyDiscoveryState
 ): Promise<FirstPartyModuleResult | null> {
@@ -260,7 +306,7 @@ async function inspectFirstPartyAsset(
 
   let source: string;
   try {
-    source = await readAssetSource(assetUrl);
+    source = await readAssetSource(page, assetUrl);
   } catch (error) {
     state.lastError = discoveryError(error, "ChatGPT asset discovery failed");
     return null;
@@ -279,12 +325,13 @@ async function inspectFirstPartyAsset(
 }
 
 async function scanQueuedFirstPartyAssets(
+  page: Page,
   state: FirstPartyDiscoveryState
 ): Promise<FirstPartyModuleResult | null> {
   while (state.index < state.queue.length && state.visited.size < MAX_DISCOVERY_ASSETS) {
     const candidate = state.queue[state.index];
     state.index += 1;
-    const result = await inspectFirstPartyAsset(candidate, state);
+    const result = await inspectFirstPartyAsset(page, candidate, state);
     if (result) return result;
   }
   return null;
@@ -301,7 +348,7 @@ async function discoverFirstPartyModule(page: Page): Promise<FirstPartyModuleRes
 
   while (Date.now() <= deadline && state.visited.size < MAX_DISCOVERY_ASSETS) {
     state.queue.push(...(await collectPageAssetCandidates(page)));
-    const result = await scanQueuedFirstPartyAssets(state);
+    const result = await scanQueuedFirstPartyAssets(page, state);
     if (result) return result;
     if (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, MODULE_DISCOVERY_POLL_MS));
