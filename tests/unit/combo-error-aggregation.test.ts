@@ -38,7 +38,7 @@ test("#10501: classifyComboOutcome — 499/408 are timeout, 429 is rate_limit, 5
   assert.equal(classifyComboOutcome(504, "gateway timeout"), "provider");
 });
 
-test("#10314: formatComboOutcomes lists quality and auth reasons SEPARATELY (both visible)", () => {
+test("#10314: formatComboOutcomes keeps failure classes distinct without exposing upstream identity", () => {
   const msg = formatComboOutcomes([
     {
       model: "openai/model-quality",
@@ -49,9 +49,9 @@ test("#10314: formatComboOutcomes lists quality and auth reasons SEPARATELY (bot
     { model: "openai/proxy-account-b", status: 401, error: "invalid_api_key", kind: "auth" },
   ]);
   assert.match(msg, /quality validation/);
-  assert.match(msg, /invalid_api_key/);
+  assert.match(msg, /authentication failed/);
   assert.match(msg, /auth/);
-  assert.ok(msg.indexOf("quality validation") < msg.indexOf("invalid_api_key"));
+  assert.doesNotMatch(msg, /openai|model-quality|proxy-account-b|invalid_api_key/i);
 });
 
 test("#10314: redactConnectionLabel masks connection/account identifiers", () => {
@@ -70,7 +70,8 @@ test("#10314: buildRedactedSummary is redacted and truncates past 5 entries", ()
     }))
   );
   assert.ok(!s.includes("8a4f0c6e-3b27"), "summary must not leak a full UUID");
-  assert.match(s, /conn:8a4f0c6e/);
+  assert.doesNotMatch(s, /openai|conn:/i);
+  assert.match(s, /target 1/);
   assert.match(s, /\(\+1\)/);
 });
 
@@ -87,7 +88,8 @@ test("#10501: formatComboOutcomes redacts a UUID embedded in the error TEXT, not
     },
   ]);
   assert.ok(!msg.includes("8a4f0c6e-3b27-4c51-9d88-1f2a3b4c5d6e"), "must not leak the full UUID");
-  assert.match(msg, /conn:8a4f0c6e/, "must redact the UUID inside the error reason text");
+  assert.doesNotMatch(msg, /openai|proxy-account-b|conn:/i);
+  assert.match(msg, /authentication failed/);
 });
 
 test("#10501: formatComboOutcomes({redact:false}) intentionally leaves identifiers intact (internal/debug callers only)", () => {
