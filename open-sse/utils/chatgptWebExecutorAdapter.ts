@@ -29,6 +29,18 @@ type JsonRecord = Record<string, unknown>;
 
 const CHATGPT_WEB_PAGE_URL = "https://chatgpt.com/?temporary-chat=true";
 const MAX_PROMPT_BYTES = 4 * 1024 * 1024;
+
+// Browser-composer transport is materially different from an API transport: very
+// large Claude Code/Codex harnesses make Lexical/React input slow enough to hit the
+// 30s Playwright fill timeout and can also trigger ChatGPT's generic RequestError.
+// Keep a conservative browser budget while preserving the newest conversation and
+// both ends of control instructions. Roughly 4 chars/token => ~12K tokens maximum.
+const CHATGPT_WEB_CONTROL_CHAR_BUDGET = 12_000;
+const CHATGPT_WEB_CONVERSATION_CHAR_BUDGET = 32_000;
+const CHATGPT_WEB_PROMPT_CHAR_BUDGET = 48_000;
+const CHATGPT_WEB_TRUNCATION_MARKER =
+  "\n\n[Older context omitted by OmniRoute browser transport]\n\n";
+
 const FIRST_PARTY_COOKIE_HOSTS = ["chatgpt.com", "openai.com"] as const;
 
 export interface ChatGptWebStorageCookie extends JsonRecord {
@@ -279,6 +291,62 @@ function parsePromptMessages(body: JsonRecord): ChatGptWebPromptMessage[] {
  * things like "you pasted a system prompt". Keep control messages clearly separated
  * as silent execution context and keep the real conversation in its own section.
  */
+function compactMiddle(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  if (maxChars <= CHATGPT_WEB_TRUNCATION_MARKER.length + 32) {
+    return text.slice(-Math.max(maxChars, 0));
+  }
+  const usable = maxChars - CHATGPT_WEB_TRUNCATION_MARKER.length;
+  const headChars = Math.floor(usable * 0.4);
+  const tailChars = usable - headChars;
+  return (
+    text.slice(0, headChars) +
+    CHATGPT_WEB_TRUNCATION_MARKER +
+    text.slice(Math.max(0, text.length - tailChars))
+  );
+}
+
+function compactControlMessages(messages: ChatGptWebPromptMessage[]): string[] {
+  if (messages.length === 0) return [];
+  const joined = messages.map(({ text }) => text).filter(Boolean).join("\n\n");
+  if (!joined) return [];
+
+  // Keep both the beginning (core client contract) and end (runtime/session/identity
+  // additions are commonly appended there) instead of blindly taking one side.
+  return [compactMiddle(joined, CHATGPT_WEB_CONTROL_CHAR_BUDGET)];
+}
+
+function compactConversationMessages(
+  messages: ChatGptWebPromptMessage[]
+): ChatGptWebPromptMessage[] {
+  if (messages.length === 0) return [];
+
+  const kept: ChatGptWebPromptMessage[] = [];
+  let remaining = CHATGPT_WEB_CONVERSATION_CHAR_BUDGET;
+
+  // Newest turns have the highest value for an interactive coding client. Walk
+  // backwards until the budget is exhausted, trimming only the oldest retained turn.
+  for (let index = messages.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    const message = messages[index];
+    const overhead = 32;
+    const available = Math.max(0, remaining - overhead);
+    if (available <= 0) break;
+    const text =
+      message.text.length <= available ? message.text : compactMiddle(message.text, available);
+    kept.push({ ...message, text });
+    remaining -= text.length + overhead;
+  }
+
+  kept.reverse();
+  return kept;
+}
+
+function enforcePromptCharBudget(prompt: string): string {
+  return prompt.length <= CHATGPT_WEB_PROMPT_CHAR_BUDGET
+    ? prompt
+    : compactMiddle(prompt, CHATGPT_WEB_PROMPT_CHAR_BUDGET);
+}
+
 function buildPrompt(
   body: JsonRecord,
   options: {
@@ -297,6 +365,8 @@ function buildPrompt(
   const conversationMessages = messages.filter(
     (message) => message.role !== "system" && message.role !== "developer"
   );
+  const compactedControl = compactControlMessages(controlMessages);
+  const compactedConversation = compactConversationMessages(conversationMessages);
 
   // Preserve the original byte-minimal path for ordinary one-turn chat.
   if (
@@ -305,7 +375,7 @@ function buildPrompt(
     conversationMessages.length === 1 &&
     conversationMessages[0].role === "user"
   ) {
-    const prompt = conversationMessages[0].text;
+    const prompt = enforcePromptCharBudget(conversationMessages[0].text);
     if (!prompt.trim()) throw new Error("ChatGPT Web clean-room adapter requires non-empty text");
     if (new TextEncoder().encode(prompt).byteLength > MAX_PROMPT_BYTES) {
       throw new Error("ChatGPT Web clean-room adapter prompt is too large");
@@ -315,11 +385,18 @@ function buildPrompt(
 
   const sections: string[] = [];
 
-  if (controlMessages.length > 0 || additionalControl.length > 0) {
-    const controlParts = [
-      ...controlMessages.map(({ text }) => text),
-      ...additionalControl.map((value) => value.trim()),
-    ].filter(Boolean);
+  if (compactedControl.length > 0 || additionalControl.length > 0) {
+    const remainingControlBudget = Math.max(
+      0,
+      CHATGPT_WEB_CONTROL_CHAR_BUDGET -
+        compactedControl.reduce((sum, value) => sum + value.length, 0)
+    );
+    const compactedAdditionalControl = additionalControl
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map((value) => compactMiddle(value, Math.max(1_000, remainingControlBudget)))
+      .slice(0, 1);
+    const controlParts = [...compactedControl, ...compactedAdditionalControl].filter(Boolean);
 
     sections.push(
       [
@@ -332,11 +409,11 @@ function buildPrompt(
     );
   }
 
-  if (conversationMessages.length > 0) {
+  if (compactedConversation.length > 0) {
     sections.push(
       [
         "<conversation>",
-        ...conversationMessages.map(({ role, text }) => {
+        ...compactedConversation.map(({ role, text }) => {
           const label =
             role === "assistant"
               ? "Assistant"
@@ -356,7 +433,7 @@ function buildPrompt(
     );
   }
 
-  const prompt = sections.join("\n\n");
+  const prompt = enforcePromptCharBudget(sections.join("\n\n"));
   if (!prompt.trim()) throw new Error("ChatGPT Web clean-room adapter requires non-empty text");
   if (new TextEncoder().encode(prompt).byteLength > MAX_PROMPT_BYTES) {
     throw new Error("ChatGPT Web clean-room adapter prompt is too large");
