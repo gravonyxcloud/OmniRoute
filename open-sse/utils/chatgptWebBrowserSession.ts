@@ -393,7 +393,7 @@ class ChatGptWebBrowserTurnRunner {
 
 function shouldUseComposerFallback(error: unknown): boolean {
   const message = turnError(error, "ChatGPT Web first-party request failed").message;
-  return /first-party request module|first-party module contract|first-party asset|challenge bridge|request client is unavailable/i.test(
+  return /first-party request module|first-party module contract|first-party asset|challenge bridge|request client is unavailable|RequestError:\s*Something went wrong|help\.openai\.com/i.test(
     message
   );
 }
@@ -634,6 +634,62 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
     return snapshot.text || null;
   }
 
+  private async fillComposerPrompt(
+    composer: import("playwright").Locator,
+    prompt: string
+  ): Promise<void> {
+    const value = requirePrompt(prompt);
+
+    try {
+      // The normal Playwright path preserves the framework's input semantics and is
+      // preferred for ordinary prompts. Keep its timeout short so a stale/slow
+      // contenteditable does not burn the whole 30s provider budget.
+      await composer.fill(value, { timeout: 8_000 });
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/timeout|not editable|not fillable|detached|not visible/i.test(message)) {
+        throw error;
+      }
+    }
+
+    // Large coding-agent prompts can make Playwright's per-character/contenteditable
+    // fill path crawl. Use the page's native value/contenteditable mutation as a
+    // fallback and dispatch input/change so React/Lexical observes the update.
+    await composer.evaluate((element, text) => {
+      const el = element as HTMLElement;
+      el.focus();
+
+      if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+        const prototype =
+          el instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype
+            : HTMLInputElement.prototype;
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+        descriptor?.set?.call(el, text);
+      } else {
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        const inserted = document.execCommand("insertText", false, text);
+        if (!inserted) el.textContent = text;
+      }
+
+      el.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertText",
+          data: text,
+        })
+      );
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }, value);
+
+    await this.page.waitForTimeout(100);
+  }
+
   private async submitThroughComposer(request: ChatGptWebBrowserSubmission): Promise<void> {
     if (!this.selection) throw new Error("ChatGPT Web composer fallback requires model selection");
     if (request.attachments.length > 0) {
@@ -676,7 +732,7 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
       }
     }, fields);
 
-    await composer.fill(requirePrompt(request.prompt));
+    await this.fillComposerPrompt(composer, request.prompt);
     if (request.signal?.aborted) throw new Error("ChatGPT Web browser turn aborted");
     const send = this.page
       .locator(
