@@ -1,0 +1,52 @@
+name: Smoke Web Image
+
+on:
+  push:
+    branches:
+      - feat/api-key-plans
+    paths:
+      - .github/workflows/smoke-web-image.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull web image
+        run: docker pull gabrielsilva543/omniroute:3.8.69-web
+
+      - name: Start web image
+        run: |
+          set -euxo pipefail
+          docker run -d --name omniroute-web-smoke -p 20128:20128 gabrielsilva543/omniroute:3.8.69-web
+
+      - name: Wait and inspect
+        run: |
+          set -euxo pipefail
+          for i in $(seq 1 30); do
+            state="$(docker inspect -f '{{.State.Status}}' omniroute-web-smoke)"
+            health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' omniroute-web-smoke)"
+            echo "attempt=$i state=$state health=$health"
+            if [ "$state" = "exited" ]; then
+              docker logs omniroute-web-smoke || true
+              docker inspect omniroute-web-smoke
+              exit 1
+            fi
+            if [ "$health" = "healthy" ]; then
+              break
+            fi
+            sleep 2
+          done
+          echo "VERSION=$(docker exec omniroute-web-smoke node -p \"require('/app/package.json').version\")"
+          curl -fsS http://127.0.0.1:20128/healthz
+          docker ps -a --no-trunc --filter name=omniroute-web-smoke
+          docker logs --tail 200 omniroute-web-smoke
+
+      - name: Dump on failure
+        if: failure()
+        run: |
+          docker ps -a --no-trunc || true
+          docker inspect omniroute-web-smoke || true
+          docker logs omniroute-web-smoke || true
