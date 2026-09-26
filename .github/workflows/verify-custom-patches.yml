@@ -1,0 +1,60 @@
+name: Verify OmniRoute Custom Patches
+
+on:
+  push:
+    branches:
+      - feat/api-key-plans
+    paths:
+      - open-sse/utils/chatgptWebExecutorAdapter.ts
+      - open-sse/services/identityMasking.ts
+      - open-sse/services/combo/comboErrorAggregation.ts
+      - open-sse/handlers/chatCore.ts
+      - src/app/api/v1/models/catalog.ts
+      - tests/unit/chatgpt-web-executor-adapter-cleanroom.test.ts
+      - tests/unit/identity-masking.test.ts
+      - tests/unit/combo-error-aggregation.test.ts
+      - tests/unit/api-key-catalog-scope.test.ts
+      - tests/unit/models-catalog-combo-access.test.ts
+      - tests/unit/response-model-echo-1311.test.ts
+      - .github/workflows/verify-custom-patches.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DISABLE_SQLITE_AUTO_BACKUP: "true"
+      OMNIROUTE_SKIP_SYSTEM_TRUST: "1"
+      JWT_SECRET: "ci-focused-tests-jwt-secret-long-enough"
+      API_KEY_SECRET: "ci-focused-tests-api-key-secret-long-enough"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - uses: ./.github/actions/npm-ci-retry
+
+      - name: Run focused unit tests
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/chatgpt-web-executor-adapter-cleanroom.test.ts \
+            tests/unit/identity-masking.test.ts \
+            tests/unit/combo-error-aggregation.test.ts \
+            tests/unit/api-key-catalog-scope.test.ts \
+            tests/unit/models-catalog-combo-access.test.ts \
+            tests/unit/response-model-echo-1311.test.ts
+
+      - name: Typecheck touched runtime files
+        run: npm run typecheck:core
