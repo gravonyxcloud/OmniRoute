@@ -1980,6 +1980,7 @@ async function buildUnifiedModelsResponseCore(
     // Filter by API key permissions if requested
     const apiKey = extractApiKey(request);
     let finalModels = models;
+    let customerManualComboIds: Set<string> | null = null;
     if (apiKey) {
       const { isModelAllowedForKey, getApiKeyMetadata } = await import("@/lib/db/apiKeys");
 
@@ -2014,20 +2015,10 @@ async function buildUnifiedModelsResponseCore(
             !String(m.id).startsWith("auto/") &&
             isComboNameAllowedForKey(keyMeta.allowedCombos, String(m.id))
         );
+        customerManualComboIds = new Set(finalModels.map((m) => String(m.id)));
       }
     }
     // ?configuredOnly — hide models that have no eligible DB connection.
-    const customerManualComboIds =
-      apiKey && (await getApiKeyMetadata(apiKey))
-        ? new Set(
-            finalModels
-              .filter(
-                (m) => m.owned_by === "combo" && !String(m.id).startsWith("auto/")
-              )
-              .map((m) => String(m.id))
-          )
-        : null;
-
     finalModels = await applyCatalogPostFilters(request, finalModels, {
       connections,
       prefixMode,
