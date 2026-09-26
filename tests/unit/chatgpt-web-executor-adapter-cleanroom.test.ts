@@ -122,6 +122,26 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     assert.doesNotMatch(prepared.prompt, /^System:/);
   });
 
+  test("compacts oversized Claude Code browser context before submission", () => {
+    const hugeSystem = "SYSTEM-RULE ".repeat(8_000);
+    const hugeHistory = "old-context ".repeat(8_000);
+    const prepared = prepareChatGptWebBrowserRequest("gpt-5-6-thinking", {
+      messages: [
+        { role: "system", content: hugeSystem },
+        { role: "user", content: hugeHistory },
+        { role: "assistant", content: "ack" },
+        { role: "user", content: "final question" },
+      ],
+    });
+
+    assert.ok(
+      prepared.prompt.length <= 48_000,
+      `browser prompt should be compacted, got ${prepared.prompt.length} chars`
+    );
+    assert.match(prepared.prompt, /final question/);
+    assert.match(prepared.prompt, /Older context omitted by OmniRoute browser transport/);
+  });
+
   test("keeps Claude Code-style control context silent for a fresh hello", () => {
     const prepared = prepareChatGptWebBrowserRequest("gpt-5-5-instant", {
       messages: [
