@@ -20,7 +20,7 @@
  *   R3 The `combo/*` wildcard admits every combo.
  *   R4 The `combo/` prefix is normalised on both sides of the comparison.
  *   R5 An empty list admits nothing, and an empty combo name is never admitted.
- *   R6 The catalog routes combo rows through this gate, exempting auto/*.
+ *   R6 The catalog routes manual combo rows through this gate and excludes auto/*.
  */
 
 import test from "node:test";
@@ -61,18 +61,22 @@ test("R5: an empty list admits nothing; an empty name is never admitted", () => 
   assert.equal(isComboNameAllowedForKey(["codex-sol"], ""), false);
 });
 
-test("R6: the catalog gates combo rows on allowedCombos, exempting auto/*", () => {
+test("R6: the catalog gates manual combos and never advertises auto/* to stored keys", () => {
   const catalog = fs.readFileSync(
     path.join(process.cwd(), "src/app/api/v1/models/catalog.ts"),
     "utf8"
   );
   assert.ok(
-    catalog.includes('if (m.owned_by === "combo" && !String(m.id).startsWith("auto/"))'),
-    "combo rows must take the allowedCombos branch, and auto/* must be exempt — " +
-      "auto/* fails open at dispatch and is already gated by allowAutoCombos"
+    catalog.includes('m.owned_by === "combo"') &&
+      catalog.includes('!String(m.id).startsWith("auto/")'),
+    "stored-key catalogs must contain manual combo rows only"
   );
   assert.ok(
     catalog.includes("isComboNameAllowedForKey(keyMeta.allowedCombos, String(m.id))"),
-    "the branch must decide via the key's allowedCombos"
+    "manual combos must still be gated by allowedCombos"
+  );
+  assert.ok(
+    catalog.includes("const autoCombosDisallowedForKey = Boolean(earlyKeyMeta)"),
+    "auto/* synthesis must stop for stored API keys"
   );
 });
