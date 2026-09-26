@@ -230,82 +230,15 @@ jobs:
         env:
           DOCKER_BUILDKIT_INLINE_CACHE: 1
 
-      - name: Build and push BUN base platform image by digest
-        id: build-bun-base
-        # Bun is a best-effort compatibility target, not a supported runtime
-        # (AGENTS.md -> Environment). Its `bun run build` has been OOM-killing on
-        # both arches; letting that sink the whole publish means the SUPPORTED
-        # runner-base / runner-web images never reach the registry either. The
-        # image is still built and pushed whenever it succeeds — only its power to
-        # block the release is removed.
-        continue-on-error: true
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: Dockerfile.bun
-          target: runner-base
-          platforms: ${{ matrix.platform }}
-          build-args: |
-            OMNIROUTE_USE_TURBOPACK=0
-            OMNIROUTE_BUILD_MEMORY_MB=8192
-          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
-          tags: |
-            ${{ env.IMAGE_NAME }}
-            ${{ env.GHCR_IMAGE_NAME }}
-          cache-from: type=gha,scope=docker-bun-base-${{ matrix.arch }}
-          cache-to: type=gha,scope=docker-bun-base-${{ matrix.arch }},mode=max,ignore-error=true
-          no-cache: false
-        env:
-          DOCKER_BUILDKIT_INLINE_CACHE: 1
-
-      - name: Build and push BUN web platform image by digest
-        id: build-bun-web
-        # Bun is a best-effort compatibility target, not a supported runtime
-        # (AGENTS.md -> Environment). Its `bun run build` has been OOM-killing on
-        # both arches; letting that sink the whole publish means the SUPPORTED
-        # runner-base / runner-web images never reach the registry either. The
-        # image is still built and pushed whenever it succeeds — only its power to
-        # block the release is removed.
-        continue-on-error: true
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: Dockerfile.bun
-          target: runner-web
-          platforms: ${{ matrix.platform }}
-          build-args: |
-            OMNIROUTE_USE_TURBOPACK=0
-            OMNIROUTE_BUILD_MEMORY_MB=8192
-          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
-          tags: |
-            ${{ env.IMAGE_NAME }}
-            ${{ env.GHCR_IMAGE_NAME }}
-          cache-from: type=gha,scope=docker-bun-web-${{ matrix.arch }}
-          cache-to: type=gha,scope=docker-bun-web-${{ matrix.arch }},mode=max,ignore-error=true
-          no-cache: false
-        env:
-          DOCKER_BUILDKIT_INLINE_CACHE: 1
-
       - name: Export digests
         env:
           DIGEST_BASE: ${{ steps.build.outputs.digest }}
           DIGEST_WEB: ${{ steps.build-web.outputs.digest }}
-          DIGEST_BUN_BASE: ${{ steps.build-bun-base.outputs.digest }}
-          DIGEST_BUN_WEB: ${{ steps.build-bun-web.outputs.digest }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/digests/base /tmp/digests/web /tmp/digests/bun-base /tmp/digests/bun-web
+          mkdir -p /tmp/digests/base /tmp/digests/web
           touch "/tmp/digests/base/${DIGEST_BASE#sha256:}"
           touch "/tmp/digests/web/${DIGEST_WEB#sha256:}"
-          # Empty when the (non-blocking) bun build produced no image. `if` blocks,
-          # not `[ -n ] && touch`: under `set -e` a failing AND-list aborts the step,
-          # which is precisely the case being handled here.
-          if [ -n "$DIGEST_BUN_BASE" ]; then
-            touch "/tmp/digests/bun-base/${DIGEST_BUN_BASE#sha256:}"
-          fi
-          if [ -n "$DIGEST_BUN_WEB" ]; then
-            touch "/tmp/digests/bun-web/${DIGEST_BUN_WEB#sha256:}"
-          fi
 
       - name: Upload base digests
         uses: actions/upload-artifact@v7
@@ -323,29 +256,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload bun-base digests
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: digests-bun-base-${{ matrix.arch }}
-          path: /tmp/digests/bun-base/*
-          # `ignore`, not `error`: the bun build is non-blocking, so an absent
-          # digest is the expected outcome of a failed/skipped bun image — the
-          # manifest step already treats these tags as optional. Leaving `error`
-          # here just relocates the blocker from the manifest to the upload.
-          if-no-files-found: ignore
-          retention-days: 1
-
-      - name: Upload bun-web digests
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: digests-bun-web-${{ matrix.arch }}
-          path: /tmp/digests/bun-web/*
-          # `ignore`, not `error`: the bun build is non-blocking, so an absent
-          # digest is the expected outcome of a failed/skipped bun image — the
-          # manifest step already treats these tags as optional. Leaving `error`
-          # here just relocates the blocker from the manifest to the upload.
-          if-no-files-found: ignore
-          retention-days: 1
 
   merge:
     name: Publish multi-arch manifests
@@ -401,26 +311,6 @@ jobs:
           path: /tmp/digests/web
           merge-multiple: true
 
-      - name: Download bun-base digests
-        # Non-blocking: the bun image is best-effort, so its artifact may not
-        # exist at all. The manifest step treats these tags as optional.
-        continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: digests-bun-base-*
-          path: /tmp/digests/bun-base
-          merge-multiple: true
-
-      - name: Download bun-web digests
-        # Non-blocking: the bun image is best-effort, so its artifact may not
-        # exist at all. The manifest step treats these tags as optional.
-        continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: digests-bun-web-*
-          path: /tmp/digests/bun-web
-          merge-multiple: true
-
       - name: Create Docker Hub version manifests
         run: |
           set -euo pipefail
@@ -444,8 +334,6 @@ jobs:
 
           create_manifest "${IMAGE_NAME}" "" /tmp/digests/base
           create_manifest "${IMAGE_NAME}" "-web" /tmp/digests/web
-          create_manifest "${IMAGE_NAME}" "-bun" /tmp/digests/bun-base optional
-          create_manifest "${IMAGE_NAME}" "-web-bun" /tmp/digests/bun-web optional
 
       - name: Create GHCR version manifests
         run: |
@@ -470,29 +358,38 @@ jobs:
 
           create_manifest "${GHCR_IMAGE_NAME}" "" /tmp/digests/base
           create_manifest "${GHCR_IMAGE_NAME}" "-web" /tmp/digests/web
-          create_manifest "${GHCR_IMAGE_NAME}" "-bun" /tmp/digests/bun-base optional
-          create_manifest "${GHCR_IMAGE_NAME}" "-web-bun" /tmp/digests/bun-web optional
 
-      - name: Smoke-test published Docker image
+      - name: Smoke-test published base and web images
         if: needs.prepare.outputs.version != 'main'
         run: |
           set -euo pipefail
-          container="omniroute-smoke-${VERSION//[^a-zA-Z0-9_.-]/-}"
-          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
-          docker run --detach --name "$container" "${IMAGE_NAME}:${VERSION}"
-          for attempt in $(seq 1 30); do
-            status="$(docker inspect --format '{{.State.Health.Status}}' "$container")"
-            if [ "$status" = "healthy" ]; then
-              exit 0
-            fi
-            if [ "$status" = "unhealthy" ] || [ "$(docker inspect --format '{{.State.Status}}' "$container")" = "exited" ]; then
-              docker logs "$container"
-              exit 1
-            fi
-            sleep 2
-          done
-          docker logs "$container"
-          exit 1
+
+          smoke() {
+            local suffix="$1"
+            local safe_suffix="${suffix//[^a-zA-Z0-9_.-]/-}"
+            local container="omniroute-smoke-${VERSION//[^a-zA-Z0-9_.-]/-}${safe_suffix}"
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            docker run --detach --name "$container" "${IMAGE_NAME}:${VERSION}${suffix}"
+            for attempt in $(seq 1 30); do
+              status="$(docker inspect --format '{{.State.Health.Status}}' "$container")"
+              if [ "$status" = "healthy" ]; then
+                docker rm -f "$container" >/dev/null
+                return 0
+              fi
+              if [ "$status" = "unhealthy" ] || [ "$(docker inspect --format '{{.State.Status}}' "$container")" = "exited" ]; then
+                docker logs "$container" || true
+                docker rm -f "$container" >/dev/null 2>&1 || true
+                return 1
+              fi
+              sleep 2
+            done
+            docker logs "$container" || true
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            return 1
+          }
+
+          smoke ""
+          smoke "-web"
 
       - name: Promote Docker Hub latest tags
         if: needs.prepare.outputs.promote_latest == 'true'
@@ -504,11 +401,6 @@ jobs:
           }
           promote_tag ""
           promote_tag "-web"
-          for suffix in -bun -web-bun; do
-            if docker buildx imagetools inspect "${IMAGE_NAME}:${VERSION}${suffix}" >/dev/null 2>&1; then
-              promote_tag "$suffix"
-            fi
-          done
 
       - name: Promote GHCR latest tags
         if: needs.prepare.outputs.promote_latest == 'true'
@@ -520,11 +412,6 @@ jobs:
           }
           promote_tag ""
           promote_tag "-web"
-          for suffix in -bun -web-bun; do
-            if docker buildx imagetools inspect "${GHCR_IMAGE_NAME}:${VERSION}${suffix}" >/dev/null 2>&1; then
-              promote_tag "$suffix"
-            fi
-          done
 
       - name: Inspect image
         if: needs.prepare.outputs.version != 'main'
