@@ -146,7 +146,7 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
       messages: [
         { role: "system", content: hugeSystem },
         { role: "developer", content: 'Public model identity: "claude-opus-5-5".' },
-        { role: "user", content: "Analise este código e explique o bug." },
+        { role: "user", content: "oi" },
       ],
       tools,
       tool_choice: "auto",
@@ -212,7 +212,7 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
           role: "developer",
           content: 'Public model identity: "claude-opus-5-5".',
         },
-        { role: "user", content: "oi" },
+        { role: "user", content: "Analise este código e explique o bug." },
       ],
     });
 
