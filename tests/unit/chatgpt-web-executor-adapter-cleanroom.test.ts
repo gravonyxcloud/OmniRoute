@@ -122,6 +122,64 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     assert.doesNotMatch(prepared.prompt, /^System:/);
   });
 
+  test("fresh greeting bypasses huge agent harness and optional tool schemas", () => {
+    const hugeSystem = [
+      "You are Claude Code.",
+      "SYSTEM-RULE ".repeat(12_000),
+    ].join("\n");
+    const tools = Array.from({ length: 80 }, (_, index) => ({
+      type: "function" as const,
+      function: {
+        name: `tool_${index}`,
+        description: "A client-side tool ".repeat(20),
+        parameters: {
+          type: "object",
+          properties: {
+            path: { type: "string" },
+            query: { type: "string" },
+          },
+        },
+      },
+    }));
+
+    const prepared = prepareChatGptWebBrowserRequest("gpt-5-6-thinking", {
+      messages: [
+        { role: "system", content: hugeSystem },
+        { role: "developer", content: 'Public model identity: "claude-opus-5-5".' },
+        { role: "user", content: "oi" },
+      ],
+      tools,
+      tool_choice: "auto",
+    });
+
+    assert.equal(prepared.prompt, "oi");
+    assert.equal(prepared.tools, undefined);
+    assert.equal(Math.ceil(prepared.prompt.length / 4), 1);
+  });
+
+  test("fresh greeting does not bypass a required client tool call", () => {
+    const prepared = prepareChatGptWebBrowserRequest("gpt-5-6-thinking", {
+      messages: [
+        { role: "system", content: "Large client harness" },
+        { role: "user", content: "oi" },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "required_tool",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      ],
+      tool_choice: "required",
+    });
+
+    assert.ok(prepared.tools?.required);
+    assert.match(prepared.prompt, /CLIENT TOOL ROUTING TASK/);
+    assert.notEqual(prepared.prompt, "oi");
+  });
+
   test("compacts oversized Claude Code browser context before submission", () => {
     const hugeSystem = "SYSTEM-RULE ".repeat(8_000);
     const hugeHistory = "old-context ".repeat(8_000);
