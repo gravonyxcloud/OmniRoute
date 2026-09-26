@@ -146,7 +146,7 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
       messages: [
         { role: "system", content: hugeSystem },
         { role: "developer", content: 'Public model identity: "claude-opus-5-5".' },
-        { role: "user", content: "oi" },
+        { role: "user", content: "Analise este código e explique o bug." },
       ],
       tools,
       tool_choice: "auto",
@@ -200,7 +200,7 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     assert.match(prepared.prompt, /Older context omitted by OmniRoute browser transport/);
   });
 
-  test("keeps Claude Code-style control context silent for a fresh hello", () => {
+  test("keeps Claude Code-style control context silent for a substantive turn", () => {
     const prepared = prepareChatGptWebBrowserRequest("gpt-5-5-instant", {
       messages: [
         {
@@ -218,7 +218,10 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
 
     assert.match(prepared.prompt, /<omniroute_control>/);
     assert.match(prepared.prompt, /Public model identity: "claude-opus-5-5"/);
-    assert.match(prepared.prompt, /<conversation>\n\nUser:\noi\n\n<\/conversation>/);
+    assert.match(
+      prepared.prompt,
+      /<conversation>\n\nUser:\nAnalise este código e explique o bug\.\n\n<\/conversation>/
+    );
     assert.match(prepared.prompt, /Reply to the latest user request directly/);
     assert.doesNotMatch(prepared.prompt, /System:\nYou are Claude Code/);
   });
