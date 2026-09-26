@@ -329,7 +329,7 @@ USER node
 # headless mode before its application bundles are loaded. Run the web flavor
 # under a virtual X display so Playwright can use normal headed Chromium while
 # the container remains display-less from the host's perspective.
-CMD ["xvfb-run", "-a", "--server-args=-screen 0 1920x1080x24 -nolisten tcp", "node", "dev/run-standalone.mjs"]
+CMD ["sh", "-lc", "Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp >/tmp/xvfb.log 2>&1 & export DISPLAY=:99; exec node dev/run-standalone.mjs"]
 
 FROM runner-base AS runner-cli
 
