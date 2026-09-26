@@ -51,7 +51,7 @@ interface BrowserConversationAttachment {
 }
 
 const CHATGPT_ORIGIN = "https://chatgpt.com";
-const CHATGPT_ASSET_PATH_RE = /^(?:\/cdn\/assets\/|\/_next\/static\/)[A-Za-z0-9_./-]+\.js$/;
+const CHATGPT_ASSET_PATH_RE = /^(?:\/cdn\/assets\/|\/_next\/static\/|\/(?:unauth-mweb|auth-mweb|mweb)\/assets\/)[A-Za-z0-9_./-]+\.js$/;
 const OAI_STATIC_ORIGIN = "https://cdn.oaistatic.com";
 const OAI_STATIC_ASSET_PATH_RE = /^\/assets\/[A-Za-z0-9_./-]+\.js$/;
 const OAI_UPLOAD_HOST_RE = /(?:^|\.)oaiusercontent\.com$/i;

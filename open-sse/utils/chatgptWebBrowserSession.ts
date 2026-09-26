@@ -247,11 +247,11 @@ class ChatGptWebBrowserTurnRunner {
     }
   }
 
-  private completeFromRenderedAssistant(): void {
+  private completeFromRenderedAssistant(timeoutMs = 120_000): void {
     if (this.renderedReadPending || !this.session.readRenderedAssistantText) return;
     this.renderedReadPending = true;
     void this.session
-      .readRenderedAssistantText(10_000)
+      .readRenderedAssistantText(timeoutMs)
       .then((text) => this.acceptRenderedAssistant(text))
       .catch(() => {
         this.renderedReadPending = false;
@@ -358,9 +358,13 @@ class ChatGptWebBrowserTurnRunner {
         signal: this.turnController.signal,
       })
       .then((directResponse) => {
-        if (typeof directResponse !== "string" || this.settled) return;
-        this.settled = true;
-        this.resolveResult(parseChatGptWebDirectConversation(directResponse));
+        if (this.settled) return;
+        if (typeof directResponse === "string") {
+          this.settled = true;
+          this.resolveResult(parseChatGptWebDirectConversation(directResponse));
+          return;
+        }
+        this.completeFromRenderedAssistant();
       })
       .catch((error: unknown) => {
         this.fail(turnError(error, "ChatGPT Web prompt submission failed"));
@@ -373,7 +377,6 @@ class ChatGptWebBrowserTurnRunner {
       () => this.fail(new Error("ChatGPT Web browser turn timed out")),
       timeoutMs
     );
-    timeout.unref?.();
     const abort = (): void => this.fail(new Error("ChatGPT Web browser turn aborted"));
     signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -386,6 +389,41 @@ class ChatGptWebBrowserTurnRunner {
       await cleanup?.();
     }
   }
+}
+
+function shouldUseComposerFallback(error: unknown): boolean {
+  const message = turnError(error, "ChatGPT Web first-party request failed").message;
+  return /first-party request module|first-party module contract|first-party asset|challenge bridge|request client is unavailable/i.test(
+    message
+  );
+}
+
+function composerSelectionFields(
+  selection: ChatGptWebUiSelection
+): Record<"thinkingModel" | "thinkingEffort" | "thinkingHint", string> {
+  if (selection.kind === "free") {
+    return {
+      thinkingModel: "",
+      thinkingEffort: "",
+      thinkingHint: selection.thinkEnabled ? "reason" : "",
+    };
+  }
+
+  const base = selection.modelLabel === "GPT-5.6 Sol" ? "gpt-5-6" : "gpt-5-5";
+  if (selection.effortIndex === 4) {
+    return {
+      thinkingModel: `${base}-pro`,
+      thinkingEffort: "",
+      thinkingHint: "",
+    };
+  }
+
+  const efforts = ["zero", "standard", "extended", "xhigh"] as const;
+  return {
+    thinkingModel: base,
+    thinkingEffort: efforts[selection.effortIndex] ?? "",
+    thinkingHint: "",
+  };
 }
 
 /** Run one turn while the first-party browser remains the sole challenge and auth owner. */
@@ -417,6 +455,7 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
   private readonly executePageRequest: NonNullable<
     PlaywrightChatGptWebBrowserSessionOptions["executePageRequest"]
   >;
+  private lastRenderedAssistantText: string | null = null;
 
   constructor(
     private readonly page: Page,
@@ -463,17 +502,116 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
     }
   }
 
-  async submitPrompt(request: ChatGptWebBrowserSubmission): Promise<string> {
+  private async renderedAssistantSnapshot(
+    minimumCount: number
+  ): Promise<{ count: number; text: string; active: boolean }> {
+    return this.page.evaluate(({ minimumCount: previousCount }) => {
+      const messages = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-message-role="assistant"]')
+      );
+      if (messages.length <= previousCount) {
+        return { count: messages.length, text: "", active: true };
+      }
+      const last = messages.at(-1);
+      if (!last) return { count: messages.length, text: "", active: true };
+      const markdown = last.querySelector<HTMLElement>("[data-assistant-markdown]");
+      const blocks = Array.from(
+        last.querySelectorAll<HTMLElement>("[data-assistant-stream-block]")
+      );
+      const text = (
+        markdown?.innerText ||
+        markdown?.textContent ||
+        blocks
+          .map((block) => block.innerText || block.textContent || "")
+          .join("\n")
+      ).trim();
+      const active =
+        !last.hasAttribute("data-message-complete") ||
+        document.documentElement.hasAttribute("data-conversation-stream-active") ||
+        Boolean(last.querySelector("[data-message-streaming]"));
+      return { count: messages.length, text, active };
+    }, { minimumCount });
+  }
+
+  private async waitForRenderedAssistant(
+    minimumCount: number,
+    timeoutMs: number
+  ): Promise<string | null> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const snapshot = await this.renderedAssistantSnapshot(minimumCount);
+      if (snapshot.text && !snapshot.active) return snapshot.text;
+      await this.page.waitForTimeout(200);
+    }
+    const snapshot = await this.renderedAssistantSnapshot(minimumCount);
+    return snapshot.text || null;
+  }
+
+  private async submitThroughComposer(request: ChatGptWebBrowserSubmission): Promise<void> {
+    if (!this.selection) throw new Error("ChatGPT Web composer fallback requires model selection");
+    if (request.attachments.length > 0) {
+      throw new Error("ChatGPT Web composer fallback does not support attachments");
+    }
+
+    this.lastRenderedAssistantText = null;
+    await this.page.goto(this.pageUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    requireFirstPartyUrl(this.page.url());
+
+    const composer = this.page
+      .locator('#mobile-composer-prompt, textarea[name="prompt"], [data-mobile-composer-prompt]')
+      .first();
+    await composer.waitFor({ state: "visible", timeout: 20_000 });
+    const initialAssistantCount = await this.page
+      .locator('[data-message-role="assistant"]')
+      .count();
+    const fields = composerSelectionFields(this.selection);
+
+    await this.page.evaluate((values) => {
+      const form = document.querySelector<HTMLFormElement>("[data-mobile-composer]");
+      if (!form) throw new Error("ChatGPT Web composer form is unavailable");
+      for (const name of ["thinkingHint", "thinkingModel", "thinkingEffort"]) {
+        form.querySelectorAll(`input[name="${name}"]`).forEach((input) => input.remove());
+      }
+      for (const [name, value] of Object.entries(values)) {
+        if (!value) continue;
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = value;
+        form.append(input);
+      }
+    }, fields);
+
+    await composer.fill(requirePrompt(request.prompt));
+    if (request.signal?.aborted) throw new Error("ChatGPT Web browser turn aborted");
+    await composer.press("Enter");
+
+    const text = await this.waitForRenderedAssistant(initialAssistantCount, 90_000);
+    if (!text) throw new Error("ChatGPT Web composer returned no rendered assistant response");
+    this.lastRenderedAssistantText = text;
+  }
+
+  async readRenderedAssistantText(timeoutMs = 10_000): Promise<string | null> {
+    if (this.lastRenderedAssistantText) return this.lastRenderedAssistantText;
+    return this.waitForRenderedAssistant(-1, timeoutMs);
+  }
+
+  async submitPrompt(request: ChatGptWebBrowserSubmission): Promise<string | void> {
     if (!this.selection) throw new Error("ChatGPT Web direct request requires a model selection");
     requireFirstPartyUrl(this.page.url());
-    return this.executePageRequest(
-      this.page,
-      {
-        prompt: requirePrompt(request.prompt),
-        attachments: request.attachments,
-        selection: this.selection,
-      },
-      { signal: request.signal }
-    );
+    try {
+      return await this.executePageRequest(
+        this.page,
+        {
+          prompt: requirePrompt(request.prompt),
+          attachments: request.attachments,
+          selection: this.selection,
+        },
+        { signal: request.signal }
+      );
+    } catch (error) {
+      if (!shouldUseComposerFallback(error)) throw error;
+      await this.submitThroughComposer(request);
+    }
   }
 }

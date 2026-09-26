@@ -417,9 +417,10 @@ export function resolveChatGptWebChromeExecutable(
  * usable in a container.
  */
 export function shouldUseHeadlessChatGptWebBrowser(
-  runningInContainer = isRunningInContainer()
+  runningInContainer = isRunningInContainer(),
+  env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  return runningInContainer;
+  return runningInContainer && !env.DISPLAY && !env.WAYLAND_DISPLAY;
 }
 
 async function createDefaultSession(

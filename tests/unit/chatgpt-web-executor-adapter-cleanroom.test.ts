@@ -253,9 +253,11 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
 });
 
 describe("ChatGPT Web clean-room storage state", () => {
-  test("uses headless Chromium in containers that have no display server", () => {
-    assert.equal(shouldUseHeadlessChatGptWebBrowser(true), true);
-    assert.equal(shouldUseHeadlessChatGptWebBrowser(false), false);
+  test("uses headed Chromium when a container has a virtual display", () => {
+    assert.equal(shouldUseHeadlessChatGptWebBrowser(true, {}), true);
+    assert.equal(shouldUseHeadlessChatGptWebBrowser(true, { DISPLAY: ":99" }), false);
+    assert.equal(shouldUseHeadlessChatGptWebBrowser(true, { WAYLAND_DISPLAY: "wayland-0" }), false);
+    assert.equal(shouldUseHeadlessChatGptWebBrowser(false, {}), false);
   });
 
   test("prefers an explicit installed Chrome path for the headed first-party session", () => {

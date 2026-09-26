@@ -177,6 +177,7 @@ describe("ChatGPT Web first-party module contract discovery", () => {
         [
           "https://chatgpt.com/cdn/assets/chunks/bridge-current.js",
           "https://chatgpt.com/_next/static/chunks/app/current.js",
+          "https://chatgpt.com/unauth-mweb/assets/sentinel-current.js",
           "https://cdn.oaistatic.com/assets/chunks/bridge-current.js",
           "https://example.com/cdn/assets/foreign.js",
           "https://chatgpt.com/cdn/assets/not-js.css",
@@ -187,6 +188,7 @@ describe("ChatGPT Web first-party module contract discovery", () => {
       [
         "https://chatgpt.com/cdn/assets/chunks/bridge-current.js",
         "https://chatgpt.com/_next/static/chunks/app/current.js",
+        "https://chatgpt.com/unauth-mweb/assets/sentinel-current.js",
         "https://cdn.oaistatic.com/assets/chunks/bridge-current.js",
       ]
     );

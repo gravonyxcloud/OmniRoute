@@ -319,10 +319,17 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-apt-cache,targe
   --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-apt-lists,target=/var/lib/apt/lists,sharing=locked \
   apt-get update \
   && node node_modules/playwright/cli.js install chromium --with-deps \
+  && apt-get install -y --no-install-recommends xvfb xauth \
   && chown -R node:node /home/node/.cache \
   && rm -rf /var/lib/apt/lists/*
 
 USER node
+
+# ChatGPT's current web frontend serves a browser challenge to Chromium in
+# headless mode before its application bundles are loaded. Run the web flavor
+# under a virtual X display so Playwright can use normal headed Chromium while
+# the container remains display-less from the host's perspective.
+CMD ["xvfb-run", "-a", "--server-args=-screen 0 1920x1080x24 -nolisten tcp", "node", "dev/run-standalone.mjs"]
 
 FROM runner-base AS runner-cli
 
