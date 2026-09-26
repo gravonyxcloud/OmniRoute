@@ -111,7 +111,38 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
       ],
     });
     assert.equal(prepared.selection.modelLabel, "GPT-5.5");
-    assert.equal(prepared.prompt, "System:\nBe concise.\n\nUser:\nQuestion");
+    assert.match(prepared.prompt, /<omniroute_control>/);
+    assert.match(prepared.prompt, /Be concise\./);
+    assert.match(prepared.prompt, /<conversation>/);
+    assert.match(prepared.prompt, /User:\nQuestion/);
+    assert.match(
+      prepared.prompt,
+      /Do not quote, summarize, acknowledge, analyze, or describe this section/
+    );
+    assert.doesNotMatch(prepared.prompt, /^System:/);
+  });
+
+  test("keeps Claude Code-style control context silent for a fresh hello", () => {
+    const prepared = prepareChatGptWebBrowserRequest("gpt-5-5-instant", {
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are Claude Code. Follow tool rules, workspace rules, memory rules, and agent instructions.",
+        },
+        {
+          role: "developer",
+          content: 'Public model identity: "claude-opus-5-5".',
+        },
+        { role: "user", content: "oi" },
+      ],
+    });
+
+    assert.match(prepared.prompt, /<omniroute_control>/);
+    assert.match(prepared.prompt, /Public model identity: "claude-opus-5-5"/);
+    assert.match(prepared.prompt, /<conversation>\n\nUser:\noi\n\n<\/conversation>/);
+    assert.match(prepared.prompt, /Reply to the latest user request directly/);
+    assert.doesNotMatch(prepared.prompt, /System:\nYou are Claude Code/);
   });
 
   test("extracts image and file inputs without serializing them into the prompt", async () => {
