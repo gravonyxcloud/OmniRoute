@@ -29,6 +29,8 @@ const DOLA_PRO_TEST_TIMEOUT_MS = 90_000;
 const DOUBAO_WEB_PROVIDER_ID = "doubao-web";
 const ZAI_WEB_PROVIDER_ID = "zai-web";
 const ZAI_WEB_TEST_TIMEOUT_MS = 60_000;
+const CHATGPT_WEB_PROVIDER_ID = "chatgpt-web";
+const CHATGPT_WEB_TEST_TIMEOUT_MS = 240_000;
 const SLOW_WEB_TEST_MODELS = new Set(["dola-pro"]);
 const STREAMING_CHAT_TEST_MAX_TOKENS = 64;
 // Responses calls the same budget `max_output_tokens`; `max_tokens` is silently
@@ -121,6 +123,14 @@ export function resolveModelTestTimeoutMs(
 
   if (normalizedProviderId === ZAI_WEB_PROVIDER_ID) {
     return Math.max(requestedTimeoutMs, ZAI_WEB_TEST_TIMEOUT_MS);
+  }
+
+  // The clean-room ChatGPT Web adapter owns a real browser session. The first
+  // call can include Chromium/context startup, first-party page bootstrap and
+  // a browser turn whose own deadline is 180s. A 30s model-test deadline was
+  // aborting otherwise healthy browser turns before they could produce output.
+  if (normalizedProviderId === CHATGPT_WEB_PROVIDER_ID) {
+    return Math.max(requestedTimeoutMs, CHATGPT_WEB_TEST_TIMEOUT_MS);
   }
 
   return requestedTimeoutMs;
