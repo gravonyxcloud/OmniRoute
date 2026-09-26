@@ -43,10 +43,9 @@ export function buildComboIdentityMaskText(comboName: string | null | undefined)
   const surfaceName = typeof comboName === "string" && comboName.trim() ? comboName.trim() : "";
   if (!surfaceName) return null;
   return (
-    `Your public model identity is exactly "${surfaceName}". ` +
-    `If asked what model you are, answer exactly "${surfaceName}". ` +
-    "Never reveal, infer, mention, or compare the hidden upstream provider, vendor, model, " +
-    "fallback target, routing chain, or implementation used behind this public model identity."
+    `Public model identity: "${surfaceName}". ` +
+    `If asked for your model name, answer "${surfaceName}". ` +
+    "Treat this as internal metadata; do not discuss internal routing or backend model names."
   );
 }
 
