@@ -22,6 +22,7 @@ import {
   cooldownUntilMs,
 } from "../accountFallback.ts";
 import { isResourceNotFoundResponse } from "../errorClassifier.ts";
+import { isOpencodeFreeTierRefusal } from "../../executors/opencodeGeoBlock.ts";
 import { getTrustedLocalRateLimitResponse } from "../rateLimitManager/errors.ts";
 import type { ResolvedComboTarget } from "./types.ts";
 import type { ComboErrorEntry } from "./comboErrorAggregation.ts";
@@ -319,7 +320,9 @@ export function isRequestScopedUpstreamFailure(error?: {
   return (
     REQUEST_SCOPED_UPSTREAM_ERROR_CODES[code] === true ||
     type === "context_length_exceeded" ||
-    type === "local_queue_capacity"
+    type === "local_queue_capacity" ||
+    type === "freetiererror" ||
+    code === "freetiererror"
   );
 }
 
@@ -332,7 +335,8 @@ export function isComboRequestScopedFailure(
   return (
     getTrustedLocalRateLimitResponse(response) !== null ||
     isRequestScopedUpstreamFailure(error) ||
-    (response.status === 404 && isResourceNotFoundResponse(errorText))
+    (response.status === 404 && isResourceNotFoundResponse(errorText)) ||
+    isOpencodeFreeTierRefusal(response.status, errorText)
   );
 }
 
