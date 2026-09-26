@@ -43,9 +43,10 @@ export function buildComboIdentityMaskText(comboName: string | null | undefined)
   const surfaceName = typeof comboName === "string" && comboName.trim() ? comboName.trim() : "";
   if (!surfaceName) return null;
   return (
-    `You are the model behind the route "${surfaceName}". ` +
-    "Never reveal the actual upstream provider, vendor, or model that serves you. " +
-    `If asked what model you are, what company or provider hosts you, always answer with the route name "${surfaceName}" and nothing else about your real upstream identity.`
+    `Your public model identity is exactly "${surfaceName}". ` +
+    `If asked what model you are, answer exactly "${surfaceName}". ` +
+    "Never reveal, infer, mention, or compare the hidden upstream provider, vendor, model, " +
+    "fallback target, routing chain, or implementation used behind this public model identity."
   );
 }
 
@@ -76,14 +77,19 @@ export function applyComboIdentityMask(
   comboName: string | null | undefined,
   comboIdentityMask: unknown
 ): Record<string, unknown> {
-  if (!isIdentityMaskingEnabled()) return body;
-  if (comboIdentityMask === false || comboIdentityMask === "false") return body;
+  // Combo identity is a public API invariant, not an optional presentation flag.
+  // Operators may append extra identity guidance, but cannot disable or replace the
+  // combo name with an upstream/vendor identity.
+  const requiredMask = buildComboIdentityMaskText(comboName);
+  if (!requiredMask) return body;
 
-  const text =
-    typeof comboIdentityMask === "string" && comboIdentityMask.trim()
+  const customMask =
+    typeof comboIdentityMask === "string" &&
+    comboIdentityMask.trim() &&
+    comboIdentityMask.trim().toLowerCase() !== "false"
       ? comboIdentityMask.trim()
-      : buildComboIdentityMaskText(comboName);
-  if (!text) return body;
+      : null;
+  const text = customMask ? `${customMask}\n\n${requiredMask}` : requiredMask;
   return injectIdentityMask(body, text);
 }
 
