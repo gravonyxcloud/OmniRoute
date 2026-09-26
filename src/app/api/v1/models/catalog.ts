@@ -854,9 +854,10 @@ async function buildUnifiedModelsResponseCore(
     // #9199: prepare the shared connection/settings/registry candidate snapshot once for this
     // catalog build. Runtime auto routing still prepares fresh request-scoped inputs.
     let preparedAutoInputs: Awaited<ReturnType<typeof prepareBuiltinAutoComboInputs>> | undefined;
-    // A key with allowAutoCombos=false must not be offered ids it cannot use:
-    // the policy gate rejects auto/* for it at dispatch.
-    const autoCombosDisallowedForKey = earlyKeyMeta?.allowAutoCombos === false;
+    // Customer/API-key catalogs are intentionally combo-only. Built-in auto/*
+    // routes are internal routing helpers, not products exposed to API clients.
+    // Env-var master keys have no DB metadata row and keep the full operator catalog.
+    const autoCombosDisallowedForKey = Boolean(earlyKeyMeta);
     let materializedAutoCount = 0;
     const autoMeta = memoizeTargetMetadata(getComboTargetCatalogMetadata, maybeYieldCatalogBuild);
     for (const autoId of [
@@ -2003,47 +2004,43 @@ async function buildUnifiedModelsResponseCore(
         // Without this branch, isModelAllowedForKey returns false for every model
         // (metadata missing → deny), collapsing /v1/models to 0 entries.
       } else {
-        // Per-key catalog scope: `combos` advertises only combo rows, `models`
-        // only provider models, `all` (the default) both. This is a listing
-        // preference, not an access control — dispatch is unaffected either way.
-        const catalogScope = keyMeta.catalogScope ?? "all";
-        const filtered = [];
-        for (const m of models) {
-          const isComboRow = m.owned_by === "combo";
-          if (catalogScope === "combos" && !isComboRow) continue;
-          if (catalogScope === "models" && isComboRow) continue;
-          // A combo is gated by `allowedCombos`, not by the model allow/deny lists:
-          // those govern provider models. Without this branch a `restricted` key with
-          // an empty `allowedModels` gets an EMPTY catalog even though every combo in
-          // its `allowedCombos` dispatches fine — the catalog contradicted the key.
-          // Listing a combo the key can already dispatch grants no new access.
-          // auto/* rows are exempt: they fail open at dispatch (they resolve to no
-          // stored combo), and `allowAutoCombos` already gated their synthesis above.
-          if (m.owned_by === "combo" && !String(m.id).startsWith("auto/")) {
-            if (isComboNameAllowedForKey(keyMeta.allowedCombos, String(m.id))) {
-              filtered.push(m);
-            }
-            continue;
-          }
-          // m.id is the full identifier (e.g. openai/gpt-4o), m.root is the raw model string
-          // check either one as the config could use either patterns
-          if (
-            (await isModelAllowedForKey(apiKey, m.id)) ||
-            (await isModelAllowedForKey(apiKey, m.root))
-          ) {
-            filtered.push(m);
-          }
-        }
-        finalModels = filtered;
+        // Public/customer API keys expose ONLY operator-created combos. Raw provider
+        // models and built-in auto/* routes are routing implementation details and
+        // must never appear in /v1/models for a stored key. allowedCombos remains
+        // the access gate; an absent list means all manually-created combos.
+        finalModels = models.filter(
+          (m) =>
+            m.owned_by === "combo" &&
+            !String(m.id).startsWith("auto/") &&
+            isComboNameAllowedForKey(keyMeta.allowedCombos, String(m.id))
+        );
       }
     }
     // ?configuredOnly — hide models that have no eligible DB connection.
+    const customerManualComboIds =
+      apiKey && (await getApiKeyMetadata(apiKey))
+        ? new Set(
+            finalModels
+              .filter(
+                (m) => m.owned_by === "combo" && !String(m.id).startsWith("auto/")
+              )
+              .map((m) => String(m.id))
+          )
+        : null;
+
     finalModels = await applyCatalogPostFilters(request, finalModels, {
       connections,
       prefixMode,
       aliasToProviderId,
       hideNoThinkVariants: settings.hideNoThinkVariants === true,
     });
+
+    // Post-filters can synthesize reasoning/no-think/discovery aliases. A customer
+    // API key must still see exactly the manually-created combo ids, never generated
+    // variants or raw upstream models.
+    if (customerManualComboIds) {
+      finalModels = finalModels.filter((m) => customerManualComboIds.has(String(m.id)));
+    }
 
     const getDefaultContextFallback = (model: any): number | undefined => {
       if (typeof model.context_length === "number") return undefined;
