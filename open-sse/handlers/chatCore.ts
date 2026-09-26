@@ -1032,12 +1032,22 @@ export async function handleChatCore({
   // `oc/nemotron-3-ultra-free`) is not recognized by the client on `--resume`.
   const isClaudeCodeClient = isClaudeCodeOriginatedHeaders(clientRawRequest?.headers);
 
+  // Combo identity is part of the public API contract: the client must always
+  // see the combo name it requested, never whichever upstream model won routing.
+  // Direct-model requests keep the existing opt-in/client-specific echo behavior.
+  const publicComboModel =
+    typeof comboName === "string" && comboName.trim()
+      ? typeof requestedModel === "string" && requestedModel.trim()
+        ? requestedModel.trim()
+        : comboName.trim()
+      : null;
   let echoModel =
-    (settings.echoRequestedModelName === true || isCodexResponsesEcho || isClaudeCodeClient) &&
+    publicComboModel ??
+    ((settings.echoRequestedModelName === true || isCodexResponsesEcho || isClaudeCodeClient) &&
     typeof requestedModel === "string" &&
     requestedModel
       ? requestedModel
-      : null;
+      : null);
   // Auto-echo the listing-valid form for bare requests to noAuth catalog
   // providers so clients validating response.model against /v1/models don't warn.
   echoModel = resolveNoAuthEchoModel(requestedModel, provider) ?? echoModel;
@@ -5649,8 +5659,8 @@ export async function handleChatCore({
         clientResponse: translatedResponse,
       });
       const responseHeaders = buildNonStreamingResponseHeaders({
-        provider,
-        model,
+        provider: publicComboModel ? "combo" : provider,
+        model: publicComboModel ?? model,
         startTime,
         responseUsage,
         estimatedCost,
@@ -5840,9 +5850,12 @@ export async function handleChatCore({
   }
 
   const responseHeaders = assembleStreamingResponseHeaders({
-    providerHeaders: providerResponse.headers,
-    provider,
-    model,
+    // Combo clients must not receive upstream-identifying headers (provider request
+    // ids, vendor rate-limit headers, etc.). Internal routing/logging still keeps the
+    // original providerResponse headers below.
+    providerHeaders: publicComboModel ? new Headers() : providerResponse.headers,
+    provider: publicComboModel ? "combo" : provider,
+    model: publicComboModel ?? model,
     pendingRequestId,
     compressionResponseMeta,
     comboStrategy,
