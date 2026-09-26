@@ -503,16 +503,77 @@ function resolveSelection(model: string, body: JsonRecord): ChatGptWebUiSelectio
   throw new Error(`ChatGPT Web clean-room adapter received an unsupported model: ${model}`);
 }
 
+function freshTrivialGreeting(body: JsonRecord): string | null {
+  // Claude Code/Codex can attach tens of thousands of characters of harness and
+  // auto-tool schemas even when a brand-new session contains only "oi". Sending
+  // that entire harness through a browser composer is wasteful and makes the UI
+  // transport dramatically slower. For a genuinely fresh, trivial greeting there
+  // is no tool or historical context to preserve, so use the literal user message.
+  const messages = parsePromptMessages(body);
+  const conversation = messages.filter(
+    (message) => message.role !== "system" && message.role !== "developer"
+  );
+  if (conversation.length !== 1 || conversation[0].role !== "user") return null;
+
+  const text = conversation[0].text.trim();
+  if (!text || text.length > 80) return null;
+
+  const normalized = text
+    .toLocaleLowerCase("pt-BR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[!?.,;:()[\]{}"'´`~*_#-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const greetings = new Set([
+    "oi",
+    "ola",
+    "opa",
+    "eae",
+    "e ai",
+    "iae",
+    "hey",
+    "hi",
+    "hello",
+    "bom dia",
+    "boa tarde",
+    "boa noite",
+    "tudo bem",
+    "como vai",
+  ]);
+  if (!greetings.has(normalized)) return null;
+
+  const choice = body.tool_choice;
+  const forcedTool =
+    choice === "required" ||
+    (typeof choice === "object" && choice !== null) ||
+    (typeof choice === "string" && choice !== "auto" && choice !== "none");
+  if (forcedTool) return null;
+
+  return text;
+}
+
 export function prepareChatGptWebBrowserRequest(
   model: string,
   body: unknown
 ): PreparedChatGptWebBrowserRequest {
   if (!isRecord(body)) throw new Error("ChatGPT Web clean-room adapter requires an object body");
-  const tools = prepareChatGptWebClientTools(body);
-  const history = buildPrompt(body, {
-    additionalControl: tools && !tools.required ? [tools.prompt] : [],
-    includeFinalDirective: tools?.required !== true,
-  });
+
+  const greeting = freshTrivialGreeting(body);
+  const preparedTools = prepareChatGptWebClientTools(body);
+  // Optional auto-tools are intentionally omitted for a fresh greeting. A greeting
+  // cannot need filesystem/web/client execution, and serializing the schemas can
+  // dwarf the actual one-token user message. Required/forced tool calls never take
+  // this shortcut.
+  const tools = greeting && !preparedTools?.required ? undefined : preparedTools;
+
+  const history =
+    greeting ??
+    buildPrompt(body, {
+      additionalControl: tools && !tools.required ? [tools.prompt] : [],
+      includeFinalDirective: tools?.required !== true,
+    });
   const prompt = tools?.required
     ? [
         "CLIENT TOOL ROUTING TASK.",
