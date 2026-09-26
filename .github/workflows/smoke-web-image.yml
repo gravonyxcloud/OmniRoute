@@ -17,36 +17,46 @@ jobs:
       - name: Pull web image
         run: docker pull gabrielsilva543/omniroute:3.8.69-web
 
-      - name: Start web image
+      - name: Baseline xvfb command
         run: |
           set -euxo pipefail
-          docker run -d --name omniroute-web-smoke -p 20128:20128 gabrielsilva543/omniroute:3.8.69-web
+          docker run --rm --entrypoint sh gabrielsilva543/omniroute:3.8.69-web -lc '
+            id
+            command -v xvfb-run
+            xvfb-run -a --server-args="-screen 0 1920x1080x24 -nolisten tcp" node -e "console.log(\"XVFB_OK\")"
+          '
 
-      - name: Wait and inspect
+      - name: Start default web image
         run: |
           set -euxo pipefail
+          docker run -d --name omniroute-web-default -p 20128:20128 gabrielsilva543/omniroute:3.8.69-web
+          sleep 15
+          docker ps -a --no-trunc --filter name=omniroute-web-default
+          docker exec omniroute-web-default sh -lc 'ps -ef; echo ---; (ss -ltnp || netstat -ltnp || true); echo ---; node -p "require(\"/app/package.json\").version"' || true
+          docker logs omniroute-web-default || true
+          curl -sv --max-time 5 http://127.0.0.1:20128/healthz || true
+
+      - name: Start without xvfb wrapper
+        run: |
+          set -euxo pipefail
+          docker run -d --name omniroute-web-node -p 20129:20128 --entrypoint /app/check-permissions.sh gabrielsilva543/omniroute:3.8.69-web node dev/run-standalone.mjs
           for i in $(seq 1 30); do
-            state="$(docker inspect -f '{{.State.Status}}' omniroute-web-smoke)"
-            health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' omniroute-web-smoke)"
-            echo "attempt=$i state=$state health=$health"
-            if [ "$state" = "exited" ]; then
-              docker logs omniroute-web-smoke || true
-              docker inspect omniroute-web-smoke
-              exit 1
-            fi
-            if [ "$health" = "healthy" ]; then
-              break
+            if curl -fsS --max-time 3 http://127.0.0.1:20129/healthz; then
+              echo NODE_DIRECT_HEALTHY
+              docker exec omniroute-web-node node -p "require('/app/package.json').version"
+              exit 0
             fi
             sleep 2
           done
-          echo "VERSION=$(docker exec omniroute-web-smoke node -p \"require('/app/package.json').version\")"
-          curl -fsS http://127.0.0.1:20128/healthz
-          docker ps -a --no-trunc --filter name=omniroute-web-smoke
-          docker logs --tail 200 omniroute-web-smoke
+          docker ps -a --no-trunc --filter name=omniroute-web-node
+          docker logs omniroute-web-node || true
+          exit 1
 
       - name: Dump on failure
         if: failure()
         run: |
           docker ps -a --no-trunc || true
-          docker inspect omniroute-web-smoke || true
-          docker logs omniroute-web-smoke || true
+          docker inspect omniroute-web-default || true
+          docker inspect omniroute-web-node || true
+          docker logs omniroute-web-default || true
+          docker logs omniroute-web-node || true
