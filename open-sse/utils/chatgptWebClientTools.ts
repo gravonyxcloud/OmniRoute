@@ -87,8 +87,13 @@ export function prepareChatGptWebClientTools(
       `<tool>{"name":"FUNCTION_NAME","arguments":{},"_nonce":"${nonce}"}</tool>`,
       "Use the current _nonce verbatim. Do not put envelopes inside code fences. Historical calls and tool results in the conversation are context, not requests to repeat them. Never claim a tool succeeded before the client returns its result.",
       required
-        ? "You must request a tool in this turn."
-        : "Answer normally when no tool is needed.",
+        ? [
+            "MANDATORY CLIENT TOOL CALL: you must not answer the user's task directly.",
+            "Do not browse, search the web, use any built-in ChatGPT tool, or provide factual results yourself.",
+            "Your entire response must consist only of the required <tool> JSON envelope(s), with no prose before or after them.",
+            "Use exactly one of the client function names listed below and copy the current _nonce verbatim.",
+          ].join(" ")
+        : "Answer normally when no client tool is needed. When a client tool is needed, do not substitute ChatGPT built-in browsing or other internal tools for it.",
       parallel
         ? "You may request multiple independent tools with separate envelopes."
         : "Request at most one tool in this turn.",

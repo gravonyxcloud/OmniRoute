@@ -505,32 +505,119 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
   private async renderedAssistantSnapshot(
     minimumCount: number
   ): Promise<{ count: number; text: string; active: boolean }> {
-    return this.page.evaluate(({ minimumCount: previousCount }) => {
-      const messages = Array.from(
-        document.querySelectorAll<HTMLElement>('[data-message-role="assistant"]')
+    try {
+      return await this.page.evaluate(
+        ({ minimumCount: previousCount }) => {
+          const selectors = [
+            '[data-message-role="assistant"]',
+            '[data-message-author-role="assistant"]',
+            'article[data-testid^="conversation-turn"]:has([data-message-author-role="assistant"])',
+            'article[data-testid^="conversation-turn"]:has(h6)',
+          ];
+          const seen = new Set<HTMLElement>();
+          const messages: HTMLElement[] = [];
+          for (const selector of selectors) {
+            for (const node of document.querySelectorAll<HTMLElement>(selector)) {
+              if (!seen.has(node)) {
+                seen.add(node);
+                messages.push(node);
+              }
+            }
+          }
+          const stopButtons = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              'button[data-testid="stop-button"], button[aria-label*="Stop"], button[aria-label*="Parar"]'
+            )
+          );
+          const visibleStopButton = stopButtons.some((button) => {
+            const style = getComputedStyle(button);
+            const rect = button.getBoundingClientRect();
+            return (
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              rect.width > 0 &&
+              rect.height > 0
+            );
+          });
+
+          const last = messages.at(-1);
+          if (last) {
+            const markdown =
+              last.querySelector<HTMLElement>("[data-assistant-markdown]") ??
+              last.querySelector<HTMLElement>(".markdown");
+            const blocks = Array.from(
+              last.querySelectorAll<HTMLElement>(
+                '[data-assistant-stream-block], .markdown, [class*="prose"]'
+              )
+            );
+            const text = (
+              markdown?.innerText ||
+              markdown?.textContent ||
+              blocks
+                .map((block) => block.innerText || block.textContent || "")
+                .filter(Boolean)
+                .join("\n") ||
+              last.innerText ||
+              last.textContent ||
+              ""
+            ).trim();
+            const active =
+              document.documentElement.hasAttribute("data-conversation-stream-active") ||
+              Boolean(last.querySelector("[data-message-streaming]")) ||
+              visibleStopButton;
+            if (text || messages.length > previousCount) {
+              return { count: messages.length, text, active };
+            }
+          }
+
+          const bodyText = document.body?.innerText ?? "";
+          const assistantMarkers = ["ChatGPT said:", "ChatGPT disse:"];
+          let markerIndex = -1;
+          let marker = "";
+          for (const candidate of assistantMarkers) {
+            const index = bodyText.lastIndexOf(candidate);
+            if (index > markerIndex) {
+              markerIndex = index;
+              marker = candidate;
+            }
+          }
+
+          if (markerIndex >= 0) {
+            let responseText = bodyText.slice(markerIndex + marker.length);
+            const footerMarkers = [
+              "ChatGPT can make mistakes.",
+              "O ChatGPT pode cometer erros.",
+              "Latest response",
+              "Resposta mais recente",
+              "Response complete",
+              "Resposta concluída",
+            ];
+            let cutAt = responseText.length;
+            for (const footer of footerMarkers) {
+              const index = responseText.indexOf(footer);
+              if (index >= 0 && index < cutAt) cutAt = index;
+            }
+            responseText = responseText.slice(0, cutAt).trim();
+            if (responseText || !visibleStopButton) {
+              return {
+                count: Math.max(messages.length, 1),
+                text: responseText,
+                active: visibleStopButton,
+              };
+            }
+          }
+
+          return { count: messages.length, text: "", active: true };
+        },
+        { minimumCount }
       );
-      if (messages.length <= previousCount) {
-        return { count: messages.length, text: "", active: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/execution context was destroyed|navigation|target closed/i.test(message)) {
+        return { count: 0, text: "", active: true };
       }
-      const last = messages.at(-1);
-      if (!last) return { count: messages.length, text: "", active: true };
-      const markdown = last.querySelector<HTMLElement>("[data-assistant-markdown]");
-      const blocks = Array.from(
-        last.querySelectorAll<HTMLElement>("[data-assistant-stream-block]")
-      );
-      const text = (
-        markdown?.innerText ||
-        markdown?.textContent ||
-        blocks
-          .map((block) => block.innerText || block.textContent || "")
-          .join("\n")
-      ).trim();
-      const active =
-        !last.hasAttribute("data-message-complete") ||
-        document.documentElement.hasAttribute("data-conversation-stream-active") ||
-        Boolean(last.querySelector("[data-message-streaming]"));
-      return { count: messages.length, text, active };
-    }, { minimumCount });
+      throw error;
+    }
   }
 
   private async waitForRenderedAssistant(
@@ -558,17 +645,24 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
     requireFirstPartyUrl(this.page.url());
 
     const composer = this.page
-      .locator('#mobile-composer-prompt, textarea[name="prompt"], [data-mobile-composer-prompt]')
+      .locator(
+        '#prompt-textarea, [data-testid="prompt-textarea"], #mobile-composer-prompt, textarea[name="prompt"], [data-mobile-composer-prompt], form [contenteditable="true"], [contenteditable="true"][data-lexical-editor="true"]'
+      )
       .first();
     await composer.waitFor({ state: "visible", timeout: 20_000 });
     const initialAssistantCount = await this.page
-      .locator('[data-message-role="assistant"]')
+      .locator('[data-message-role="assistant"], [data-message-author-role="assistant"]')
       .count();
     const fields = composerSelectionFields(this.selection);
 
     await this.page.evaluate((values) => {
-      const form = document.querySelector<HTMLFormElement>("[data-mobile-composer]");
-      if (!form) throw new Error("ChatGPT Web composer form is unavailable");
+      const composerElement = document.querySelector<HTMLElement>(
+        '#prompt-textarea, [data-testid="prompt-textarea"], #mobile-composer-prompt, textarea[name="prompt"], [data-mobile-composer-prompt], form [contenteditable="true"], [contenteditable="true"][data-lexical-editor="true"]'
+      );
+      const form =
+        composerElement?.closest("form") ??
+        document.querySelector<HTMLFormElement>("[data-mobile-composer]");
+      if (!form) return;
       for (const name of ["thinkingHint", "thinkingModel", "thinkingEffort"]) {
         form.querySelectorAll(`input[name="${name}"]`).forEach((input) => input.remove());
       }
@@ -584,7 +678,16 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
 
     await composer.fill(requirePrompt(request.prompt));
     if (request.signal?.aborted) throw new Error("ChatGPT Web browser turn aborted");
-    await composer.press("Enter");
+    const send = this.page
+      .locator(
+        'button[data-testid="send-button"], button[data-testid="fruitjuice-send-button"], button[aria-label="Send prompt"], button[aria-label="Send"], button[aria-label="Enviar"]'
+      )
+      .first();
+    if ((await send.count()) > 0 && (await send.isVisible().catch(() => false))) {
+      await send.click();
+    } else {
+      await composer.press("Enter");
+    }
 
     const text = await this.waitForRenderedAssistant(initialAssistantCount, 90_000);
     if (!text) throw new Error("ChatGPT Web composer returned no rendered assistant response");
