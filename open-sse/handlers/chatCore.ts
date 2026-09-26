@@ -236,6 +236,8 @@ import {
   isStreamRecoveryExplicitlyConfigured,
 } from "@/lib/resilience/settings";
 import { classifyProviderError, PROVIDER_ERROR_TYPES } from "../services/errorClassifier.ts";
+import { isOpencodeFreeTierRefusalForProvider } from "../executors/opencodeGeoBlock.ts";
+import { noteOpencodeFreeTierSkip } from "../services/opencodeFreeTierSkip.ts";
 import { updateProviderConnection, getProviderConnectionById } from "@/lib/db/providers";
 import { wasRefreshTokenRotated } from "@omniroute/open-sse/services/refreshSerializer.ts";
 import { connectionHasExtraKeys } from "../services/apiKeyRotator.ts";
@@ -4028,6 +4030,12 @@ export async function handleChatCore({
           console.warn(
             `[provider] Node ${errorConnectionId} project routing error (${statusCode}) -- not banning`
           );
+          if (
+            errorConnectionId === "noauth" &&
+            isOpencodeFreeTierRefusalForProvider(provider, statusCode, message)
+          ) {
+            noteOpencodeFreeTierSkip(provider);
+          }
         } else if (errorType === PROVIDER_ERROR_TYPES.GEO_BLOCKED) {
           // Google regional refusal: account-independent, non-terminal; park the connection
           // until egress uses a supported region; probes skip the day-long cooldown (#9817).
