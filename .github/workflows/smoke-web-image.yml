@@ -15,16 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Pull web image
-        run: docker pull gabrielsilva543/omniroute:3.8.69-web
+        run: docker pull gabrielsilva543/omniroute:3.8.70-web
 
-      - name: Start with background Xvfb
+      - name: Start web image
         run: |
           set -euxo pipefail
-          docker run -d --name omniroute-web-fixed -p 20128:20128             --entrypoint /app/check-permissions.sh             gabrielsilva543/omniroute:3.8.69-web             sh -lc 'Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp >/tmp/xvfb.log 2>&1 & export DISPLAY=:99; exec node dev/run-standalone.mjs'
-
-      - name: Verify health version and display
-        run: |
-          set -euxo pipefail
+          docker run -d --name omniroute-web -p 20128:20128 gabrielsilva543/omniroute:3.8.70-web
           for i in $(seq 1 30); do
             if curl -fsS --max-time 3 http://127.0.0.1:20128/healthz; then
               echo HEALTHY
@@ -33,14 +29,37 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:20128/healthz
-          docker exec omniroute-web-fixed node -p "require('/app/package.json').version"
-          docker exec omniroute-web-fixed sh -lc 'echo DISPLAY=$DISPLAY; kill -0 $(pgrep Xvfb) && echo XVFB_RUNNING'
-          docker inspect -f '{{.State.Health.Status}}' omniroute-web-fixed
-          docker logs --tail 200 omniroute-web-fixed
+          docker exec omniroute-web node -p "require('/app/package.json').version"
+
+      - name: Test headed Chromium against chatgpt.com
+        run: |
+          set -euxo pipefail
+          docker exec -e DISPLAY=:99 omniroute-web node --input-type=module -e '
+            import { chromium } from "playwright";
+            const t0 = Date.now();
+            const browser = await chromium.launch({
+              headless: false,
+              args: ["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--window-position=-32000,-32000"]
+            });
+            console.log("LAUNCH_MS=" + (Date.now()-t0));
+            const page = await browser.newPage();
+            const t1 = Date.now();
+            try {
+              await page.goto("https://chatgpt.com/?temporary-chat=true", {waitUntil:"domcontentloaded", timeout:60000});
+              console.log("GOTO_OK_MS=" + (Date.now()-t1));
+            } catch (e) {
+              console.log("GOTO_ERR_MS=" + (Date.now()-t1));
+              console.log("GOTO_ERR=" + String(e));
+            }
+            console.log("URL=" + page.url());
+            console.log("TITLE=" + await page.title().catch(()=>"(title-error)"));
+            console.log("BODY_PREFIX=" + (await page.locator("body").innerText().catch(()=>"(body-error)")).slice(0,500).replace(/\n/g," | "));
+            await browser.close();
+          '
 
       - name: Dump on failure
         if: failure()
         run: |
           docker ps -a --no-trunc || true
-          docker inspect omniroute-web-fixed || true
-          docker logs omniroute-web-fixed || true
+          docker inspect omniroute-web || true
+          docker logs omniroute-web || true
