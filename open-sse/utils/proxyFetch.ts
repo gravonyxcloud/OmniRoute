@@ -81,6 +81,59 @@ const RELAY_FETCH_TIMEOUT_MS = readRelayFetchTimeoutMs();
 // Overridable via OMNIROUTE_RETRY_BACKOFF_MS (0 = retry immediately).
 const RETRY_BACKOFF_MS = Math.max(Number(process.env.OMNIROUTE_RETRY_BACKOFF_MS) || 10, 0);
 
+const NVIDIA_NIM_HOST = "integrate.api.nvidia.com";
+
+function targetHostname(targetUrl: string): string {
+  try {
+    return new URL(targetUrl).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * NVIDIA hosted NIM may spend substantial time ingesting large coding-agent
+ * prompts before response headers exist. A flat 30s zombie-socket watchdog is
+ * too aggressive there and, worse, replaying the POST can duplicate an already
+ * running inference. Keep the generic behavior for every other provider while
+ * using an adaptive first-attempt floor for NVIDIA.
+ */
+export function resolveDirectResponseStartPolicy(
+  targetUrl: string,
+  body: string | null,
+  attempt = 0,
+  hasCallerDeadline = false,
+  env: Record<string, string | undefined> = process.env
+): { timeoutMs: number; replayOnResponseStartTimeout: boolean } {
+  const host = targetHostname(targetUrl);
+  if (host !== NVIDIA_NIM_HOST) {
+    return {
+      timeoutMs: resolveDirectHeadersTimeoutMs(env, body, attempt, hasCallerDeadline),
+      replayOnResponseStartTimeout: true,
+    };
+  }
+
+  const explicit = Number(env.OMNIROUTE_NVIDIA_DIRECT_HEADERS_TIMEOUT_MS);
+  const bodyChars = body?.length ?? 0;
+  const adaptiveFloorMs =
+    Number.isFinite(explicit) && explicit > 0
+      ? Math.floor(explicit)
+      : bodyChars >= 192_000
+        ? 105_000
+        : bodyChars >= 64_000
+          ? 75_000
+          : 45_000;
+
+  const generic = resolveDirectHeadersTimeoutMs(env, body, attempt, hasCallerDeadline);
+  return {
+    timeoutMs: Math.max(generic, adaptiveFloorMs),
+    // A slow response start does not prove the pooled socket is stale. Replaying
+    // a billable/limited NVIDIA generation can create duplicate inference and
+    // self-inflict 429s. Real transport errors still use the normal fresh-socket retry.
+    replayOnResponseStartTimeout: false,
+  };
+}
+
 function isTlsFingerprintEnabled() {
   return process.env.ENABLE_TLS_FINGERPRINT === "true";
 }
@@ -848,13 +901,19 @@ async function patchedFetchUnrecorded(
       (deps.nativeFetch as FetchWithDispatcher | undefined) ?? originalFetchWithDispatcher;
     let lastDispatcherError: unknown = null;
     const directBodyForTimeout = typeof options.body === "string" ? options.body : null;
-    const directHeadersTimeoutMs = resolveDirectHeadersTimeoutMs(undefined, directBodyForTimeout);
     let targetHostForLogs = "";
     try {
       targetHostForLogs = new URL(targetUrl).host;
     } catch {
       // ignore — logging is best-effort
     }
+    const firstAttemptPolicy = resolveDirectResponseStartPolicy(
+      targetUrl,
+      directBodyForTimeout,
+      0,
+      !!options.signal
+    );
+    const directHeadersTimeoutMs = firstAttemptPolicy.timeoutMs;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         return await directFetchWithBoundedResponseStart(
@@ -864,16 +923,32 @@ async function patchedFetchUnrecorded(
             dispatcher: attempt === 0 ? getDefaultDispatcher() : getRetryDispatcher(),
           },
           _undiciDirect,
-          resolveDirectHeadersTimeoutMs(undefined, directBodyForTimeout, attempt, !!options.signal)
+          resolveDirectResponseStartPolicy(
+            targetUrl,
+            directBodyForTimeout,
+            attempt,
+            !!options.signal
+          ).timeoutMs
         );
       } catch (dispatcherError) {
         if (isDirectResponseStartTimeout(dispatcherError)) {
-          if (attempt === 0 && maxAttempts > 1) {
+          const policy = resolveDirectResponseStartPolicy(
+            targetUrl,
+            directBodyForTimeout,
+            attempt,
+            !!options.signal
+          );
+          if (attempt === 0 && maxAttempts > 1 && policy.replayOnResponseStartTimeout) {
             console.warn(
               `[ProxyFetch] Direct response-start timeout (${directHeadersTimeoutMs}ms) on pooled dispatcher — retrying on fresh no-keep-alive dispatcher: ${targetHostForLogs}`
             );
             lastDispatcherError = dispatcherError;
             continue;
+          }
+          if (!policy.replayOnResponseStartTimeout) {
+            console.warn(
+              `[ProxyFetch] Direct response-start timeout (${policy.timeoutMs}ms) — not replaying slow-start NVIDIA inference: ${targetHostForLogs}`
+            );
           }
           throw dispatcherError;
         }
