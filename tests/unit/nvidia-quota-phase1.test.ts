@@ -21,7 +21,14 @@ import {
   isModelLocked,
 } from "../../open-sse/services/accountFallback.ts";
 import * as semaphore from "../../open-sse/services/rateLimitSemaphore.ts";
-import { acquireNvidiaConcurrencySlot } from "../../open-sse/executors/default/nvidiaConcurrencyGate.ts";
+import {
+  acquireNvidiaConcurrencySlot,
+  NVIDIA_ACQUIRE_TIMEOUT_MS,
+} from "../../open-sse/executors/default/nvidiaConcurrencyGate.ts";
+import {
+  NVIDIA_REQUEST_QUEUE_MAX_WAIT_MS,
+  resolveRequestQueueMaxWaitMs,
+} from "../../open-sse/services/rateLimitManager.ts";
 
 // ── RPM budget ──────────────────────────────────────────────────────────────
 
@@ -107,6 +114,14 @@ test("429 on model A does not lock model B on the same nvidia connection", () =>
     false,
     "a different model on the same connection stays unlocked"
   );
+});
+
+test("nvidia local queues use a 15s fail-fast default", () => {
+  assert.equal(NVIDIA_REQUEST_QUEUE_MAX_WAIT_MS, 15_000);
+  assert.equal(NVIDIA_ACQUIRE_TIMEOUT_MS, 15_000);
+  assert.equal(resolveRequestQueueMaxWaitMs("nvidia", 30_000), 15_000);
+  assert.equal(resolveRequestQueueMaxWaitMs("nvidia", 8_000), 8_000);
+  assert.equal(resolveRequestQueueMaxWaitMs("openai", 30_000), 30_000);
 });
 
 // ── Per-connection concurrency cap ──────────────────────────────────────────
