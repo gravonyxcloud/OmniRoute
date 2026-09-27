@@ -39,8 +39,8 @@ const MAX_PROMPT_BYTES = 4 * 1024 * 1024;
 // 30s Playwright fill timeout and can also trigger ChatGPT's generic RequestError.
 // Keep a conservative browser budget while preserving the newest conversation and
 // both ends of control instructions. Roughly 4 chars/token => ~12K tokens maximum.
-const CHATGPT_WEB_CONTROL_CHAR_BUDGET = 12_000;
-const CHATGPT_WEB_CONVERSATION_CHAR_BUDGET = 32_000;
+const CHATGPT_WEB_CONTROL_CHAR_BUDGET = 8_000;
+const CHATGPT_WEB_CONVERSATION_CHAR_BUDGET = 18_000;
 const CHATGPT_WEB_PROMPT_CHAR_BUDGET = 48_000;
 const CHATGPT_WEB_TRUNCATION_MARKER =
   "\n\n[Older context omitted by OmniRoute browser transport]\n\n";
@@ -398,17 +398,14 @@ function buildPrompt(
   const sections: string[] = [];
 
   if (compactedControl.length > 0 || additionalControl.length > 0) {
-    const remainingControlBudget = Math.max(
-      0,
-      CHATGPT_WEB_CONTROL_CHAR_BUDGET -
-        compactedControl.reduce((sum, value) => sum + value.length, 0)
-    );
-    const compactedAdditionalControl = additionalControl
+    // Tool protocol text is pre-compacted as valid structured JSON by
+    // chatgptWebClientTools.ts. Never middle-truncate it here: doing so can cut a
+    // JSON schema in half and make Claude Code tool routing unreliable.
+    const toolControl = additionalControl
       .map((value) => value.trim())
       .filter(Boolean)
-      .map((value) => compactMiddle(value, Math.max(1_000, remainingControlBudget)))
       .slice(0, 1);
-    const controlParts = [...compactedControl, ...compactedAdditionalControl].filter(Boolean);
+    const controlParts = [...compactedControl, ...toolControl].filter(Boolean);
 
     sections.push(
       [
