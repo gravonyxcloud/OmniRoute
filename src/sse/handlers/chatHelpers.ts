@@ -979,25 +979,6 @@ export function isEarlyEofSiblingFailoverOn(): boolean {
   }
 }
 
-export function isProxyEgressRequired(
-  providerId?: string,
-  env: {
-    OMNIROUTE_PROXY_EGRESS_REQUIRED?: string;
-    OMNIROUTE_PROXY_REQUIRED_PROVIDERS?: string;
-  } = process.env
-): boolean {
-  const strict = (env.OMNIROUTE_PROXY_EGRESS_REQUIRED ?? "").trim().toLowerCase();
-  if (["1", "true", "yes", "on", "required"].includes(strict)) return true;
-
-  const provider = (providerId ?? "").trim().toLowerCase();
-  if (!provider) return false;
-  const requiredProviders = String(env.OMNIROUTE_PROXY_REQUIRED_PROVIDERS || "")
-    .split(/[\s,]+/)
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-  return requiredProviders.includes("*") || requiredProviders.includes(provider);
-}
-
 export function decideProxyResolutionFailure(
   err: unknown,
   env: { PROXY_FAIL_OPEN?: string } = process.env
@@ -1026,8 +1007,10 @@ export async function safeResolveProxy(
     // is dead/inactive must fail closed — egressing on the real IP leaks it. Reuse
     // the existing proxy-resolution-failure policy (blocks by default; PROXY_FAIL_OPEN
     // opts back into direct). Explicit "proxy off" is not a leak (see the guard).
-    const hasResolvedProxy = !!(resolved as { proxy?: unknown } | null)?.proxy;
-    if (!hasResolvedProxy && hasBlockingProxyAssignment(connectionId, providerId, comboName)) {
+    if (
+      !(resolved as { proxy?: unknown } | null)?.proxy &&
+      hasBlockingProxyAssignment(connectionId, providerId, comboName)
+    ) {
       return decideProxyResolutionFailure(
         Object.assign(
           new Error(
@@ -1037,24 +1020,6 @@ export async function safeResolveProxy(
         )
       );
     }
-
-    // Strict egress mode: never allow a request to silently fall back to the
-    // VPS public IP. This also covers the previously legitimate "no assignment"
-    // path. Existing installations remain unchanged unless the operator opts in
-    // globally or for selected providers.
-    if (!hasResolvedProxy && isProxyEgressRequired(providerId)) {
-      const err = Object.assign(
-        new Error(
-          `PROXY_REQUIRED_UNAVAILABLE: proxy egress is required${providerId ? ` for provider ${providerId}` : ""}; refusing direct VPS egress`
-        ),
-        { code: "PROXY_REQUIRED_UNAVAILABLE" }
-      );
-      // Required-egress policy is stronger than PROXY_FAIL_OPEN: an explicit
-      // "never expose the VPS IP" mode must never be bypassed by a legacy
-      // fail-open toggle.
-      throw err;
-    }
-
     return resolved;
   } catch (proxyErr) {
     return decideProxyResolutionFailure(proxyErr);
