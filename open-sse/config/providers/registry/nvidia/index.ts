@@ -9,6 +9,11 @@ export const nvidiaProvider: RegistryEntry = {
   authType: "apikey",
   authHeader: "bearer",
   toolNameMaxLength: 64,
+  // Coding-agent turns routinely carry tens of thousands of input tokens plus
+  // large tool schemas. NVIDIA can legitimately take >110s to return response
+  // headers for those turns, so do not let the generic streaming cap abort a
+  // healthy request before the provider starts streaming.
+  fetchStartTimeoutCapMs: 180_000,
   // #6773: NVIDIA multiplexes models from multiple upstream vendors
   // (moonshotai/, deepseek-ai/, nvidia/, meta/, poolside/, google/, openai/)
   // behind ONE connection — mark it passthrough
