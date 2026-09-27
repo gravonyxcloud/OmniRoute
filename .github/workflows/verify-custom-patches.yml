@@ -13,6 +13,9 @@ on:
       - tests/unit/chatgpt-web-client-tools.test.ts
       - open-sse/executors/chatgpt-web.ts
       - open-sse/services/combo/executeTargetAttempt.ts
+      - open-sse/services/combo.ts
+      - open-sse/services/combo/comboCooldownRetry.ts
+      - open-sse/handlers/chatCore/streamingPipeline.ts
       - open-sse/services/identityMasking.ts
       - open-sse/services/combo/comboErrorAggregation.ts
       - open-sse/handlers/chatCore.ts
@@ -83,6 +86,8 @@ jobs:
             tests/unit/provider-page-hidden-modality-chat.test.ts \
             tests/unit/identity-masking.test.ts \
             tests/unit/combo-error-aggregation.test.ts \
+            tests/unit/combo-cooldown-retry.test.ts \
+            tests/unit/chatcore-streaming-pipeline.test.ts \
             tests/unit/api-key-catalog-scope.test.ts \
             tests/unit/models-catalog-combo-access.test.ts \
             tests/unit/response-model-echo-1311.test.ts \
