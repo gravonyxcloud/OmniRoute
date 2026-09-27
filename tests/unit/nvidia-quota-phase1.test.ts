@@ -25,27 +25,25 @@ import { acquireNvidiaConcurrencySlot } from "../../open-sse/executors/default/n
 
 // ── RPM budget ──────────────────────────────────────────────────────────────
 
-test("nvidia has a real default RPM budget of 40/60s (source-of-truth constant)", () => {
-  // No test override active — resolves the REAL PROVIDER_DEFAULT_RATE_LIMITS entry,
-  // so an accidental future edit to the literal 40 is caught here too.
+test("nvidia has a safe default RPM budget of 36/60s below the 40 RPM ceiling", () => {
   const cfg = getProviderDefaultRateLimit("nvidia");
   assert.ok(cfg, "nvidia must have a registered default");
-  assert.equal(cfg?.requests, 40);
+  assert.equal(cfg?.requests, 36);
   assert.equal(cfg?.windowMs, 60_000);
 });
 
-test("nvidia default RPM budget: 41st request in-window is throttled", () => {
-  __setProviderDefaultRateLimitsForTests({ nvidia: { requests: 40, windowMs: 60_000 } });
+test("nvidia default RPM budget: 37th request in-window is throttled", () => {
+  __setProviderDefaultRateLimitsForTests({ nvidia: { requests: 36, windowMs: 60_000 } });
   try {
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 36; i++) {
       assert.equal(
         acquireProviderDefaultSlot("nvidia", "conn-rpm"),
         0,
-        `request ${i + 1}/40 proceeds`
+        `request ${i + 1}/36 proceeds`
       );
     }
     const wait = acquireProviderDefaultSlot("nvidia", "conn-rpm");
-    assert.ok(wait > 0, "41st request in the same 60s window is throttled");
+    assert.ok(wait > 0, "37th request in the same 60s window is throttled");
     assert.ok(wait <= 60_000, "wait never exceeds the window");
   } finally {
     __setProviderDefaultRateLimitsForTests(null);
@@ -57,7 +55,7 @@ test("per-provider RPM override takes precedence over the static default", () =>
   __setProviderDefaultRateLimitsForTests(null);
   try {
     const cfg = getProviderDefaultRateLimit("nvidia");
-    assert.equal(cfg?.requests, 2, "override replaces the static 40 default");
+    assert.equal(cfg?.requests, 2, "override replaces the static safe default");
     assert.equal(acquireProviderDefaultSlot("nvidia", "conn-override"), 0);
     assert.equal(acquireProviderDefaultSlot("nvidia", "conn-override"), 0);
     const wait = acquireProviderDefaultSlot("nvidia", "conn-override");
@@ -179,8 +177,8 @@ test("getProviderConcurrencyCap resolves override -> static default -> fallback"
   setProviderQuotaOverrides(null);
   assert.equal(
     getProviderConcurrencyCap("nvidia", 99),
-    6,
-    "nvidia's registered static default is 6 (mid-point of the issue's 4-8 range)"
+    3,
+    "nvidia's registered static default is 3 for public multi-client gateways"
   );
   assert.equal(
     getProviderConcurrencyCap("some-unregistered-provider", 99),
