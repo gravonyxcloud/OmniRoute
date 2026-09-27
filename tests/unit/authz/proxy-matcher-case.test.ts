@@ -2,7 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
-import { config } from "../../../src/proxy.ts";
+import {
+  config,
+  configuredApiOnlyHosts,
+  isApiOnlyAllowedPath,
+} from "../../../src/proxy.ts";
 import { classifyRoute } from "../../../src/server/authz/classify.ts";
 
 // Regression guard — GHSA-jvqc-mp9f-q936 (case-sensitive authz-matcher bypass).
@@ -63,6 +67,27 @@ test("proxy matcher covers uppercase / mixed-case client aliases (GHSA-jvqc-mp9f
       true,
       `uppercase alias ${p} must reach the authz pipeline, not skip it`
     );
+  }
+});
+
+test("proxy catch-all also covers dashboard/login/docs for API-only host hiding", () => {
+  for (const p of ["/login", "/dashboard", "/dashboard/providers", "/docs", "/api/keys", "/_next/static/x.js"]) {
+    assert.equal(isMatchedByProxy(p), true, `expected catch-all proxy matcher to cover ${p}`);
+  }
+});
+
+test("API-only host parser and path gate expose exactly /v1", () => {
+  const hosts = configuredApiOnlyHosts({
+    OMNIROUTE_API_ONLY_HOSTS: "api.gravonyx.com, api2.example.com ",
+  } as NodeJS.ProcessEnv);
+  assert.equal(hosts.has("api.gravonyx.com"), true);
+  assert.equal(hosts.has("api2.example.com"), true);
+
+  for (const p of ["/v1", "/v1/", "/v1/models", "/V1/chat/completions"]) {
+    assert.equal(isApiOnlyAllowedPath(p), true, `${p} should be public on API-only hosts`);
+  }
+  for (const p of ["/", "/login", "/dashboard", "/api/keys", "/models", "/responses", "/v1beta/models", "/docs"]) {
+    assert.equal(isApiOnlyAllowedPath(p), false, `${p} must be hidden on API-only hosts`);
   }
 });
 
