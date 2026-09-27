@@ -8,6 +8,9 @@ on:
       - open-sse/utils/chatgptWebExecutorAdapter.ts
       - open-sse/utils/chatgptWebBrowserSession.ts
       - open-sse/utils/chatgptWebClientTools.ts
+      - src/proxy.ts
+      - tests/unit/authz/proxy-matcher-case.test.ts
+      - tests/unit/chatgpt-web-client-tools.test.ts
       - open-sse/executors/chatgpt-web.ts
       - open-sse/services/combo/executeTargetAttempt.ts
       - open-sse/services/identityMasking.ts
@@ -74,6 +77,8 @@ jobs:
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/chatgpt-web-executor-adapter-cleanroom.test.ts \
             tests/unit/chatgpt-web-browser-session-cleanroom.test.ts \
+            tests/unit/chatgpt-web-client-tools.test.ts \
+            tests/unit/authz/proxy-matcher-case.test.ts \
             tests/unit/provider-models-route.test.ts \
             tests/unit/provider-page-hidden-modality-chat.test.ts \
             tests/unit/identity-masking.test.ts \
