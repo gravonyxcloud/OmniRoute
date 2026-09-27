@@ -20,6 +20,60 @@ const DEFAULT_TURN_TIMEOUT_MS = 180_000;
 const MAX_BUFFERED_FRAMES = 2_048;
 const MAX_BUFFERED_FRAME_BYTES = 16 * 1024 * 1024;
 
+const CHATGPT_WEB_UI_ONLY_LINES = [
+  /^do you like this personality\??$/i,
+  /^would you like chatgpt to use this personality\??$/i,
+  /^is this personality helpful\??$/i,
+  /^tell us more$/i,
+  /^good response$/i,
+  /^bad response$/i,
+  /^copy$/i,
+  /^edit$/i,
+  /^read aloud$/i,
+  /^regenerate$/i,
+  /^try again$/i,
+  /^share$/i,
+  /^branch in new chat$/i,
+  /^was this response better or worse\??$/i,
+  /^você gosta desta personalidade\??$/i,
+  /^voce gosta desta personalidade\??$/i,
+  /^gosta desta personalidade\??$/i,
+  /^esta personalidade foi útil\??$/i,
+  /^esta personalidade foi util\??$/i,
+  /^conte mais$/i,
+  /^boa resposta$/i,
+  /^resposta ruim$/i,
+  /^copiar$/i,
+  /^editar$/i,
+  /^ler em voz alta$/i,
+  /^regenerar$/i,
+  /^tentar novamente$/i,
+  /^compartilhar$/i,
+] as const;
+
+/**
+ * DOM fallback text can contain ChatGPT product UI (feedback/personality cards)
+ * after the assistant message. Never surface that chrome as model output.
+ */
+export function stripChatGptWebUiChrome(value: string): string {
+  const lines = value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd());
+
+  let cutAt = lines.length;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line) continue;
+    if (CHATGPT_WEB_UI_ONLY_LINES.some((pattern) => pattern.test(line))) {
+      cutAt = index;
+      break;
+    }
+  }
+
+  return lines.slice(0, cutAt).join("\n").trim();
+}
+
 export interface ChatGptWebBrowserSessionHandlers {
   onBootstrap(sseText: string): void;
   onWebSocketFrame(frameText: string): void;
@@ -512,7 +566,6 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
             '[data-message-role="assistant"]',
             '[data-message-author-role="assistant"]',
             'article[data-testid^="conversation-turn"]:has([data-message-author-role="assistant"])',
-            'article[data-testid^="conversation-turn"]:has(h6)',
           ];
           const seen = new Set<HTMLElement>();
           const messages: HTMLElement[] = [];
@@ -522,6 +575,24 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
                 seen.add(node);
                 messages.push(node);
               }
+            }
+          }
+
+          // Some current ChatGPT builds omit data-message-author-role but keep an
+          // accessible turn heading. Only accept articles whose heading explicitly
+          // identifies the assistant; never every article with an h6 (personality
+          // and feedback cards also use headings).
+          for (const article of document.querySelectorAll<HTMLElement>(
+            'article[data-testid^="conversation-turn"]'
+          )) {
+            const heading = article.querySelector<HTMLElement>("h6");
+            const headingText = (heading?.innerText || heading?.textContent || "").trim();
+            if (
+              /^(ChatGPT said:|ChatGPT disse:)$/i.test(headingText) &&
+              !seen.has(article)
+            ) {
+              seen.add(article);
+              messages.push(article);
             }
           }
           const stopButtons = Array.from(
@@ -591,6 +662,12 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
               "Resposta mais recente",
               "Response complete",
               "Resposta concluída",
+              "Do you like this personality?",
+              "Would you like ChatGPT to use this personality?",
+              "Is this personality helpful?",
+              "Você gosta desta personalidade?",
+              "Voce gosta desta personalidade?",
+              "Gosta desta personalidade?",
             ];
             let cutAt = responseText.length;
             for (const footer of footerMarkers) {
@@ -627,11 +704,13 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const snapshot = await this.renderedAssistantSnapshot(minimumCount);
-      if (snapshot.text && !snapshot.active) return snapshot.text;
+      const text = snapshot.text ? stripChatGptWebUiChrome(snapshot.text) : "";
+      if (text && !snapshot.active) return text;
       await this.page.waitForTimeout(200);
     }
     const snapshot = await this.renderedAssistantSnapshot(minimumCount);
-    return snapshot.text || null;
+    const text = snapshot.text ? stripChatGptWebUiChrome(snapshot.text) : "";
+    return text || null;
   }
 
   private async fillComposerPrompt(
