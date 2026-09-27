@@ -119,10 +119,10 @@ export function resolveDirectResponseStartPolicy(
     Number.isFinite(explicit) && explicit > 0
       ? Math.floor(explicit)
       : bodyChars >= 192_000
-        ? 105_000
+        ? 165_000
         : bodyChars >= 64_000
-          ? 75_000
-          : 45_000;
+          ? 120_000
+          : 60_000;
 
   const generic = resolveDirectHeadersTimeoutMs(env, body, attempt, hasCallerDeadline);
   return {
