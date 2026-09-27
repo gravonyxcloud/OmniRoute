@@ -472,6 +472,35 @@ function effortIndex(effort: string | null): 0 | 1 | 2 | 3 {
   throw new Error(`ChatGPT Web clean-room adapter does not support reasoning effort ${effort}`);
 }
 
+function adaptiveChatGptWebEffortIndex(body: JsonRecord): 1 | 2 | 3 {
+  const explicit = reasoningEffort(body);
+  if (explicit !== null) {
+    const resolved = effortIndex(explicit);
+    // Thinking routes never silently collapse to Instant; callers that need
+    // no reasoning should select the explicit -instant model instead.
+    return Math.max(1, resolved) as 1 | 2 | 3;
+  }
+
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const tools = Array.isArray(body.tools) ? body.tools : [];
+  let textChars = 0;
+  for (const message of messages) {
+    if (!isRecord(message)) continue;
+    try {
+      textChars += contentText(message.content).length;
+    } catch {
+      // Unsupported multimodal parts are handled later by the normal validator.
+    }
+  }
+
+  // Structural complexity is more reliable and language-neutral than keyword
+  // guessing. Coding agents normally send many tools/history entries; escalate
+  // those turns while keeping ordinary short chat at Standard Thinking.
+  if (tools.length >= 40 || messages.length >= 24 || textChars >= 30_000) return 3;
+  if (tools.length >= 8 || messages.length >= 8 || textChars >= 4_000) return 2;
+  return 1;
+}
+
 function normalizedModel(value: string): string {
   return value
     .trim()
@@ -499,7 +528,7 @@ function resolveSelection(model: string, body: JsonRecord): ChatGptWebUiSelectio
     return {
       kind: "picker",
       modelLabel: "GPT-5.6 Sol",
-      effortIndex: effortIndex(reasoningEffort(body)),
+      effortIndex: adaptiveChatGptWebEffortIndex(body),
     };
   }
   if (normalized === "gpt-5-5-pro") {
