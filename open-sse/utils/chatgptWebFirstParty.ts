@@ -826,13 +826,19 @@ async function processAndSubmit(
   page: Page,
   input: ChatGptWebFirstPartyRequest,
   requestId: string,
-  registered: RegisteredAttachment[]
+  registered: RegisteredAttachment[],
+  onAccepted?: () => void
 ): Promise<string> {
   const browserRegistered = browserConversationAttachments(registered);
   await processRegisteredAttachments(page, requestId, browserRegistered);
   await storeConversationDraft(page, input, requestId, browserRegistered);
   await storeConversationHeaders(page, requestId);
   await submitConversationRequest(page, requestId);
+  try {
+    onAccepted?.();
+  } catch {
+    // A client progress callback must never break the accepted ChatGPT turn.
+  }
   return readConversationResponse(page, requestId);
 }
 
@@ -884,7 +890,11 @@ async function runSerialized<T>(page: Page, task: () => Promise<T>): Promise<T> 
 export async function executeChatGptWebFirstPartyTurn(
   page: Page,
   input: ChatGptWebFirstPartyRequest,
-  options: { requestId?: string; signal?: AbortSignal | null } = {}
+  options: {
+    requestId?: string;
+    signal?: AbortSignal | null;
+    onAccepted?: () => void;
+  } = {}
 ): Promise<string> {
   const requestId = options.requestId ?? crypto.randomUUID();
   return runSerialized(page, async () => {
@@ -901,7 +911,7 @@ export async function executeChatGptWebFirstPartyTurn(
         attachment: input.attachments[index],
       }));
       await uploadRegisteredAttachments(registered, options.signal);
-      return await processAndSubmit(page, input, requestId, registered);
+      return await processAndSubmit(page, input, requestId, registered, options.onAccepted);
     } finally {
       options.signal?.removeEventListener("abort", abort);
       await cleanupRequest(page, requestId);
