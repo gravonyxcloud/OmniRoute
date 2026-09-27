@@ -18,7 +18,10 @@ import * as semaphore from "../../services/rateLimitSemaphore.ts";
 import { getProviderConcurrencyCap } from "../../services/providerDefaultRateLimit.ts";
 
 const NVIDIA_DEFAULT_CONCURRENCY_CAP = 6;
-const NVIDIA_ACQUIRE_TIMEOUT_MS = 30_000;
+export const NVIDIA_ACQUIRE_TIMEOUT_MS = (() => {
+  const parsed = Number(process.env.NVIDIA_CONCURRENCY_QUEUE_TIMEOUT_MS || "15000");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 15_000;
+})();
 
 /**
  * Acquire a concurrency slot for an nvidia request. Resolves to a release
