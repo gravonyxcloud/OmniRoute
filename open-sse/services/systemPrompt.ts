@@ -176,6 +176,73 @@ function appendToContent(msg: Record<string, unknown>, text: string): void {
   }
 }
 
+export const RESPONSE_LANGUAGE_CONTINUITY_PROMPT =
+  "Reply in the same natural language as the latest user-authored request, unless that request or higher-priority client instructions explicitly require a different response language. Preserve code, identifiers, filenames, commands, tool names, JSON keys, and quoted text in their original form unless translation is explicitly requested.";
+
+/**
+ * Provider-independent language continuity. Inject this on the client/source shape
+ * before translation so every downstream format (OpenAI, Claude, Gemini, Responses,
+ * Kiro/Antigravity folds, and browser-backed providers) carries the same rule.
+ */
+export function injectResponseLanguageContinuity<T>(body: T, sourceFormat = ""): T {
+  if (!isRecord(body)) return body;
+  if (body._skipLanguageContinuity === true) return body;
+
+  const result: Record<string, unknown> = { ...body };
+  const prompt = RESPONSE_LANGUAGE_CONTINUITY_PROMPT;
+
+  // Anthropic Messages source shape.
+  if (sourceFormat === "claude" || result.system !== undefined) {
+    if (typeof result.system === "string") {
+      result.system = result.system ? result.system + "\n\n" + prompt : prompt;
+    } else if (Array.isArray(result.system)) {
+      result.system = [...result.system, { type: "text", text: prompt }];
+    } else {
+      result.system = prompt;
+    }
+    return Object.assign({}, body, result);
+  }
+
+  // OpenAI Responses source shape.
+  if (sourceFormat === "openai-responses" || Array.isArray(result.input)) {
+    const base = typeof result.instructions === "string" ? result.instructions : "";
+    result.instructions = [base, prompt].filter(Boolean).join("\n\n");
+    return Object.assign({}, body, result);
+  }
+
+  // Gemini source shape.
+  if (sourceFormat === "gemini" || result.contents !== undefined) {
+    if (isRecord(result.systemInstruction)) {
+      const si = result.systemInstruction;
+      const parts = Array.isArray(si.parts) ? [...si.parts] : [];
+      parts.push({ text: prompt });
+      result.systemInstruction = { ...si, role: si.role || "system", parts };
+    } else {
+      result.systemInstruction = { role: "system", parts: [{ text: prompt }] };
+    }
+    return Object.assign({}, body, result);
+  }
+
+  // OpenAI/Codex-style messages.
+  if (Array.isArray(result.messages)) {
+    const messages = [...result.messages];
+    let targetIndex = -1;
+    for (let i = 0; i < messages.length; i++) {
+      if (isSystemMessage(messages[i])) targetIndex = i;
+    }
+    if (targetIndex >= 0) {
+      const msg = { ...(messages[targetIndex] as Record<string, unknown>) };
+      appendToContent(msg, prompt);
+      messages[targetIndex] = msg;
+    } else {
+      messages.unshift({ role: "system", content: prompt });
+    }
+    result.messages = messages;
+  }
+
+  return Object.assign({}, body, result);
+}
+
 // Non-enumerable marker: survives property access for the retry-loop guard,
 // invisible to JSON.stringify so it never leaks into the upstream request body.
 function markInjected(body: Record<string, unknown>): void {
