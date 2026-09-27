@@ -379,6 +379,22 @@ export async function GET(
       return buildDiscoveryFallbackResponse(warnings);
     };
 
+    if (provider === "chatgpt-web") {
+      // Clean-room ChatGPT Web has no public /models endpoint. Its supported
+      // picker routes are intentionally maintained in the provider registry, so
+      // model import/refresh must be instant and local instead of probing
+      // chatgpt.com for an API catalog that does not exist.
+      const curated = buildLocalCatalogResponse(undefined, true);
+      if (curated) return curated;
+      return buildResponse({
+        provider,
+        connectionId,
+        models: [],
+        source: "local_catalog",
+        intentional: true,
+      });
+    }
+
     if (provider === "adobe-firefly") {
       const discovery = await getAdobeModels(apiKey, accessToken, connection.providerSpecificData);
       return buildResponse({ provider, connectionId, ...discovery });
