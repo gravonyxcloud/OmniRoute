@@ -117,11 +117,26 @@ test("progress enabled → progress transform + progress header set", () => {
   assert.ok(Object.values(args.responseHeaders).includes("enabled"));
 });
 
-test("progress disabled → no progress header", () => {
+test("progress disabled still stamps anti-buffering streaming headers", () => {
   const { deps } = makeDeps({ wantsProgress: () => false });
   const args = baseArgs();
   assembleStreamingPipeline(args, deps);
-  assert.deepEqual(args.responseHeaders, {});
+  assert.deepEqual(args.responseHeaders, {
+    "Cache-Control": "no-cache, no-transform",
+    "X-Accel-Buffering": "no",
+    "CDN-Cache-Control": "no-store",
+    "Surrogate-Control": "no-store",
+  });
+});
+
+test("streaming headers prevent intermediary buffering/transforms", () => {
+  const { deps } = makeDeps();
+  const args = baseArgs();
+  assembleStreamingPipeline(args, deps);
+  assert.equal(args.responseHeaders["Cache-Control"], "no-cache, no-transform");
+  assert.equal(args.responseHeaders["X-Accel-Buffering"], "no");
+  assert.equal(args.responseHeaders["CDN-Cache-Control"], "no-store");
+  assert.equal(args.responseHeaders["Surrogate-Control"], "no-store");
 });
 
 test("echoModel set → echo transform applied last", () => {
