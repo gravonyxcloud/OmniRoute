@@ -61,6 +61,32 @@ test.after(async () => {
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
+test("chatgpt-web exposes its curated catalog for model import without remote discovery", async () => {
+  const connection = await seedConnection("chatgpt-web", {
+    authType: "cookie",
+    providerSpecificData: {
+      storageState: { cookies: [], origins: [] },
+    },
+  });
+  let remoteFetchCalled = false;
+  globalThis.fetch = async () => {
+    remoteFetchCalled = true;
+    throw new Error("chatgpt-web model import must stay local");
+  };
+
+  const response = await callRoute(connection.id, "?refresh=true");
+  const body = (await response.json()) as any;
+
+  assert.equal(response.status, 200);
+  assert.equal(body.provider, "chatgpt-web");
+  assert.equal(body.source, "local_catalog");
+  assert.equal(body.intentional, true);
+  assert.equal(remoteFetchCalled, false);
+  const ids = body.models.map((model: any) => model.id);
+  assert.ok(ids.includes("gpt-5-6"));
+  assert.ok(ids.includes("gpt-5-5-instant"));
+});
+
 test("provider models route returns a static local catalog for non-LLM search/agent providers (#5569/#5571/#5573/#5575)", async () => {
   const cases = [
     { provider: "jules", expectId: "jules" },
