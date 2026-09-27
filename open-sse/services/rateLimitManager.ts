@@ -22,6 +22,7 @@ import { getAntigravityQuotaFamily } from "./antigravityQuotaFamily.ts";
 import { getProviderCategory } from "../config/providerRegistry.ts";
 import { getCodexRateLimitKey } from "../executors/codex.ts";
 import {
+  assertProviderDistributedSlot,
   awaitProviderDefaultSlot,
   getProviderConcurrencyCap,
   getProviderDefaultRateLimit,
@@ -840,12 +841,19 @@ export async function withRateLimit(
   // Clear the queue-wait timer once the job leaves QUEUED and starts executing.
   // Without this, the timer would also bound execution (queueRemainingMs ≈ 40ms
   // would kill a 300ms execution that correctly left the queue immediately).
-  const wrappedFn = () => {
-    if (queueTimedOut) return Promise.reject(queueTimeoutErr);
+  const wrappedFn = async () => {
+    if (queueTimedOut) throw queueTimeoutErr;
     if (delayId) {
       clearTimeout(delayId);
       delayId = null;
     }
+
+    // Check the optional Redis-global provider budget at the last responsible
+    // moment: after local queue/pacing, immediately before the upstream call.
+    // This prevents two OmniRoute replicas from each independently consuming
+    // the full NVIDIA allowance.
+    await assertProviderDistributedSlot(provider, connectionId);
+
     return (fn as unknown as (s?: AbortSignal) => Promise<unknown>)(signal ?? undefined);
   };
   const scheduled = limiter.schedule(scheduleOpts, wrappedFn as unknown as () => Promise<unknown>);
