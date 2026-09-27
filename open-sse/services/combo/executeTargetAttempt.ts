@@ -158,6 +158,18 @@ export async function executeTargetAttempt(opts: {
 
   // Retry loop for transient errors
   for (let retry = 0; retry <= deps.maxRetries; retry++) {
+    // Browser-backed ChatGPT Web failures are expensive and usually page/session
+    // scoped. Replaying the exact same target after a 20-100s stall only compounds
+    // Claude Code latency; move to the next combo target immediately instead.
+    if (retry > 0 && provider === "chatgpt-web") {
+      deps.log.info(
+        "COMBO",
+        `Skipping same-target retry for ${modelStr} — browser provider uses fast failover`
+      );
+      if (i > 0) state.fallbackCount++;
+      return null;
+    }
+
     // Fix #1681: Bail out immediately if the client has disconnected
     if (deps.signal?.aborted) {
       deps.log.info("COMBO", `Client disconnected — aborting combo loop before model ${modelStr}`);
