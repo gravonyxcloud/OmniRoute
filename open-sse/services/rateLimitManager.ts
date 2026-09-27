@@ -21,7 +21,12 @@ import {
 import { getAntigravityQuotaFamily } from "./antigravityQuotaFamily.ts";
 import { getProviderCategory } from "../config/providerRegistry.ts";
 import { getCodexRateLimitKey } from "../executors/codex.ts";
-import { awaitProviderDefaultSlot, setProviderQuotaOverrides } from "./providerDefaultRateLimit.ts";
+import {
+  awaitProviderDefaultSlot,
+  getProviderConcurrencyCap,
+  getProviderDefaultRateLimit,
+  setProviderQuotaOverrides,
+} from "./providerDefaultRateLimit.ts";
 import {
   DEFAULT_RESILIENCE_SETTINGS,
   resolveResilienceSettings,
@@ -326,6 +331,17 @@ function reconcileEnabledConnections(
       continue;
     }
 
+    // Provider-default caps are safety guardrails, not an optional dashboard
+    // preference. NVIDIA in particular has a small fixed RPM ceiling and many
+    // downstream clients may share one credential; never bypass its local queue
+    // merely because the generic rate-limit toggle is off.
+    if (isActive && getProviderDefaultRateLimit(provider)) {
+      nextEnabledConnections.add(connectionId);
+      autoCount++;
+      getLimiter(provider, connectionId);
+      continue;
+    }
+
     if (
       isAutoEnableActive(requestQueueSettings) &&
       getProviderCategory(provider) === "apikey" &&
@@ -605,6 +621,33 @@ function getLimiter(provider, connectionId, model = null) {
       options = { ...preserved, id: key };
     } else {
       const defaults = buildLimiterDefaults();
+
+      // Headerless providers with a known fixed budget need proactive pacing,
+      // not just a trailing-window counter. Without minTime, a cold limiter can
+      // legally dispatch the whole RPM allowance in one burst. Spread the
+      // provider-default budget evenly and cap concurrency before applying any
+      // explicit per-connection override.
+      const providerDefault = getProviderDefaultRateLimit(provider);
+      if (providerDefault) {
+        const providerMinTime = Math.ceil(
+          providerDefault.windowMs / Math.max(1, providerDefault.requests)
+        );
+        defaults.minTime = Math.max(Number(defaults.minTime) || 0, providerMinTime);
+        defaults.reservoir = Math.min(
+          Number(defaults.reservoir) || EFFECTIVELY_INFINITE,
+          providerDefault.requests
+        );
+        defaults.reservoirRefreshAmount = Math.min(
+          Number(defaults.reservoirRefreshAmount) || EFFECTIVELY_INFINITE,
+          providerDefault.requests
+        );
+        defaults.reservoirRefreshInterval = providerDefault.windowMs;
+        defaults.maxConcurrent = Math.min(
+          Number(defaults.maxConcurrent) || EFFECTIVELY_INFINITE_CONCURRENCY,
+          getProviderConcurrencyCap(provider, EFFECTIVELY_INFINITE_CONCURRENCY)
+        );
+      }
+
       const overrides = connectionRateLimitOverrides.get(connectionId);
       if (overrides) {
         // 0 (or missing) means "no override — fall through to buildLimiterDefaults()".
@@ -689,7 +732,7 @@ export async function withRateLimit(
     | { executor?: { getTimeoutMs?: () => unknown }; providerSpecificData?: unknown }
     | undefined = undefined
 ) {
-  if (!enabledConnections.has(connectionId)) {
+  if (!enabledConnections.has(connectionId) && !getProviderDefaultRateLimit(provider)) {
     return fn();
   }
 
