@@ -21,8 +21,13 @@
 import { SlidingWindowLimiter, type RateLimitWindow } from "./slidingWindowLimiter.ts";
 import {
   markLocalRateLimitError,
+  RATE_LIMIT_QUEUE_FULL_CODE,
   LEGACY_RATE_LIMIT_QUEUE_TIMEOUT_CODE,
 } from "./rateLimitManager/errors.ts";
+import {
+  checkRateLimit,
+  isRedisConfigured,
+} from "../../src/shared/utils/rateLimiter.ts";
 
 // Opt-in per-provider caps. Example shape (commented — add real entries as needed):
 //   "some-headerless-provider": { requests: 60, windowMs: 60_000 },
@@ -102,6 +107,39 @@ export function acquireProviderDefaultSlot(provider: string, connectionId?: stri
   if (!cfg) return 0;
   const res = limiter.tryAcquire(`${provider}:${connectionId || "_"}`, cfg);
   return res.allowed ? 0 : Math.max(1, res.retryAfterMs);
+}
+
+/**
+ * Cross-replica provider cap. When REDIS_URL is configured, all OmniRoute
+ * replicas share one fixed-window counter for the provider+connection budget.
+ * The local sliding-window + Bottleneck minTime still provide burst smoothing;
+ * Redis only supplies the cluster-wide hard ceiling.
+ */
+export async function assertProviderDistributedSlot(
+  provider: string,
+  connectionId?: string | null
+): Promise<void> {
+  const cfg = getProviderDefaultRateLimit(provider);
+  if (!cfg || !isRedisConfigured()) return;
+
+  const result = await checkRateLimit(
+    `provider-default:${provider}:${connectionId || "_"}`,
+    [
+      {
+        limit: cfg.requests,
+        window: Math.max(1, Math.ceil(cfg.windowMs / 1000)),
+      },
+    ]
+  );
+
+  if (!result.allowed) {
+    throw markLocalRateLimitError(
+      new Error(
+        `Provider-default distributed limit reached for ${provider} (${cfg.requests} request(s) per ${Math.ceil(cfg.windowMs / 1000)}s)`
+      ),
+      RATE_LIMIT_QUEUE_FULL_CODE
+    );
+  }
 }
 
 /** Abort-aware sleep: resolves after `ms`, or rejects with AbortError if `signal` fires. */
