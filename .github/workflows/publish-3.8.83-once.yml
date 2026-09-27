@@ -1,0 +1,47 @@
+name: Publish 3.8.83 Once
+
+on:
+  push:
+    branches:
+      - feat/api-key-plans
+    paths:
+      - .github/workflows/publish-3.8.83-once.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag-and-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Create v3.8.83 tag on verified commit
+        env:
+          VERIFIED_SHA: bac70d39385c66285ebe5bfe9716161ada5e95d3
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --tags origin refs/tags/v3.8.83 >/dev/null 2>&1; then
+            echo "v3.8.83 already exists"
+          else
+            git tag v3.8.83 "$VERIFIED_SHA"
+            git push origin refs/tags/v3.8.83
+          fi
+
+      - name: Dispatch Docker publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run docker-publish.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref feat/api-key-plans \
+            -f version=3.8.83 \
+            -f promote_latest=true
