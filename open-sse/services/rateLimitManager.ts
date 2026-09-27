@@ -125,6 +125,16 @@ let initialized = false;
 
 let currentRequestQueueSettings: RequestQueueSettings = DEFAULT_RESILIENCE_SETTINGS.requestQueue;
 export const ZAI_WEB_REQUEST_QUEUE_MAX_WAIT_MS = 60_000;
+/**
+ * NVIDIA's fixed 36 RPM local guard already paces requests before upstream.
+ * Do not let a saturated public gateway hide behind a 30s+ local queue: short
+ * queues keep agent/tool loops responsive and let callers retry/fail over.
+ * A positive per-connection maxWaitMs override still wins below.
+ */
+export const NVIDIA_REQUEST_QUEUE_MAX_WAIT_MS = (() => {
+  const parsed = Number(process.env.NVIDIA_REQUEST_QUEUE_MAX_WAIT_MS || "15000");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 15_000;
+})();
 // MaxAI proxies reasoning models (deepseek-r1, gpt-5.6-thinking, grok-4.5,
 // gemini-3.1-pro-preview, grok-4-1-fast-reasoning) whose single upstream turn
 // legitimately runs tens of seconds to minutes. The 15s default execution
@@ -246,7 +256,9 @@ export function resolveRequestQueueMaxWaitMs(
 ): number {
   const p = provider.trim().toLowerCase();
   let legacyDefault = configuredMaxWaitMs;
-  if (p === "zai-web") {
+  if (p === "nvidia") {
+    legacyDefault = Math.min(configuredMaxWaitMs, NVIDIA_REQUEST_QUEUE_MAX_WAIT_MS);
+  } else if (p === "zai-web") {
     legacyDefault = Math.max(configuredMaxWaitMs, ZAI_WEB_REQUEST_QUEUE_MAX_WAIT_MS);
   } else if (p === "maxai" || p === "mx") {
     // MaxAI's slow reasoning models legitimately need up to ~5 min; floor the
