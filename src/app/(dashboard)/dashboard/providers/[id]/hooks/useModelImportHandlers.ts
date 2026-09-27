@@ -166,7 +166,11 @@ export function useModelImportHandlers({
 
       const existingIds = new Set([
         ...(modelMeta.customModels || []).map((m: any) => m.id),
-        ...models.map((m: any) => m.id),
+        // chatgpt-web's dashboard rows come from the built-in curated registry.
+        // They are still valid import candidates until a local custom-model row
+        // exists; otherwise every click reports "already imported" and persists
+        // nothing, which made the Import Models control effectively useless.
+        ...(providerId === "chatgpt-web" ? [] : models.map((m: any) => m.id)),
       ]);
       const newModels = fetchedModels.filter(
         (model: any) => !existingIds.has(model.id || model.name || model.model)
