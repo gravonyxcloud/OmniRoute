@@ -878,13 +878,12 @@ function buildLiveChatGptWebStreamingResponse(input: {
             controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
           }
         })
-        .catch((error) => {
+        .catch(() => {
+          // Once a public combo stream has started, do not leak browser/provider
+          // implementation details through an in-band stream error.
           enqueue({
             error: {
-              message:
-                error instanceof Error && error.message
-                  ? error.message
-                  : "ChatGPT Web browser execution failed",
+              message: "Provider stream interrupted.",
               type: "provider_error",
             },
           });
