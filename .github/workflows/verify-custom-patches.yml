@@ -8,6 +8,8 @@ on:
       - open-sse/utils/chatgptWebExecutorAdapter.ts
       - open-sse/utils/chatgptWebBrowserSession.ts
       - open-sse/utils/chatgptWebClientTools.ts
+      - open-sse/utils/proxyFetch.ts
+      - tests/unit/proxyfetch-direct-response-start-timeout-10214.test.ts
       - scripts/build/assembleStandalone.mjs
       - tests/unit/build/assemble-standalone.test.ts
       - src/proxy.ts
@@ -101,6 +103,7 @@ jobs:
             tests/unit/opencode-free-tier-noauth-ttl-skip-14313.test.ts \
             tests/unit/nvidia-quota-phase1.test.ts \
             tests/unit/nvidia-tool-compatibility-2840.test.ts \
+            tests/unit/proxyfetch-direct-response-start-timeout-10214.test.ts \
             tests/unit/rate-limit-provider-default.test.ts
 
       - name: Typecheck touched runtime files
