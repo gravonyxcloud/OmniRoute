@@ -192,6 +192,15 @@ const EXTRA_MODULE_ENTRIES = [
     dest: ["node_modules", "uuid"],
   },
   {
+    // compressionWorker.js also reaches xxhash-wasm through the compression
+    // dependency graph at runtime. Like uuid above, this worker sits outside
+    // Next's static trace and production standalone images can otherwise fall
+    // back to in-process compression on every large agent request.
+    label: "xxhash-wasm (compression worker runtime external)",
+    src: ["node_modules", "xxhash-wasm"],
+    dest: ["node_modules", "xxhash-wasm"],
+  },
+  {
     // bcryptjs IS statically imported by src/lib/auth/managementPassword.ts,
     // so the main server bundle is fine — Next's server compiler inlines the
     // small pure-JS package directly into the compiled route chunk instead of
