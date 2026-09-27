@@ -101,6 +101,8 @@ export interface ChatGptWebExecutorAdapterDeps {
   ) => Promise<ChatGptWebBrowserTurnResult>;
   id?: () => string;
   now?: () => number;
+  /** Test/operator hook; production defaults to CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS. */
+  firstContentTimeoutMs?: number;
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -1060,7 +1062,13 @@ export async function executeChatGptWebCleanRoom(
     input.signal?.removeEventListener("abort", onOuterAbort);
   });
 
-  const firstContentTimeoutMs = resolveChatGptWebFirstContentTimeoutMs();
+  const configuredFirstContentTimeoutMs = deps.firstContentTimeoutMs;
+  const firstContentTimeoutMs =
+    typeof configuredFirstContentTimeoutMs === "number" &&
+    Number.isFinite(configuredFirstContentTimeoutMs) &&
+    configuredFirstContentTimeoutMs > 0
+      ? Math.floor(configuredFirstContentTimeoutMs)
+      : resolveChatGptWebFirstContentTimeoutMs();
   let firstContentTimer: ReturnType<typeof setTimeout> | null = null;
   const firstContentTimeout = new Promise<never>((_, reject) => {
     firstContentTimer = setTimeout(() => {
