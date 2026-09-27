@@ -8,6 +8,8 @@ on:
       - open-sse/utils/chatgptWebExecutorAdapter.ts
       - open-sse/utils/chatgptWebBrowserSession.ts
       - open-sse/utils/chatgptWebClientTools.ts
+      - src/sse/handlers/chatHelpers.ts
+      - tests/unit/proxy-assigned-unavailable-6246.test.ts
       - src/proxy.ts
       - tests/unit/authz/proxy-matcher-case.test.ts
       - tests/unit/chatgpt-web-client-tools.test.ts
@@ -98,7 +100,8 @@ jobs:
             tests/unit/opencode-free-tier-noauth-ttl-skip-14313.test.ts \
             tests/unit/nvidia-quota-phase1.test.ts \
             tests/unit/nvidia-tool-compatibility-2840.test.ts \
-            tests/unit/rate-limit-provider-default.test.ts
+            tests/unit/rate-limit-provider-default.test.ts \
+            tests/unit/proxy-assigned-unavailable-6246.test.ts
 
       - name: Typecheck touched runtime files
         run: npm run typecheck:core
