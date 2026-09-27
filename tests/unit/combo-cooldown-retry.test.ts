@@ -27,7 +27,37 @@ const {
   resolveComboCooldownWaitDecision,
   resolveCircuitOpenWaitDecision,
   COMBO_COOLDOWN_WAIT_MARGIN_MS,
+  shouldEnableComboCooldownWaitForTargets,
 } = await import("../../open-sse/services/combo/comboCooldownRetry.ts");
+
+test("NVIDIA singleton combos skip combo-level cooldown waits", () => {
+  assert.equal(
+    shouldEnableComboCooldownWaitForTargets([{ provider: "nvidia" }], true),
+    false
+  );
+  assert.equal(
+    shouldEnableComboCooldownWaitForTargets([{ provider: "NVIDIA" }], true),
+    false
+  );
+});
+
+test("single-target non-NVIDIA and multi-target NVIDIA combos keep cooldown waits", () => {
+  assert.equal(
+    shouldEnableComboCooldownWaitForTargets([{ provider: "claude" }], true),
+    true
+  );
+  assert.equal(
+    shouldEnableComboCooldownWaitForTargets(
+      [{ provider: "nvidia" }, { provider: "nvidia" }],
+      true
+    ),
+    true
+  );
+  assert.equal(
+    shouldEnableComboCooldownWaitForTargets([{ provider: "nvidia" }], false),
+    false
+  );
+});
 
 function baseSettings(overrides: Partial<Record<string, unknown>> = {}) {
   return {
