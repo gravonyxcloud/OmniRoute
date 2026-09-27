@@ -42,6 +42,8 @@ function seedSidecarSources(root: string) {
     "node_modules/split2/index.js",
     "node_modules/ioredis/package.json",
     "node_modules/ioredis/built/index.js",
+    "node_modules/uuid/package.json",
+    "node_modules/uuid/dist/index.js",
     "node_modules/bcryptjs/package.json",
     "node_modules/bcryptjs/index.js",
     "node_modules/playwright-core/index.js",
@@ -177,7 +179,9 @@ test("async and sync sidecar copy paths produce identical bundle trees", async (
   ]) {
     assert.ok(asyncTree.includes(sqlJsFile), `sql.js runtime file copied: ${sqlJsFile}`);
   }
-  // #6559 / reset-password CLI: both are only reachable at runtime (a dynamic
+  // Runtime-only dependencies: ioredis is a dynamic import, uuid is required by
+  // the dynamically spawned compression worker bundle, and bcryptjs is used by
+  // the separate unbundled reset-password CLI. Standalone tracing misses them.
   // `import("ioredis")`, or a separate unbundled bin/cli/ entrypoint for
   // bcryptjs), so the standalone tracer never picks them up on its own —
   // regression guard for the two "Cannot find module/package" crashes
@@ -185,6 +189,8 @@ test("async and sync sidecar copy paths produce identical bundle trees", async (
   for (const runtimeOnlyFile of [
     "node_modules/ioredis/package.json",
     "node_modules/ioredis/built/index.js",
+    "node_modules/uuid/package.json",
+    "node_modules/uuid/dist/index.js",
     "node_modules/bcryptjs/package.json",
     "node_modules/bcryptjs/index.js",
   ]) {
