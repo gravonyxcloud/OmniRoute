@@ -163,7 +163,7 @@ test("NVIDIA hosted NIM uses an adaptive response-start window and never replays
       "https://integrate.api.nvidia.com/v1/chat/completions",
       "x".repeat(220_000)
     ).timeoutMs,
-    105_000
+    165_000
   );
 
   const previous = process.env.OMNIROUTE_NVIDIA_DIRECT_HEADERS_TIMEOUT_MS;
