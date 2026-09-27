@@ -689,6 +689,29 @@ async function handleComboChatInner({
     log,
   });
 
+  // Gravonyx direct-singleton path: a combo that resolves to exactly one model
+  // is an alias, not a routing pool. Sending it through the combo router adds
+  // circuit/cooldown/pre-screen/fallback state that can reject the request before
+  // the provider executor gets a chance to rotate across its own credentials.
+  //
+  // Keep an explicitly pinned connection when the combo target has one; otherwise
+  // leave connection selection to the provider executor (e.g. NVIDIA's API-key pool).
+  // Multi-target/fusion/chaos/pipeline combos retain the upstream routing machinery.
+  const directSingletonTargets = resolveComboTargets(
+    combo,
+    allCombos,
+    clampComboDepth(config.maxComboDepth),
+    hiddenModelsByProvider
+  );
+  if (directSingletonTargets.length === 1) {
+    const directTarget = directSingletonTargets[0];
+    log.info(
+      "COMBO",
+      `Direct singleton alias: ${combo.name} -> ${directTarget.modelStr}; combo routing bypassed`
+    );
+    return handleSingleModelWithTimeout(body, directTarget.modelStr, directTarget);
+  }
+
   // Dispatch prelude: context-cache pin → fusion → chaos → pipeline → nested
   // combo-ref execute mode → round-robin. Each branch either owns the request or
   // falls through to the target iteration loop below. Implementations live in
