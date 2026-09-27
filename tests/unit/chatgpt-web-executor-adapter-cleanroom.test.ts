@@ -72,7 +72,7 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
       prepareChatGptWebBrowserRequest("gpt-5-6", {
         messages: [{ role: "user", content: "hello" }],
       }).selection,
-      { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 0 }
+      { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 1 }
     );
   });
 
@@ -767,6 +767,64 @@ describe("ChatGPT Web clean-room executor response adapter", () => {
     assert.match(stream, /"finish_reason":"stop"/);
     assert.match(stream, /"estimated":true/);
     assert.ok(stream.endsWith("data: [DONE]\n\n"));
+  });
+
+  test("opens the SSE as soon as ChatGPT accepts the turn and starts native Thinking", async () => {
+    const session = {
+      url: () => "https://chatgpt.com/?temporary-chat=true",
+      start: async () => async () => {},
+      submitPrompt: async () => "",
+    } satisfies ChatGptWebBrowserSession;
+
+    let releaseFinal!: () => void;
+    const finalGate = new Promise<void>((resolve) => {
+      releaseFinal = resolve;
+    });
+    let turnFinished = false;
+
+    const response = await executeChatGptWebCleanRoom(
+      {
+        model: "gpt-5-6",
+        body: { messages: [{ role: "user", content: "crie o projeto" }] },
+        stream: true,
+        credentials: {
+          connectionId: "connection",
+          providerSpecificData: { storageState: { cookies: [], origins: [] } },
+        },
+      },
+      {
+        createSession: async () => session,
+        runTurn: async (_session, request) => {
+          request.onAccepted?.();
+          await finalGate;
+          request.onPartialText?.("pronto");
+          turnFinished = true;
+          return { ...turn, text: "pronto" };
+        },
+        id: () => "chatcmpl-accepted",
+        now: () => 123_000,
+        firstContentTimeoutMs: 100,
+      }
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(turnFinished, false, "accepted turn should open the stream before final text");
+
+    const reader = response.body!.getReader();
+    const first = await reader.read();
+    const firstText = new TextDecoder().decode(first.value);
+    assert.match(firstText, /"role":"assistant"/);
+
+    const second = await reader.read();
+    const secondText = new TextDecoder().decode(second.value);
+    assert.match(secondText, /"reasoning_content":" "/);
+
+    releaseFinal();
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+    }
+    assert.equal(turnFinished, true);
   });
 
   test("returns a live SSE response after first partial text instead of waiting for completion", async () => {
