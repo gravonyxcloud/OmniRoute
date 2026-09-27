@@ -32,11 +32,12 @@ import {
 
 // ── RPM budget ──────────────────────────────────────────────────────────────
 
-test("nvidia has a safe default RPM budget of 36/60s below the 40 RPM ceiling", () => {
-  const cfg = getProviderDefaultRateLimit("nvidia");
-  assert.ok(cfg, "nvidia must have a registered default");
-  assert.equal(cfg?.requests, 36);
-  assert.equal(cfg?.windowMs, 60_000);
+test("nvidia has no synthetic local RPM budget by default", () => {
+  assert.equal(
+    getProviderDefaultRateLimit("nvidia"),
+    undefined,
+    "NVIDIA requests must reach the upstream unless an operator explicitly configures an override"
+  );
 });
 
 test("nvidia default RPM budget: 37th request in-window is throttled", () => {
@@ -188,12 +189,12 @@ test("the concurrency gate is a no-op without a connectionId", async () => {
   assert.equal(release, null, "no connectionId to scope the gate to");
 });
 
-test("getProviderConcurrencyCap resolves override -> static default -> fallback", () => {
+test("getProviderConcurrencyCap resolves override -> fallback with no synthetic NVIDIA default", () => {
   setProviderQuotaOverrides(null);
   assert.equal(
     getProviderConcurrencyCap("nvidia", 99),
-    3,
-    "nvidia's registered static default is 3 for public multi-client gateways"
+    99,
+    "nvidia has no built-in concurrency cap; caller fallback is preserved"
   );
   assert.equal(
     getProviderConcurrencyCap("some-unregistered-provider", 99),
