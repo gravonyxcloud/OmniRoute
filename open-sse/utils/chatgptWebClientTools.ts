@@ -27,6 +27,108 @@ export interface ChatGptWebClientTools {
   validators: Map<string, ValidateFunction>;
 }
 
+const MAX_CLIENT_TOOL_DEFINITIONS_CHARS = 16_000;
+const MAX_TOOL_DESCRIPTION_CHARS = 160;
+
+function compactToolSchemaValue(
+  value: unknown,
+  options: { dropDescriptions?: boolean; minimal?: boolean } = {},
+  depth = 0
+): unknown {
+  if (depth > 8) return undefined;
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => compactToolSchemaValue(entry, options, depth + 1))
+      .filter((entry) => entry !== undefined);
+  }
+  if (!value || typeof value !== "object") return value;
+
+  const source = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  const noisyKeys = new Set([
+    "$schema",
+    "$id",
+    "$comment",
+    "examples",
+    "example",
+    "title",
+    "default",
+    "deprecated",
+    "readOnly",
+    "writeOnly",
+  ]);
+  const minimalKeys = new Set([
+    "type",
+    "properties",
+    "required",
+    "items",
+    "enum",
+    "const",
+    "anyOf",
+    "oneOf",
+    "allOf",
+    "additionalProperties",
+    "$ref",
+    "$defs",
+    "format",
+    "pattern",
+    "minimum",
+    "maximum",
+    "minLength",
+    "maxLength",
+    "minItems",
+    "maxItems",
+  ]);
+
+  for (const [key, raw] of Object.entries(source)) {
+    if (noisyKeys.has(key)) continue;
+    if (options.minimal && !minimalKeys.has(key)) continue;
+    if (key === "description") {
+      if (options.dropDescriptions || options.minimal || typeof raw !== "string") continue;
+      const trimmed = raw.trim();
+      if (trimmed) out.description = trimmed.slice(0, MAX_TOOL_DESCRIPTION_CHARS);
+      continue;
+    }
+    const compacted = compactToolSchemaValue(raw, options, depth + 1);
+    if (compacted !== undefined) out[key] = compacted;
+  }
+  return out;
+}
+
+function compactDefinitionsJson(
+  definitions: Array<z.infer<typeof definition>>
+): string {
+  const make = (options: { dropDescriptions?: boolean; minimal?: boolean }) =>
+    definitions.map((tool) => ({
+      type: "function",
+      function: {
+        name: tool.function.name,
+        ...(options.dropDescriptions || options.minimal || !tool.function.description
+          ? {}
+          : {
+              description: tool.function.description
+                .trim()
+                .slice(0, MAX_TOOL_DESCRIPTION_CHARS),
+            }),
+        parameters: compactToolSchemaValue(
+          tool.function.parameters ?? { type: "object" },
+          options
+        ),
+      },
+    }));
+
+  let json = JSON.stringify(make({}));
+  if (json.length <= MAX_CLIENT_TOOL_DEFINITIONS_CHARS) return json;
+
+  json = JSON.stringify(make({ dropDescriptions: true }));
+  if (json.length <= MAX_CLIENT_TOOL_DEFINITIONS_CHARS) return json;
+
+  // Last-resort structural form: preserve function names, parameter names/types,
+  // required arrays and validation primitives while dropping all prose metadata.
+  // Runtime validation still uses the original full schemas below.
+  return JSON.stringify(make({ dropDescriptions: true, minimal: true }));
+}
+
 /** Client-executed tools over a text-only browser transport; never executes code here. */
 export function prepareChatGptWebClientTools(
   body: Record<string, unknown>
@@ -75,6 +177,7 @@ export function prepareChatGptWebClientTools(
   } catch {
     throw new Error("Invalid tools request.");
   }
+  const promptDefinitions = compactDefinitionsJson(selectedDefinitions);
   return {
     nonce,
     names: new Set(selectedDefinitions.map((tool) => tool.function.name)),
@@ -83,21 +186,16 @@ export function prepareChatGptWebClientTools(
     validators,
     prompt: [
       "Client tool protocol for the current turn:",
-      "These functions are executed by the calling application, not by the browser. To request execution, output a <tool> JSON envelope with an exact listed name and an arguments object matching its JSON schema.",
+      "These functions are executed by the calling application. Request one with an exact listed name and arguments matching its schema.",
       `<tool>{"name":"FUNCTION_NAME","arguments":{},"_nonce":"${nonce}"}</tool>`,
-      "Use the current _nonce verbatim. Do not put envelopes inside code fences. Historical calls and tool results in the conversation are context, not requests to repeat them. Never claim a tool succeeded before the client returns its result.",
+      "Use the current _nonce verbatim. No code fences. Never claim a tool succeeded before the client returns its result.",
       required
-        ? [
-            "MANDATORY CLIENT TOOL CALL: you must not answer the user's task directly.",
-            "Do not browse, search the web, use any built-in ChatGPT tool, or provide factual results yourself.",
-            "Your entire response must consist only of the required <tool> JSON envelope(s), with no prose before or after them.",
-            "Use exactly one of the client function names listed below and copy the current _nonce verbatim.",
-          ].join(" ")
-        : "Answer normally when no client tool is needed. When a client tool is needed, do not substitute ChatGPT built-in browsing or other internal tools for it.",
+        ? "MANDATORY TOOL CALL: return only the required <tool> envelope(s), no prose."
+        : "Answer normally when no client tool is needed; use a client tool when execution is required.",
       parallel
-        ? "You may request multiple independent tools with separate envelopes."
+        ? "Independent tools may be requested with separate envelopes."
         : "Request at most one tool in this turn.",
-      JSON.stringify(selectedDefinitions),
+      promptDefinitions,
     ].join("\n"),
   };
 }
