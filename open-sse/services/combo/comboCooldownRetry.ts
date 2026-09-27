@@ -59,6 +59,22 @@ export const COMBO_COOLDOWN_RETRYABLE_REASONS: ReadonlySet<string> = new Set([
   "circuit_open",
 ]);
 
+/**
+ * NVIDIA single-target combos already have provider-level 36 RPM pacing and a
+ * per-connection concurrency gate. Waiting again at combo level can turn a
+ * transient 429/circuit-open into minutes of invisible agent latency while
+ * offering no alternate target. Keep cooldown waiting for every other shape
+ * (including single-target OAuth/web providers) where it remains useful.
+ */
+export function shouldEnableComboCooldownWaitForTargets(
+  targets: ReadonlyArray<{ provider?: string | null }>,
+  configuredEnabled: boolean
+): boolean {
+  if (!configuredEnabled) return false;
+  if (targets.length !== 1) return true;
+  return String(targets[0]?.provider || "").trim().toLowerCase() !== "nvidia";
+}
+
 export interface ComboCooldownWaitSettings {
   /** Master switch — when false the helper always returns wait=false. */
   enabled: boolean;
