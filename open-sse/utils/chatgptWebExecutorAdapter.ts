@@ -45,6 +45,14 @@ const CHATGPT_WEB_PROMPT_CHAR_BUDGET = 48_000;
 const CHATGPT_WEB_TRUNCATION_MARKER =
   "\n\n[Older context omitted by OmniRoute browser transport]\n\n";
 
+// Combo-facing TTFT guard. The browser turn itself may legitimately continue for much
+// longer, but a provider that has not produced *any* assistant text within this window
+// should fail over rather than making Claude Code wait 1-3 minutes. Override with
+// CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS when an installation needs a different budget.
+const DEFAULT_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS = 20_000;
+const MIN_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS = 3_000;
+const MAX_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS = 60_000;
+
 const FIRST_PARTY_COOKIE_HOSTS = ["chatgpt.com", "openai.com"] as const;
 
 export interface ChatGptWebStorageCookie extends JsonRecord {
@@ -722,6 +730,186 @@ async function createDefaultSession(
   });
 }
 
+function resolveChatGptWebFirstContentTimeoutMs(
+  env: NodeJS.ProcessEnv = process.env
+): number {
+  const raw = Number(env.CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS;
+  return Math.min(
+    Math.max(Math.floor(raw), MIN_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS),
+    MAX_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS
+  );
+}
+
+function chatGptWebUsage(prompt: string | undefined, completion: string | undefined) {
+  const promptTokens = prompt ? Math.max(1, Math.ceil(prompt.length / 4)) : 0;
+  const completionTokens = completion ? Math.max(1, Math.ceil(completion.length / 4)) : 0;
+  return {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: promptTokens + completionTokens,
+    estimated: true,
+  };
+}
+
+function encodeChatGptWebSse(value: unknown): Uint8Array {
+  return new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`);
+}
+
+function buildLiveChatGptWebStreamingResponse(input: {
+  model: string;
+  turnPromise: Promise<ChatGptWebBrowserTurnResult>;
+  prompt: string;
+  tools?: ChatGptWebClientTools;
+  id: string;
+  created: number;
+  initialPartial: string;
+  subscribePartial: (listener: (text: string) => void) => () => void;
+}): Response {
+  const {
+    model,
+    turnPromise,
+    prompt,
+    tools,
+    id,
+    created,
+    initialPartial,
+    subscribePartial,
+  } = input;
+
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      let emittedText = "";
+      let closed = false;
+      let keepalive: ReturnType<typeof setInterval> | null = null;
+
+      const enqueue = (value: unknown) => {
+        if (closed) return;
+        controller.enqueue(encodeChatGptWebSse(value));
+      };
+
+      enqueue({
+        id,
+        object: "chat.completion.chunk",
+        created,
+        model,
+        choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+      });
+
+      const emitText = (fullText: string) => {
+        // Tool envelopes must be parsed atomically at the end; leaking a partial
+        // <tool> payload as assistant prose breaks Claude Code/Codex protocol.
+        if (tools || !fullText) return;
+        if (emittedText && !fullText.startsWith(emittedText)) return;
+        const delta = fullText.slice(emittedText.length);
+        if (!delta) return;
+        emittedText = fullText;
+        enqueue({
+          id,
+          object: "chat.completion.chunk",
+          created,
+          model,
+          choices: [{ index: 0, delta: { content: delta }, finish_reason: null }],
+        });
+      };
+
+      emitText(initialPartial);
+      const unsubscribe = subscribePartial(emitText);
+
+      keepalive = setInterval(() => {
+        if (closed) return;
+        // SSE comments keep Cloudflare/proxies/client sockets alive without creating
+        // synthetic assistant content or fake "thinking" text.
+        controller.enqueue(new TextEncoder().encode(": omniroute-keepalive\n\n"));
+      }, 5_000);
+      keepalive.unref?.();
+
+      void turnPromise
+        .then((result) => {
+          const { content, toolCalls } = parseChatGptWebClientTools(result.text, tools);
+          const finishReason = toolCalls.length ? "tool_calls" : "stop";
+
+          if (tools) {
+            if (content) {
+              enqueue({
+                id,
+                object: "chat.completion.chunk",
+                created,
+                model,
+                choices: [{ index: 0, delta: { content }, finish_reason: null }],
+              });
+            }
+            if (toolCalls.length) {
+              enqueue({
+                id,
+                object: "chat.completion.chunk",
+                created,
+                model,
+                choices: [
+                  {
+                    index: 0,
+                    delta: {
+                      tool_calls: toolCalls.map((call, index) => ({ ...call, index })),
+                    },
+                    finish_reason: null,
+                  },
+                ],
+              });
+            }
+          } else if (content) {
+            emitText(content);
+          }
+
+          enqueue({
+            id,
+            object: "chat.completion.chunk",
+            created,
+            model,
+            choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+          });
+          enqueue({
+            id,
+            object: "chat.completion.chunk",
+            created,
+            model,
+            choices: [],
+            usage: chatGptWebUsage(prompt, result.text),
+          });
+          if (!closed) {
+            controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+          }
+        })
+        .catch((error) => {
+          enqueue({
+            error: {
+              message:
+                error instanceof Error && error.message
+                  ? error.message
+                  : "ChatGPT Web browser execution failed",
+              type: "provider_error",
+            },
+          });
+        })
+        .finally(() => {
+          closed = true;
+          unsubscribe();
+          if (keepalive) clearInterval(keepalive);
+          try {
+            controller.close();
+          } catch {}
+        });
+    },
+  });
+
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
+  });
+}
+
 export function buildChatGptWebOpenAiResponse(
   model: string,
   result: ChatGptWebBrowserTurnResult,
@@ -735,14 +923,7 @@ export function buildChatGptWebOpenAiResponse(
   // The first-party browser flow does not expose token receipts. Emit a clear
   // OpenAI-compatible estimate so proxy accounting and clients such as n8n do
   // not record a successful request as zero usage.
-  const promptTokens = metadata.prompt ? Math.max(1, Math.ceil(metadata.prompt.length / 4)) : 0;
-  const completionTokens = result.text ? Math.max(1, Math.ceil(result.text.length / 4)) : 0;
-  const usage = {
-    prompt_tokens: promptTokens,
-    completion_tokens: completionTokens,
-    total_tokens: promptTokens + completionTokens,
-    estimated: true,
-  };
+  const usage = chatGptWebUsage(metadata.prompt, result.text);
   if (!stream) {
     return Response.json({
       id,
@@ -833,15 +1014,101 @@ export async function executeChatGptWebCleanRoom(
       optionalString(providerData?.chromeExecutablePath)
     ),
   });
-  const result = await (deps.runTurn ?? runChatGptWebBrowserTurn)(session, {
+  const runTurn = deps.runTurn ?? runChatGptWebBrowserTurn;
+
+  if (!input.stream) {
+    const result = await runTurn(session, {
+      prompt: prepared.prompt,
+      attachments,
+      signal: input.signal,
+    });
+    return buildChatGptWebOpenAiResponse(input.model, result, false, {
+      id: deps.id?.(),
+      created: deps.now ? Math.floor(deps.now() / 1000) : undefined,
+      prompt: prepared.prompt,
+      tools: prepared.tools,
+    });
+  }
+
+  const id = deps.id?.() ?? `chatcmpl-${randomUUID()}`;
+  const created = deps.now ? Math.floor(deps.now() / 1000) : Math.floor(Date.now() / 1000);
+  const listeners = new Set<(text: string) => void>();
+  let latestPartial = "";
+  let firstPartialResolve: ((text: string) => void) | null = null;
+  const firstPartial = new Promise<string>((resolve) => {
+    firstPartialResolve = resolve;
+  });
+
+  const localController = new AbortController();
+  const onOuterAbort = () => localController.abort(input.signal?.reason);
+  if (input.signal?.aborted) localController.abort(input.signal.reason);
+  else input.signal?.addEventListener("abort", onOuterAbort, { once: true });
+
+  const turnPromise = runTurn(session, {
     prompt: prepared.prompt,
     attachments,
-    signal: input.signal,
+    signal: localController.signal,
+    onPartialText: (text) => {
+      if (!text || text === latestPartial) return;
+      latestPartial = text;
+      firstPartialResolve?.(text);
+      firstPartialResolve = null;
+      for (const listener of listeners) {
+        try {
+          listener(text);
+        } catch {}
+      }
+    },
+  }).finally(() => {
+    input.signal?.removeEventListener("abort", onOuterAbort);
   });
-  return buildChatGptWebOpenAiResponse(input.model, result, input.stream, {
-    id: deps.id?.(),
-    created: deps.now ? Math.floor(deps.now() / 1000) : undefined,
-    prompt: prepared.prompt,
-    tools: prepared.tools,
+
+  const firstContentTimeoutMs = resolveChatGptWebFirstContentTimeoutMs();
+  let firstContentTimer: ReturnType<typeof setTimeout> | null = null;
+  const firstContentTimeout = new Promise<never>((_, reject) => {
+    firstContentTimer = setTimeout(() => {
+      const error = new Error(
+        `ChatGPT Web first content timed out after ${firstContentTimeoutMs}ms`
+      );
+      localController.abort(error);
+      reject(error);
+    }, firstContentTimeoutMs);
+    firstContentTimer.unref?.();
   });
+
+  try {
+    const gate = await Promise.race([
+      firstPartial.then((text) => ({ kind: "partial" as const, text })),
+      turnPromise.then((result) => ({ kind: "done" as const, result })),
+      firstContentTimeout,
+    ]);
+    if (firstContentTimer) clearTimeout(firstContentTimer);
+
+    if (gate.kind === "done") {
+      return buildChatGptWebOpenAiResponse(input.model, gate.result, true, {
+        id,
+        created,
+        prompt: prepared.prompt,
+        tools: prepared.tools,
+      });
+    }
+
+    return buildLiveChatGptWebStreamingResponse({
+      model: input.model,
+      turnPromise,
+      prompt: prepared.prompt,
+      tools: prepared.tools,
+      id,
+      created,
+      initialPartial: gate.text,
+      subscribePartial(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    });
+  } catch (error) {
+    if (firstContentTimer) clearTimeout(firstContentTimer);
+    void turnPromise.catch(() => {});
+    throw error;
+  }
 }
