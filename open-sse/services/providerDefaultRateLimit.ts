@@ -32,8 +32,10 @@ import {
 // Opt-in per-provider caps. Example shape (commented — add real entries as needed):
 //   "some-headerless-provider": { requests: 60, windowMs: 60_000 },
 const PROVIDER_DEFAULT_RATE_LIMITS: Record<string, RateLimitWindow> = {
-  // 10% safety headroom below NVIDIA's "up to 40 RPM" ceiling.
-  nvidia: { requests: 36, windowMs: 60_000 },
+  // Do not impose a synthetic NVIDIA RPM ceiling here. NVIDIA's hosted NIM
+  // limits are dynamic/model/account dependent and upstream 429 responses are
+  // already handled by the normal provider cooldown/retry path. A static local
+  // 36 RPM cap caused Claude Code agent turns to fail before NVIDIA was called.
 };
 
 /** #6846 Phase 1: default per-connection concurrency cap for providers whose static
@@ -41,9 +43,7 @@ const PROVIDER_DEFAULT_RATE_LIMITS: Record<string, RateLimitWindow> = {
  * today). Keep NVIDIA conservative for a public multi-client gateway: requests
  * are paced separately by rateLimitManager, while this cap prevents long-running
  * streams from piling up on the same credential. */
-export const PROVIDER_DEFAULT_CONCURRENCY_CAP: Record<string, number> = {
-  nvidia: 3,
-};
+export const PROVIDER_DEFAULT_CONCURRENCY_CAP: Record<string, number> = {};
 
 let providerDefaultOverrides: Record<string, RateLimitWindow> | null = null;
 const limiter = new SlidingWindowLimiter();
