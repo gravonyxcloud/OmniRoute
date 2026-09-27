@@ -172,6 +172,13 @@ function extractXmlInvokeBlocks(
   return { cleaned, toolCalls };
 }
 
+function shouldRedactClaudeReasoning(): boolean {
+  const raw = process.env.OMNIROUTE_REDACT_CLAUDE_REASONING;
+  if (raw == null || raw.trim() === "") return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
 // Helper: stop thinking block if started
 function stopThinkingBlock(state, results) {
   if (!state.thinkingBlockStarted) return;
@@ -368,11 +375,27 @@ export function openaiToClaudeResponse(chunk, state) {
         });
       }
 
-      results.push({
-        type: "content_block_delta",
-        index: state.thinkingBlockIndex,
-        delta: { type: "thinking_delta", thinking: reasoningContent },
-      });
+      // Some OpenAI-compatible reasoning providers expose their full scratchpad in
+      // reasoning_content. Claude Code renders Anthropic thinking blocks verbatim,
+      // which leaks private/internal chain-of-thought into the terminal. Operators
+      // can keep the native Thought/Thinking state while redacting the raw trace.
+      // The real reasoning is still accumulated below for replay/cache/quality logic.
+      if (shouldRedactClaudeReasoning()) {
+        if (!state._redactedThinkingPlaceholderSent) {
+          state._redactedThinkingPlaceholderSent = true;
+          results.push({
+            type: "content_block_delta",
+            index: state.thinkingBlockIndex,
+            delta: { type: "thinking_delta", thinking: " " },
+          });
+        }
+      } else {
+        results.push({
+          type: "content_block_delta",
+          index: state.thinkingBlockIndex,
+          delta: { type: "thinking_delta", thinking: reasoningContent },
+        });
+      }
     }
 
     // FIX B: accumulate the reasoning text so the finish handler can synthesize
@@ -682,7 +705,12 @@ export function openaiToClaudeResponse(chunk, state) {
       results.push({
         type: "content_block_delta",
         index: state.textBlockIndex,
-        delta: { type: "text_delta", text: state._reasoningAccum },
+        delta: {
+          type: "text_delta",
+          text: shouldRedactClaudeReasoning()
+            ? "(model produced no final answer)"
+            : state._reasoningAccum,
+        },
       });
     }
 
