@@ -181,6 +181,17 @@ const EXTRA_MODULE_ENTRIES = [
     dest: ["node_modules", "ioredis"],
   },
   {
+    // compressionWorker.js is spawned through node:worker_threads at runtime.
+    // The worker is outside Next's static module graph, so externals referenced
+    // by its bundled dependency tree are invisible to standalone tracing.
+    // A production 3.8.80 container reproduced ERR_MODULE_NOT_FOUND for uuid on
+    // every compressed coding-agent request, forcing synchronous in-process
+    // fallback on the main event loop. Ship the package explicitly.
+    label: "uuid (compression worker runtime external)",
+    src: ["node_modules", "uuid"],
+    dest: ["node_modules", "uuid"],
+  },
+  {
     // bcryptjs IS statically imported by src/lib/auth/managementPassword.ts,
     // so the main server bundle is fine — Next's server compiler inlines the
     // small pure-JS package directly into the compiled route chunk instead of
