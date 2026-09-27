@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { chatgpt_webProvider } from "../../open-sse/config/providers/registry/chatgpt-web/index.ts";
 import { ChatGptWebExecutor } from "../../open-sse/executors/chatgpt-web.ts";
+import { prepareChatGptWebBrowserRequest } from "../../open-sse/utils/chatgptWebExecutorAdapter.ts";
 import { REGISTRY, getRegistryEntry } from "../../open-sse/config/providerRegistry.ts";
 import { hasSpecializedExecutor } from "../../open-sse/executors/index.ts";
 import { validateChatGptWebProvider } from "../../src/lib/providers/validation/chatgptWeb.ts";
@@ -90,6 +91,20 @@ test("validates encrypted-at-rest storage-state input without echoing secrets", 
   });
   assert.equal(invalid.valid, false);
   assert.equal(JSON.stringify(invalid).includes("do-not-echo"), false);
+});
+
+test("keeps hidden reasoning and status prose out of visible ChatGPT Web replies", () => {
+  const prepared = prepareChatGptWebBrowserRequest("gpt-5-6", {
+    messages: [
+      { role: "system", content: "You are a coding assistant." },
+      { role: "user", content: "oi" },
+    ],
+  });
+
+  assert.match(prepared.prompt, /API RESPONSE CONTRACT/);
+  assert.match(prepared.prompt, /Never expose hidden reasoning/);
+  assert.match(prepared.prompt, /Thought, Thinking, Analysis, Reasoning, Baked, Cogitated/);
+  assert.match(prepared.prompt, /Return only the user-facing answer/);
 });
 
 test("specialized executor delegates to the clean-room browser adapter", async () => {
