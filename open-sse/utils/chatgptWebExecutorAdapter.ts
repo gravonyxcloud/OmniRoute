@@ -508,6 +508,43 @@ function adaptiveChatGptWebEffortIndex(body: JsonRecord): 1 | 2 | 3 {
   return 1;
 }
 
+function latestUserRequestText(body: JsonRecord): string {
+  try {
+    const messages = parsePromptMessages(body);
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "user") return messages[i].text;
+    }
+  } catch {
+    // Request validation reports malformed messages elsewhere.
+  }
+  return "";
+}
+
+function hasUnexpectedHostIntegrationLeak(text: string, body: JsonRecord): boolean {
+  if (!text || typeof text !== "string") return false;
+  const latestUser = latestUserRequestText(body).toLowerCase();
+  const candidates = [
+    /\b(?:remote\s+)?desktop\s+commander\b/i,
+    /\bchatgpt\s+(?:plugin|connector|app|work|computer)\b/i,
+    /\b(?:connected\s+computer|computer\s+connected)\b/i,
+    /\bcomputador\s+conectad[oa]\b/i,
+  ];
+  return candidates.some((pattern) => {
+    const match = text.match(pattern);
+    if (!match) return false;
+    return !latestUser.includes(match[0].toLowerCase());
+  });
+}
+
+function hostIsolationRepairPrompt(originalPrompt: string): string {
+  return [
+    CHATGPT_WEB_API_BACKEND_ISOLATION,
+    "CORRECTION RETRY: the previous attempt incorrectly referred to a host-side ChatGPT integration or connected computer. Discard that attempt completely.",
+    "Continue as the external API model backend. Use only the client functions explicitly listed in the request. If a listed function can perform the requested file/code/project action, return the appropriate <tool> envelope instead of prose about access limitations.",
+    originalPrompt,
+  ].join("\n\n");
+}
+
 function normalizedModel(value: string): string {
   return value
     .trim()
@@ -1081,7 +1118,8 @@ export async function executeChatGptWebCleanRoom(
   const connectionId = optionalString(input.credentials.connectionId);
   if (!connectionId) throw new Error("ChatGPT Web clean-room adapter requires a connection ID");
   const providerData = input.credentials.providerSpecificData;
-  const session = await (deps.createSession ?? createDefaultSession)({
+  const createSession = deps.createSession ?? createDefaultSession;
+  const sessionInput: ChatGptWebSessionFactoryInput = {
     connectionId,
     storageState,
     selection: prepared.selection,
@@ -1091,15 +1129,37 @@ export async function executeChatGptWebCleanRoom(
     chromeExecutablePath: resolveChatGptWebChromeExecutable(
       optionalString(providerData?.chromeExecutablePath)
     ),
-  });
+  };
+  const session = await createSession(sessionInput);
   const runTurn = deps.runTurn ?? runChatGptWebBrowserTurn;
 
+  const repairHostLeakIfNeeded = async (
+    result: ChatGptWebBrowserTurnResult,
+    signal?: AbortSignal | null
+  ): Promise<ChatGptWebBrowserTurnResult> => {
+    if (!prepared.tools || !hasUnexpectedHostIntegrationLeak(result.text, input.body as JsonRecord)) {
+      return result;
+    }
+
+    const repairSession = await createSession(sessionInput);
+    const repaired = await runTurn(repairSession, {
+      prompt: hostIsolationRepairPrompt(prepared.prompt),
+      attachments,
+      signal,
+    });
+    if (hasUnexpectedHostIntegrationLeak(repaired.text, input.body as JsonRecord)) {
+      throw new Error("ChatGPT Web host-integration response was blocked");
+    }
+    return repaired;
+  };
+
   if (!input.stream) {
-    const result = await runTurn(session, {
+    const initialResult = await runTurn(session, {
       prompt: prepared.prompt,
       attachments,
       signal: input.signal,
     });
+    const result = await repairHostLeakIfNeeded(initialResult, input.signal);
     return buildChatGptWebOpenAiResponse(input.model, result, false, {
       id: deps.id?.(),
       created: deps.now ? Math.floor(deps.now() / 1000) : undefined,
@@ -1145,9 +1205,11 @@ export async function executeChatGptWebCleanRoom(
         } catch {}
       }
     },
-  }).finally(() => {
-    input.signal?.removeEventListener("abort", onOuterAbort);
-  });
+  })
+    .then((result) => repairHostLeakIfNeeded(result, localController.signal))
+    .finally(() => {
+      input.signal?.removeEventListener("abort", onOuterAbort);
+    });
 
   const configuredFirstContentTimeoutMs = deps.firstContentTimeoutMs;
   const firstContentTimeoutMs =
