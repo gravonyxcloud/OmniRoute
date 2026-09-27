@@ -313,6 +313,10 @@ export default function ProviderDetailPageClient() {
   ]);
   const isUpstreamProxyProvider = providerInfo?.category === "upstream-proxy";
   const compatibleSupportsModelImport = compatibleProviderSupportsModelImport(providerId);
+  // chatgpt-web has no upstream /models endpoint, but it does have an intentional
+  // curated registry catalog. Allow the operator to import that catalog into the
+  // local model store so visibility/metadata controls work like other providers.
+  const allowModelImport = !usesCuratedModelsOnly || providerId === "chatgpt-web";
 
   const providerStorageAlias = isCompatible ? providerId : providerAlias;
   const providerDisplayAlias = isCompatible ? providerNode?.prefix || providerId : providerAlias;
@@ -767,7 +771,7 @@ export default function ProviderDetailPageClient() {
             isAnthropicProtocolCompatible={isAnthropicProtocolCompatible}
             isManagedAvailableModelsProvider={isCompatible || providerId === "openrouter"}
             compatibleSupportsModelImport={compatibleSupportsModelImport}
-            allowModelImport={!usesCuratedModelsOnly}
+            allowModelImport={allowModelImport}
             models={models}
             modelMeta={modelMeta}
             modelAliases={modelAliases}
