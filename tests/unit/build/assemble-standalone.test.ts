@@ -44,6 +44,8 @@ function seedSidecarSources(root: string) {
     "node_modules/ioredis/built/index.js",
     "node_modules/uuid/package.json",
     "node_modules/uuid/dist/index.js",
+    "node_modules/xxhash-wasm/package.json",
+    "node_modules/xxhash-wasm/cjs/xxhash-wasm.cjs",
     "node_modules/bcryptjs/package.json",
     "node_modules/bcryptjs/index.js",
     "node_modules/playwright-core/index.js",
@@ -179,8 +181,8 @@ test("async and sync sidecar copy paths produce identical bundle trees", async (
   ]) {
     assert.ok(asyncTree.includes(sqlJsFile), `sql.js runtime file copied: ${sqlJsFile}`);
   }
-  // Runtime-only dependencies: ioredis is a dynamic import, uuid is required by
-  // the dynamically spawned compression worker bundle, and bcryptjs is used by
+  // Runtime-only dependencies: ioredis is a dynamic import, uuid + xxhash-wasm
+  // are required by the dynamically spawned compression worker bundle, and bcryptjs is used by
   // the separate unbundled reset-password CLI. Standalone tracing misses them.
   // `import("ioredis")`, or a separate unbundled bin/cli/ entrypoint for
   // bcryptjs), so the standalone tracer never picks them up on its own —
@@ -191,6 +193,8 @@ test("async and sync sidecar copy paths produce identical bundle trees", async (
     "node_modules/ioredis/built/index.js",
     "node_modules/uuid/package.json",
     "node_modules/uuid/dist/index.js",
+    "node_modules/xxhash-wasm/package.json",
+    "node_modules/xxhash-wasm/cjs/xxhash-wasm.cjs",
     "node_modules/bcryptjs/package.json",
     "node_modules/bcryptjs/index.js",
   ]) {
