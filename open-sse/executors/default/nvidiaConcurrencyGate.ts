@@ -36,7 +36,10 @@ export function acquireNvidiaConcurrencySlot(
   connectionId: string | null | undefined
 ): Promise<(() => void) | null> {
   if (provider !== "nvidia" || !connectionId) return Promise.resolve(null);
-  const maxConcurrency = getProviderConcurrencyCap(provider, NVIDIA_DEFAULT_CONCURRENCY_CAP);
+  // NVIDIA no longer has a built-in synthetic concurrency limit. Keep this
+  // gate available only when the operator explicitly configures an override.
+  const maxConcurrency = getProviderConcurrencyCap(provider, 0);
+  if (!Number.isFinite(maxConcurrency) || maxConcurrency <= 0) return Promise.resolve(null);
   const key = `${provider}:${connectionId}`;
   return semaphore.acquire(key, { maxConcurrency, timeoutMs: NVIDIA_ACQUIRE_TIMEOUT_MS });
 }
