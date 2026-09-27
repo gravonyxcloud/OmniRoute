@@ -7,11 +7,41 @@ import {
   executeChatGptWebCleanRoom,
   normalizeChatGptWebStorageState,
   prepareChatGptWebBrowserRequest,
+  resolveChatGptWebFirstContentTimeoutMs,
   resolveChatGptWebChromeExecutable,
   shouldUseHeadlessChatGptWebBrowser,
 } from "../../open-sse/utils/chatgptWebExecutorAdapter.ts";
 import { resolveChatGptWebAttachments } from "../../open-sse/utils/chatgptWebAttachments.ts";
 import type { ChatGptWebBrowserSession } from "../../open-sse/utils/chatgptWebBrowserSession.ts";
+
+describe("ChatGPT Web first-content deadline", () => {
+  test("uses model-aware defaults and prompt allowance", () => {
+    assert.equal(resolveChatGptWebFirstContentTimeoutMs("gpt-5-6", "oi", {}), 41_000);
+    assert.equal(
+      resolveChatGptWebFirstContentTimeoutMs("gpt-5-6-thinking", "x".repeat(8_000), {}),
+      57_000
+    );
+    assert.equal(
+      resolveChatGptWebFirstContentTimeoutMs("gpt-5-6-pro", "x".repeat(80_000), {}),
+      90_000
+    );
+  });
+
+  test("operator override remains clamped", () => {
+    assert.equal(
+      resolveChatGptWebFirstContentTimeoutMs("gpt-5-6", "oi", {
+        CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS: "12000",
+      }),
+      12_000
+    );
+    assert.equal(
+      resolveChatGptWebFirstContentTimeoutMs("gpt-5-6-pro", "oi", {
+        CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS: "999999",
+      }),
+      90_000
+    );
+  });
+});
 
 describe("ChatGPT Web clean-room executor request adapter", () => {
   test("maps observed 5.6 modes without treating Pro as max effort", () => {
