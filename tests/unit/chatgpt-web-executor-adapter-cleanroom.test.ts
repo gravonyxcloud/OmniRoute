@@ -76,6 +76,31 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     );
   });
 
+  test("adapts GPT-5.6 thinking effort to coding-task complexity without disabling thinking", () => {
+    assert.deepEqual(
+      prepareChatGptWebBrowserRequest("gpt-5-6-thinking", {
+        reasoning_effort: "low",
+        messages: [{ role: "user", content: "oi" }],
+      }).selection,
+      { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 1 }
+    );
+
+    const tools = Array.from({ length: 12 }, (_, index) => ({
+      type: "function",
+      function: {
+        name: `tool_${index}`,
+        parameters: { type: "object", properties: {} },
+      },
+    }));
+    assert.deepEqual(
+      prepareChatGptWebBrowserRequest("gpt-5-6", {
+        messages: [{ role: "user", content: "crie o projeto" }],
+        tools,
+      }).selection,
+      { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 2 }
+    );
+  });
+
   test("maps the observed Free Luna routes to the first-party Think toggle", () => {
     assert.deepEqual(
       prepareChatGptWebBrowserRequest("gpt-5.6-luna-free", {
