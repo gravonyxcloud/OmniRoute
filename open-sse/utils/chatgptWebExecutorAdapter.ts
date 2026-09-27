@@ -8,7 +8,11 @@ import {
 } from "./chatgptWebClientTools.ts";
 
 import { isRunningInContainer } from "../../src/shared/utils/containerEnv.ts";
-import { acquireBrowserContext, openPage } from "../services/browserPool.ts";
+import {
+  acquireBrowserContext,
+  openPage,
+  type PooledContext,
+} from "../services/browserPool.ts";
 import type { ExecuteInput, ProviderCredentials } from "../executors/base.ts";
 import {
   extractChatGptWebAttachmentSources,
@@ -667,6 +671,23 @@ export function shouldUseHeadlessChatGptWebBrowser(
   return runningInContainer && !env.DISPLAY && !env.WAYLAND_DISPLAY;
 }
 
+export async function createIsolatedChatGptWebBrowserSession(
+  pooled: PooledContext,
+  options: {
+    pageUrl?: string;
+    selection?: ChatGptWebUiSelection;
+  } = {}
+): Promise<ChatGptWebBrowserSession> {
+  // BrowserContext/cookies are reusable authentication state. Page/DOM/conversation
+  // state is request-owned and must never be shared between API callers.
+  const page = await openPage(pooled);
+  return new PlaywrightChatGptWebBrowserSession(page, {
+    pageUrl: options.pageUrl ?? CHATGPT_WEB_PAGE_URL,
+    selection: options.selection,
+    closePageOnCleanup: true,
+  });
+}
+
 async function createDefaultSession(
   input: ChatGptWebSessionFactoryInput
 ): Promise<ChatGptWebBrowserSession> {
@@ -695,11 +716,9 @@ async function createDefaultSession(
   // concurrent calls overwrite each other's composer and can return another request's
   // rendered assistant text. Give every API request its own short-lived page while
   // keeping the expensive authenticated context shared.
-  const page = await openPage(pooled);
-  return new PlaywrightChatGptWebBrowserSession(page, {
+  return createIsolatedChatGptWebBrowserSession(pooled, {
     pageUrl: CHATGPT_WEB_PAGE_URL,
     selection: input.selection,
-    closePageOnCleanup: true,
   });
 }
 
