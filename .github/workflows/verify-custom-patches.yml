@@ -17,6 +17,9 @@ on:
       - open-sse/services/opencodeFreeTierSkip.ts
       - open-sse/services/combo/comboPredicates.ts
       - open-sse/services/autoCombo/resilienceCandidateFilter.ts
+      - open-sse/services/providerDefaultRateLimit.ts
+      - open-sse/services/rateLimitManager.ts
+      - open-sse/executors/default/nvidiaConcurrencyGate.ts
       - src/sse/services/auth.ts
       - src/app/api/v1/models/catalog.ts
       - src/app/api/providers/[id]/models/route.ts
@@ -34,6 +37,8 @@ on:
       - tests/unit/response-model-echo-1311.test.ts
       - tests/unit/opencode-free-tier-combo-scoped-failure-14313.test.ts
       - tests/unit/opencode-free-tier-noauth-ttl-skip-14313.test.ts
+      - tests/unit/nvidia-quota-phase1.test.ts
+      - tests/unit/rate-limit-provider-default.test.ts
       - .github/workflows/verify-custom-patches.yml
   workflow_dispatch:
 
@@ -77,7 +82,9 @@ jobs:
             tests/unit/models-catalog-combo-access.test.ts \
             tests/unit/response-model-echo-1311.test.ts \
             tests/unit/opencode-free-tier-combo-scoped-failure-14313.test.ts \
-            tests/unit/opencode-free-tier-noauth-ttl-skip-14313.test.ts
+            tests/unit/opencode-free-tier-noauth-ttl-skip-14313.test.ts \
+            tests/unit/nvidia-quota-phase1.test.ts \
+            tests/unit/rate-limit-provider-default.test.ts
 
       - name: Typecheck touched runtime files
         run: npm run typecheck:core
