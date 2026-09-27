@@ -82,6 +82,16 @@ export function assembleStreamingPipeline(
   performance.clearMarks(PIPELINE_END);
   performance.clearMeasures(PIPELINE_MEASURE);
   performance.mark(PIPELINE_START);
+
+  // Streaming responses must remain byte-transparent through reverse proxies/CDNs.
+  // These headers are safe on direct DNS deployments and prevent common buffering /
+  // transformation behavior when operators later place nginx/Traefik/Cloudflare-like
+  // infrastructure in front of /v1.
+  args.responseHeaders["Cache-Control"] = "no-cache, no-transform";
+  args.responseHeaders["X-Accel-Buffering"] = "no";
+  args.responseHeaders["CDN-Cache-Control"] = "no-store";
+  args.responseHeaders["Surrogate-Control"] = "no-store";
+
   // ── Phase 9.3: Progress tracking (opt-in) ──
   const progressEnabled = deps.wantsProgress(args.clientRawRequestHeaders);
   let finalStream;
