@@ -86,6 +86,110 @@ test("OpenAI stream: reasoning_content closes before text content starts", () =>
   assert.equal(result[5].delta.text, "Answer");
 });
 
+test("OpenAI stream: redaction keeps Thinking but never exposes raw reasoning text", () => {
+  const previous = process.env.OMNIROUTE_REDACT_CLAUDE_REASONING;
+  process.env.OMNIROUTE_REDACT_CLAUDE_REASONING = "true";
+  try {
+    const state = createThinkingState();
+    const reasoning1 = openaiToClaudeResponse(
+      {
+        id: "chatcmpl-redact-1",
+        model: "nvidia/nemotron-3-ultra-550b-a55b",
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: "The user said oi. I should answer in Portuguese." },
+            finish_reason: null,
+          },
+        ],
+      },
+      state
+    );
+    const reasoning2 = openaiToClaudeResponse(
+      {
+        id: "chatcmpl-redact-1",
+        model: "nvidia/nemotron-3-ultra-550b-a55b",
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: "More private scratchpad text." },
+            finish_reason: null,
+          },
+        ],
+      },
+      state
+    );
+    const text = openaiToClaudeResponse(
+      {
+        id: "chatcmpl-redact-1",
+        model: "nvidia/nemotron-3-ultra-550b-a55b",
+        choices: [{ index: 0, delta: { content: "Oi! Como posso ajudar?" }, finish_reason: null }],
+      },
+      state
+    );
+    const result = flatten([reasoning1, reasoning2, text]);
+
+    assert.ok(
+      result.some(
+        (event) => event.type === "content_block_start" && event.content_block?.type === "thinking"
+      ),
+      "Thinking block must still be present"
+    );
+    const thinkingDeltas = result.filter(
+      (event) => event.type === "content_block_delta" && event.delta?.type === "thinking_delta"
+    );
+    assert.deepEqual(
+      thinkingDeltas.map((event) => event.delta.thinking),
+      [" "],
+      "only one neutral Thinking marker should be emitted"
+    );
+    const serialized = JSON.stringify(result);
+    assert.doesNotMatch(serialized, /The user said oi/i);
+    assert.doesNotMatch(serialized, /private scratchpad/i);
+    assert.match(serialized, /Oi! Como posso ajudar\?/);
+  } finally {
+    if (previous === undefined) delete process.env.OMNIROUTE_REDACT_CLAUDE_REASONING;
+    else process.env.OMNIROUTE_REDACT_CLAUDE_REASONING = previous;
+  }
+});
+
+test("OpenAI non-stream: redaction keeps a blank thinking block instead of raw reasoning", () => {
+  const previous = process.env.OMNIROUTE_REDACT_CLAUDE_REASONING;
+  process.env.OMNIROUTE_REDACT_CLAUDE_REASONING = "true";
+  try {
+    const translated = translateNonStreamingResponse(
+      {
+        id: "chatcmpl-redact-json",
+        object: "chat.completion",
+        model: "nvidia/nemotron-3-ultra-550b-a55b",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              reasoning_content: "I should reveal the internal scratchpad.",
+              content: "Resposta final.",
+            },
+            finish_reason: "stop",
+          },
+        ],
+      },
+      FORMATS.OPENAI,
+      FORMATS.CLAUDE,
+      null,
+      null,
+      true
+    );
+
+    assert.deepEqual(translated.content[0], { type: "thinking", thinking: " " });
+    assert.deepEqual(translated.content[1], { type: "text", text: "Resposta final." });
+    assert.doesNotMatch(JSON.stringify(translated), /internal scratchpad/i);
+  } finally {
+    if (previous === undefined) delete process.env.OMNIROUTE_REDACT_CLAUDE_REASONING;
+    else process.env.OMNIROUTE_REDACT_CLAUDE_REASONING = previous;
+  }
+});
+
 test("OpenAI stream: reasoning_content is suppressed when the client did not request thinking", () => {
   // "Did not request" is what chatCore resolves to `requestedThinking: false`
   // (hasActiveClaudeThinking() always yields a boolean at open-sse/handlers/chatCore.ts).
