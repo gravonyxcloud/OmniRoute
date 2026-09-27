@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 const {
   injectSystemPrompt,
+  injectResponseLanguageContinuity,
   injectSystemPromptPostTranslation,
   setSystemPromptConfig,
   getSystemPromptConfig,
@@ -182,6 +183,55 @@ test("injectSystemPrompt: developer role treated as system", () => {
   assert.ok(result.messages[0].content.startsWith("PRE"));
   assert.ok(result.messages[0].content.includes("Dev instructions"));
   assert.ok(result.messages[0].content.trimEnd().endsWith("SUF"));
+});
+
+// ─── Response language continuity ───────────────────────────────────────────
+
+test("language continuity: OpenAI messages append to the last control message", () => {
+  const body = {
+    messages: [
+      { role: "system", content: "Base system" },
+      { role: "developer", content: "Latest control" },
+      { role: "user", content: "Crie uma landing page." },
+    ],
+  };
+  const result = injectResponseLanguageContinuity(body, "openai");
+  assert.equal(result.messages.length, 3);
+  assert.equal(result.messages[0].content, "Base system");
+  assert.match(String(result.messages[1].content), /same natural language/i);
+  assert.match(String(result.messages[1].content), /latest user-authored request/i);
+  assert.equal(body.messages[1].content, "Latest control");
+});
+
+test("language continuity: Claude uses the top-level system carrier", () => {
+  const body = {
+    system: "You are Claude Code.",
+    messages: [{ role: "user", content: "Faça isso em português." }],
+  };
+  const result = injectResponseLanguageContinuity(body, "claude");
+  assert.match(String(result.system), /You are Claude Code/);
+  assert.match(String(result.system), /same natural language/i);
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.messages[0].role, "user");
+});
+
+test("language continuity: Responses uses instructions without touching input", () => {
+  const body = {
+    instructions: "Follow client rules.",
+    input: [{ type: "message", role: "user", content: "Hola" }],
+  };
+  const result = injectResponseLanguageContinuity(body, "openai-responses");
+  assert.match(String(result.instructions), /same natural language/i);
+  assert.deepEqual(result.input, body.input);
+});
+
+test("language continuity: Gemini uses systemInstruction", () => {
+  const body = {
+    contents: [{ role: "user", parts: [{ text: "Bonjour" }] }],
+  };
+  const result = injectResponseLanguageContinuity(body, "gemini");
+  assert.ok(result.systemInstruction);
+  assert.match(JSON.stringify(result.systemInstruction), /same natural language/i);
 });
 
 // ─── Post-translation injection (codex/Responses path — #3) ────────────────
