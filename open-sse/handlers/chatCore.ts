@@ -129,6 +129,7 @@ import { stripStore, usesClaudeBridge } from "./chatCore/agentRouterProtocol.ts"
 import { normalizeClaudeToolsForDispatch } from "./chatCore/claudeToolDefaults.ts";
 import {
   injectCustomSystemPrompt,
+  injectResponseLanguageContinuity,
   injectSystemPromptPostTranslation,
   injectSystemPromptPreTranslation,
 } from "../services/systemPrompt.ts";
@@ -2177,6 +2178,11 @@ export async function handleChatCore({
       `Skipping compression check: body=${!!body}, hasMessages=${Array.isArray(allMessages)}`
     );
   }
+
+  // Keep the model in the language of the latest user request across every provider.
+  // Inject on the source/client shape so format translation and carrier-less targets
+  // preserve the directive without provider-specific special cases.
+  body = injectResponseLanguageContinuity(body, sourceFormat);
 
   // Re-check the concrete target after all compression passes. Combo compatibility
   // filtering is advisory and may preserve an all-incompatible pool; this is the
