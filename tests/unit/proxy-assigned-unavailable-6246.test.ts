@@ -25,7 +25,7 @@ process.env.API_KEY_SECRET = "test-secret";
 const core = await import("../../src/lib/db/core.ts");
 const proxiesDb = await import("../../src/lib/db/proxies.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
-const { safeResolveProxy } = await import("../../src/sse/handlers/chatHelpers.ts");
+const { safeResolveProxy, isProxyEgressRequired } = await import("../../src/sse/handlers/chatHelpers.ts");
 
 async function resetStorage() {
   core.resetDbInstance();
@@ -50,9 +50,61 @@ async function makeConnection(): Promise<string> {
   return (conn as { id: string }).id;
 }
 
+test.afterEach(() => {
+  delete process.env.OMNIROUTE_PROXY_EGRESS_REQUIRED;
+  delete process.env.OMNIROUTE_PROXY_REQUIRED_PROVIDERS;
+  delete process.env.PROXY_FAIL_OPEN;
+});
+
 test.after(async () => {
   core.resetDbInstance();
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
+
+test("strict proxy egress parser supports global and provider-scoped enforcement", () => {
+  assert.equal(
+    isProxyEgressRequired("nvidia", { OMNIROUTE_PROXY_EGRESS_REQUIRED: "true" }),
+    true
+  );
+  assert.equal(
+    isProxyEgressRequired("nvidia", { OMNIROUTE_PROXY_REQUIRED_PROVIDERS: "anthropic,nvidia" }),
+    true
+  );
+  assert.equal(
+    isProxyEgressRequired("openai", { OMNIROUTE_PROXY_REQUIRED_PROVIDERS: "anthropic,nvidia" }),
+    false
+  );
+});
+
+test("STRICT BLOCKS: no proxy assignment must not fall back to VPS direct egress", async () => {
+  await resetStorage();
+  const connId = await makeConnection();
+  process.env.OMNIROUTE_PROXY_EGRESS_REQUIRED = "true";
+
+  await assert.rejects(
+    () => safeResolveProxy(connId, undefined, "openai"),
+    (err: unknown) => (err as { code?: string }).code === "PROXY_REQUIRED_UNAVAILABLE",
+    "strict egress mode must block a missing proxy instead of using the VPS IP"
+  );
+});
+
+test("STRICT BLOCKS even when legacy PROXY_FAIL_OPEN=true", async () => {
+  await resetStorage();
+  const connId = await makeConnection();
+  process.env.OMNIROUTE_PROXY_EGRESS_REQUIRED = "true";
+  process.env.PROXY_FAIL_OPEN = "true";
+
+  await assert.rejects(
+    () => safeResolveProxy(connId, undefined, "openai"),
+    (err: unknown) => (err as { code?: string }).code === "PROXY_REQUIRED_UNAVAILABLE"
+  );
+});
+
+test("OPTIONAL MODE: no assignment still allows direct egress for backward compatibility", async () => {
+  await resetStorage();
+  const connId = await makeConnection();
+  const resolved = await safeResolveProxy(connId, undefined, "openai");
+  assert.deepEqual(resolved, { proxy: null, level: "direct", levelId: null });
 });
 
 test("BLOCKS: an account proxy assigned but marked inactive (the IP-leak case)", async () => {
