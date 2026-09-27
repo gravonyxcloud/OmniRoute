@@ -97,6 +97,8 @@ export interface ChatGptWebBrowserSubmission {
   prompt: string;
   attachments: ChatGptWebResolvedAttachment[];
   signal?: AbortSignal | null;
+  /** Fired once the first-party /f/conversation request has been accepted. */
+  onAccepted?: () => void;
   /** Full accumulated assistant text as it becomes visible/decodable. */
   onPartialText?: (text: string) => void;
 }
@@ -106,6 +108,8 @@ export interface ChatGptWebBrowserTurnRequest {
   attachments?: ChatGptWebResolvedAttachment[];
   timeoutMs?: number;
   signal?: AbortSignal | null;
+  /** Fired once ChatGPT accepted the turn, before assistant text necessarily exists. */
+  onAccepted?: () => void;
   /** Full accumulated assistant text as it becomes visible/decodable. */
   onPartialText?: (text: string) => void;
 }
@@ -127,7 +131,7 @@ export interface PlaywrightChatGptWebBrowserSessionOptions {
   executePageRequest?: (
     page: Page,
     input: ChatGptWebFirstPartyRequest,
-    options?: { signal?: AbortSignal | null }
+    options?: { signal?: AbortSignal | null; onAccepted?: () => void }
   ) => Promise<string>;
 }
 
@@ -294,7 +298,8 @@ class ChatGptWebBrowserTurnRunner {
     private readonly session: ChatGptWebBrowserSession,
     private readonly prompt: string,
     private readonly attachments: ChatGptWebResolvedAttachment[],
-    private readonly onPartialText?: (text: string) => void
+    private readonly onPartialText?: (text: string) => void,
+    private readonly onAccepted?: () => void
   ) {
     this.resultPromise = new Promise((resolve, reject) => {
       this.resolveResult = resolve;
@@ -449,6 +454,7 @@ class ChatGptWebBrowserTurnRunner {
         prompt: this.prompt,
         attachments: this.attachments,
         signal: this.turnController.signal,
+        onAccepted: this.onAccepted,
         onPartialText: (text) => this.emitPartial(text),
       })
       .then((directResponse) => {
@@ -538,7 +544,8 @@ export async function runChatGptWebBrowserTurn(
     session,
     prompt,
     request.attachments ?? [],
-    request.onPartialText
+    request.onPartialText,
+    request.onAccepted
   );
   return runner.run(timeoutMs, request.signal);
 }
@@ -906,7 +913,7 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
           attachments: request.attachments,
           selection: this.selection,
         },
-        { signal: request.signal }
+        { signal: request.signal, onAccepted: request.onAccepted }
       );
     } catch (error) {
       if (!shouldUseComposerFallback(error)) throw error;
