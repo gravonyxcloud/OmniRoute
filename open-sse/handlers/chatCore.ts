@@ -5653,8 +5653,9 @@ export async function handleChatCore({
         recordCost(apiKeyInfo.id, estimatedCost);
       }
 
-      // === Quota Share POST-hook (B/F7) — fire-and-forget, fail-open ===
-      await scheduleQuotaShareConsumption({
+      // === Quota Share POST-hook (B/F7) — genuinely fire-and-forget, fail-open ===
+      // Do not put post-response bookkeeping on the client latency path.
+      void scheduleQuotaShareConsumption({
         apiKeyId: apiKeyInfo?.id,
         connectionId: credentials?.connectionId,
         provider,
@@ -5666,7 +5667,7 @@ export async function handleChatCore({
       // === /Quota Share POST-hook ===
 
       // ── Gamification event (fire-and-forget) ──
-      await emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });
+      void emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });
 
       finalizePendingScope(pendingScope, {
         providerResponse: responseBody,
@@ -5697,7 +5698,7 @@ export async function handleChatCore({
       // #8395: the streaming branch below already calls this; the non-streaming
       // (stream:false) branch returned without it, so onResponse never fired for
       // non-streaming requests at all.
-      await runPluginOnResponseHook({
+      void runPluginOnResponseHook({
         requestId: traceId,
         body,
         model,
@@ -6288,11 +6289,13 @@ export async function handleChatCore({
       releaseTurnExecution
     );
 
-    // ── Gamification event (fire-and-forget) ──
-  await emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });
+    // ── Post-response hooks: keep them off the streaming handoff path ──
+    // Both helpers are fail-open and self-catch. Awaiting their dynamic imports
+    // delayed the Response object even though the stream was already ready.
+    void emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });
 
-  // ── Plugin onResponse hook (fire-and-forget) ──
-  await runPluginOnResponseHook({
+    // ── Plugin onResponse hook (fire-and-forget) ──
+    void runPluginOnResponseHook({
     requestId: traceId,
     body,
     model,
