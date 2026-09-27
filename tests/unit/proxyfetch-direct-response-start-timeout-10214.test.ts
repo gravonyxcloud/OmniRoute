@@ -27,7 +27,10 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { proxyFetch } from "../../open-sse/utils/proxyFetch.ts";
+import {
+  proxyFetch,
+  resolveDirectResponseStartPolicy,
+} from "../../open-sse/utils/proxyFetch.ts";
 import { getDefaultDispatcher, getRetryDispatcher } from "../../open-sse/utils/proxyDispatcher.ts";
 
 const DIRECT_RESPONSE_START_TIMEOUT_CODE = "DIRECT_RESPONSE_START_TIMEOUT";
@@ -151,4 +154,67 @@ test("#10214 a healthy fast response is untouched by the bound (single attempt, 
   assert.equal(capture.calls, 1, "healthy request must not retry");
   assert.equal(capture.dispatchers[0], getDefaultDispatcher());
   assert.equal(await res.text(), "ok");
+});
+
+
+test("NVIDIA hosted NIM uses an adaptive response-start window and never replays a slow-start inference", async () => {
+  assert.equal(
+    resolveDirectResponseStartPolicy(
+      "https://integrate.api.nvidia.com/v1/chat/completions",
+      "x".repeat(220_000)
+    ).timeoutMs,
+    105_000
+  );
+
+  const previous = process.env.OMNIROUTE_NVIDIA_DIRECT_HEADERS_TIMEOUT_MS;
+  process.env.OMNIROUTE_NVIDIA_DIRECT_HEADERS_TIMEOUT_MS = "50";
+  const capture = { calls: 0, dispatchers: [] as unknown[] };
+  const mockUndici = hangingFetch(capture);
+
+  try {
+    await assert.rejects(
+      () =>
+        proxyFetch(
+          "https://integrate.api.nvidia.com/v1/chat/completions",
+          { method: "POST", body: JSON.stringify({ model: "nvidia/test", messages: [] }) },
+          { undiciFetch: mockUndici }
+        ),
+      (err: unknown) => {
+        assert.equal((err as { code?: unknown }).code, DIRECT_RESPONSE_START_TIMEOUT_CODE);
+        return true;
+      }
+    );
+    assert.equal(
+      capture.calls,
+      1,
+      "a slow NVIDIA response start must not duplicate an already-running inference"
+    );
+    assert.equal(capture.dispatchers[0], getDefaultDispatcher());
+  } finally {
+    if (previous === undefined) delete process.env.OMNIROUTE_NVIDIA_DIRECT_HEADERS_TIMEOUT_MS;
+    else process.env.OMNIROUTE_NVIDIA_DIRECT_HEADERS_TIMEOUT_MS = previous;
+  }
+});
+
+test("NVIDIA still retries a genuine transport failure on a fresh socket", async () => {
+  const capture = { calls: 0, dispatchers: [] as unknown[] };
+  const mockUndici = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    capture.calls++;
+    capture.dispatchers.push((init as { dispatcher?: unknown } | undefined)?.dispatcher);
+    if (capture.calls === 1) {
+      throw Object.assign(new Error("fetch failed"), { code: "UND_ERR_SOCKET" });
+    }
+    return new Response("ok", { status: 200 });
+  };
+
+  const response = await proxyFetch(
+    "https://integrate.api.nvidia.com/v1/chat/completions",
+    { method: "POST", body: "{}" },
+    { undiciFetch: mockUndici }
+  );
+
+  assert.equal(await response.text(), "ok");
+  assert.equal(capture.calls, 2);
+  assert.equal(capture.dispatchers[0], getDefaultDispatcher());
+  assert.equal(capture.dispatchers[1], getRetryDispatcher());
 });
