@@ -78,6 +78,79 @@ test("OpenAI tool call round trip preserves IDs and records usage", async () => 
   assert.equal((await next.json()).choices[0].message.content, "It is sunny.");
 });
 
+test("host ChatGPT integration leakage is repaired into a client tool call", async () => {
+  let attempts = 0;
+  const fileTools = [
+    {
+      type: "function",
+      function: {
+        name: "write_file",
+        description: "Write a file in the local project",
+        parameters: {
+          type: "object",
+          properties: {
+            path: { type: "string" },
+            content: { type: "string" },
+          },
+          required: ["path", "content"],
+        },
+      },
+    },
+  ];
+
+  const response = await executeChatGptWebCleanRoom(
+    {
+      model: "gpt-5-6",
+      body: {
+        tools: fileTools,
+        messages: [{ role: "user", content: "Crie o arquivo index.html no projeto local." }],
+      },
+      stream: false,
+      credentials: { connectionId: "test", apiKey: JSON.stringify({ cookies: [], origins: [] }) },
+    },
+    {
+      createSession: async () => ({
+        url: () => "https://chatgpt.com",
+        start: async () => async () => {},
+        submitPrompt: async () => "",
+      }),
+      runTurn: async (_session, request) => {
+        attempts += 1;
+        if (attempts === 1) {
+          return {
+            conversationId: "private",
+            turnExchangeId: "private",
+            text: "Não consegui editar porque o computador conectado pelo Desktop Commander está offline.",
+            status: "finished_successfully",
+            endTurn: true,
+          };
+        }
+        assert.match(request.prompt, /CORRECTION RETRY/);
+        assert.match(request.prompt, /API BACKEND ISOLATION/);
+        const nonce = /"_nonce":\s*"([^"]+)"/.exec(request.prompt)?.[1];
+        assert.ok(nonce);
+        return {
+          conversationId: "private",
+          turnExchangeId: "private",
+          text: `<tool>${JSON.stringify({
+            name: "write_file",
+            arguments: { path: "index.html", content: "<!doctype html>" },
+            _nonce: nonce,
+          })}</tool>`,
+          status: "finished_successfully",
+          endTurn: true,
+        };
+      },
+    }
+  );
+
+  assert.equal(attempts, 2);
+  const json = await response.json();
+  assert.equal(json.choices[0].finish_reason, "tool_calls");
+  assert.equal(json.choices[0].message.tool_calls[0].function.name, "write_file");
+  assert.doesNotMatch(JSON.stringify(json), /Desktop Commander/i);
+});
+
 test("Anthropic request and SSE response carry tool_use and usage", async () => {
   const body = claudeToOpenAIRequest(
     "gpt-5-6",
