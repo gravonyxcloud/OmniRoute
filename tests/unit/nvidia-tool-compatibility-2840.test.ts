@@ -12,6 +12,10 @@ import { FORMATS } from "../../open-sse/translator/formats.ts";
 import { openaiToClaudeResponse } from "../../open-sse/translator/response/openai-to-claude.ts";
 import { createPassthroughStreamWithLogger } from "../../open-sse/utils/stream.ts";
 
+test("NVIDIA provider allows slow large-agent requests to start before timing out", () => {
+  assert.equal(getRegistryEntry("nvidia")?.fetchStartTimeoutCapMs, 180_000);
+});
+
 test("Nemotron Ultra tool requests use the low-latency agent profile by default", () => {
   const oldProfile = process.env.NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE;
   delete process.env.NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE;
