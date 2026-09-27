@@ -492,10 +492,10 @@ function resolveSelection(model: string, body: JsonRecord): ChatGptWebUiSelectio
   if (normalized === "gpt-5-6-pro") {
     return { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 4 };
   }
-  if (normalized === "gpt-5-6-instant" || normalized === "gpt-5-6") {
+  if (normalized === "gpt-5-6-instant") {
     return { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 0 };
   }
-  if (["gpt-5-6-thinking", "gpt-5-6-sol"].includes(normalized)) {
+  if (["gpt-5-6", "gpt-5-6-thinking", "gpt-5-6-sol"].includes(normalized)) {
     return {
       kind: "picker",
       modelLabel: "GPT-5.6 Sol",
@@ -788,6 +788,7 @@ function buildLiveChatGptWebStreamingResponse(input: {
   id: string;
   created: number;
   initialPartial: string;
+  emitThinkingStart?: boolean;
   subscribePartial: (listener: (text: string) => void) => () => void;
 }): Response {
   const {
@@ -798,6 +799,7 @@ function buildLiveChatGptWebStreamingResponse(input: {
     id,
     created,
     initialPartial,
+    emitThinkingStart = false,
     subscribePartial,
   } = input;
 
@@ -819,6 +821,20 @@ function buildLiveChatGptWebStreamingResponse(input: {
         model,
         choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
       });
+
+      // Claude Code and other reasoning-aware clients need a first model-output frame
+      // to leave the generic "API waiting" state. Once ChatGPT has accepted the turn,
+      // emit a whitespace-only reasoning delta: it starts the client's native Thinking
+      // block without inventing or exposing hidden chain-of-thought.
+      if (emitThinkingStart) {
+        enqueue({
+          id,
+          object: "chat.completion.chunk",
+          created,
+          model,
+          choices: [{ index: 0, delta: { reasoning_content: " " }, finish_reason: null }],
+        });
+      }
 
       const emitText = (fullText: string) => {
         // Tool envelopes must be parsed atomically at the end; leaking a partial
@@ -1061,6 +1077,10 @@ export async function executeChatGptWebCleanRoom(
   const firstPartial = new Promise<string>((resolve) => {
     firstPartialResolve = resolve;
   });
+  let acceptedResolve: (() => void) | null = null;
+  const accepted = new Promise<void>((resolve) => {
+    acceptedResolve = resolve;
+  });
 
   const localController = new AbortController();
   const onOuterAbort = () => localController.abort(input.signal?.reason);
@@ -1071,6 +1091,10 @@ export async function executeChatGptWebCleanRoom(
     prompt: prepared.prompt,
     attachments,
     signal: localController.signal,
+    onAccepted: () => {
+      acceptedResolve?.();
+      acceptedResolve = null;
+    },
     onPartialText: (text) => {
       if (!text || text === latestPartial) return;
       latestPartial = text;
@@ -1107,6 +1131,7 @@ export async function executeChatGptWebCleanRoom(
 
   try {
     const gate = await Promise.race([
+      accepted.then(() => ({ kind: "accepted" as const })),
       firstPartial.then((text) => ({ kind: "partial" as const, text })),
       turnPromise.then((result) => ({ kind: "done" as const, result })),
       firstContentTimeout,
@@ -1129,7 +1154,8 @@ export async function executeChatGptWebCleanRoom(
       tools: prepared.tools,
       id,
       created,
-      initialPartial: gate.text,
+      initialPartial: gate.kind === "partial" ? gate.text : latestPartial,
+      emitThinkingStart: gate.kind === "accepted",
       subscribePartial(listener) {
         listeners.add(listener);
         return () => listeners.delete(listener);
