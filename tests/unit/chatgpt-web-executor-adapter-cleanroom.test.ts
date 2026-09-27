@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   buildChatGptWebOpenAiResponse,
+  createIsolatedChatGptWebBrowserSession,
   executeChatGptWebCleanRoom,
   normalizeChatGptWebStorageState,
   prepareChatGptWebBrowserRequest,
@@ -555,6 +556,104 @@ describe("ChatGPT Web clean-room storage state", () => {
           origins: [{ origin: "http://chatgpt.com", localStorage: [] }],
         }),
       /foreign origin/
+    );
+  });
+});
+
+describe("ChatGPT Web per-request browser isolation", () => {
+  test("uses a fresh page per request and never reuses the shared warmup page", async () => {
+    let newPageCalls = 0;
+    let freshGotoCalls = 0;
+    let freshCloseCalls = 0;
+    let warmupCloseCalls = 0;
+
+    const warmupPage = {
+      isClosed: () => false,
+      close: async () => {
+        warmupCloseCalls += 1;
+      },
+    } as unknown as import("playwright").Page;
+
+    const freshPage = {
+      url: () => "about:blank",
+      goto: async () => {
+        freshGotoCalls += 1;
+        return null;
+      },
+      close: async () => {
+        freshCloseCalls += 1;
+      },
+    } as unknown as import("playwright").Page;
+
+    const pooled = {
+      id: "chatgpt-web-test",
+      context: {
+        newPage: async () => {
+          newPageCalls += 1;
+          return freshPage;
+        },
+      },
+      warmupPage,
+      lastUsed: Date.now(),
+      isStealth: false,
+    } as unknown as import("../../open-sse/services/browserPool.ts").PooledContext;
+
+    const session = await createIsolatedChatGptWebBrowserSession(pooled, {
+      selection: { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 0 },
+    });
+
+    const cleanup = await session.start({
+      onBootstrap: () => {},
+      onWebSocketFrame: () => {},
+      onError: () => {},
+    });
+    await cleanup();
+
+    assert.equal(newPageCalls, 1, "every request must allocate a new page");
+    assert.equal(freshGotoCalls, 1, "fresh page should navigate to temporary ChatGPT chat");
+    assert.equal(freshCloseCalls, 1, "request-owned page must close after the turn");
+    assert.equal(warmupCloseCalls, 0, "shared warmup/auth page must remain untouched");
+  });
+
+  test("two concurrent request sessions allocate two independent pages", async () => {
+    const pages: Array<{ id: number; closed: number }> = [];
+    const pooled = {
+      id: "chatgpt-web-concurrent",
+      context: {
+        newPage: async () => {
+          const state = { id: pages.length + 1, closed: 0 };
+          pages.push(state);
+          return {
+            url: () => "https://chatgpt.com/?temporary-chat=true",
+            close: async () => {
+              state.closed += 1;
+            },
+          } as unknown as import("playwright").Page;
+        },
+      },
+      warmupPage: null,
+      lastUsed: Date.now(),
+      isStealth: false,
+    } as unknown as import("../../open-sse/services/browserPool.ts").PooledContext;
+
+    const [a, b] = await Promise.all([
+      createIsolatedChatGptWebBrowserSession(pooled),
+      createIsolatedChatGptWebBrowserSession(pooled),
+    ]);
+
+    assert.notEqual(a, b);
+    assert.equal(pages.length, 2);
+
+    const [cleanupA, cleanupB] = await Promise.all([
+      a.start({ onBootstrap: () => {}, onWebSocketFrame: () => {}, onError: () => {} }),
+      b.start({ onBootstrap: () => {}, onWebSocketFrame: () => {}, onError: () => {} }),
+    ]);
+    await Promise.all([cleanupA(), cleanupB()]);
+
+    assert.deepEqual(
+      pages.map((page) => page.closed),
+      [1, 1],
+      "each request page closes independently"
     );
   });
 });
