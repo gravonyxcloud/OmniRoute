@@ -181,6 +181,48 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     assert.notEqual(prepared.prompt, "oi");
   });
 
+  test("compacts large Claude Code tool catalogs without dropping tool names", () => {
+    const tools = Array.from({ length: 39 }, (_, index) => ({
+      type: "function" as const,
+      function: {
+        name: `claude_tool_${index}`,
+        description: ("Very verbose tool documentation " + index + " ").repeat(40),
+        parameters: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description: "Absolute project path ".repeat(30),
+            },
+            query: {
+              type: "string",
+              description: "Search query and detailed usage notes ".repeat(30),
+            },
+          },
+          required: ["path"],
+        },
+      },
+    }));
+
+    const prepared = prepareChatGptWebBrowserRequest("gpt-5-6-thinking", {
+      messages: [
+        { role: "system", content: "You are Claude Code. " + "rule ".repeat(5_000) },
+        { role: "user", content: "Crie um site completo e funcional." },
+      ],
+      tools,
+      tool_choice: "auto",
+    });
+
+    assert.ok(prepared.tools, "tool metadata should be retained");
+    assert.ok(
+      prepared.tools!.prompt.length < 20_000,
+      `tool protocol should be compact, got ${prepared.tools!.prompt.length} chars`
+    );
+    assert.match(prepared.tools!.prompt, /claude_tool_0/);
+    assert.match(prepared.tools!.prompt, /claude_tool_38/);
+    assert.ok(prepared.prompt.length <= 48_000);
+  });
+
   test("compacts oversized Claude Code browser context before submission", () => {
     const hugeSystem = "SYSTEM-RULE ".repeat(8_000);
     const hugeHistory = "old-context ".repeat(8_000);
@@ -695,6 +737,93 @@ describe("ChatGPT Web clean-room executor response adapter", () => {
     assert.match(stream, /"finish_reason":"stop"/);
     assert.match(stream, /"estimated":true/);
     assert.ok(stream.endsWith("data: [DONE]\n\n"));
+  });
+
+  test("returns a live SSE response after first partial text instead of waiting for completion", async () => {
+    const session = {
+      url: () => "https://chatgpt.com/?temporary-chat=true",
+      start: async () => async () => {},
+      submitPrompt: async () => "",
+    } satisfies ChatGptWebBrowserSession;
+
+    let releaseFinal!: () => void;
+    const finalGate = new Promise<void>((resolve) => {
+      releaseFinal = resolve;
+    });
+    let turnFinished = false;
+
+    const response = await executeChatGptWebCleanRoom(
+      {
+        model: "gpt-5-6",
+        body: { messages: [{ role: "user", content: "say hello" }] },
+        stream: true,
+        credentials: {
+          connectionId: "connection",
+          providerSpecificData: { storageState: { cookies: [], origins: [] } },
+        },
+      },
+      {
+        createSession: async () => session,
+        runTurn: async (_session, request) => {
+          request.onPartialText?.("hel");
+          await finalGate;
+          request.onPartialText?.("hello");
+          turnFinished = true;
+          return { ...turn, text: "hello" };
+        },
+        id: () => "chatcmpl-live",
+        now: () => 123_000,
+        firstContentTimeoutMs: 100,
+      }
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(turnFinished, false, "response should open before the browser turn completes");
+
+    const bodyPromise = response.text();
+    releaseFinal();
+    const body = await bodyPromise;
+
+    assert.equal(turnFinished, true);
+    assert.match(body, /"role":"assistant"/);
+    assert.match(body, /"content":"hel"/);
+    assert.match(body, /"content":"lo"/);
+    assert.ok(body.endsWith("data: [DONE]\n\n"));
+  });
+
+  test("fails fast when a streaming browser turn produces no first content", async () => {
+    const session = {
+      url: () => "https://chatgpt.com/?temporary-chat=true",
+      start: async () => async () => {},
+      submitPrompt: async () => "",
+    } satisfies ChatGptWebBrowserSession;
+
+    await assert.rejects(
+      executeChatGptWebCleanRoom(
+        {
+          model: "gpt-5-6",
+          body: { messages: [{ role: "user", content: "work" }] },
+          stream: true,
+          credentials: {
+            connectionId: "connection",
+            providerSpecificData: { storageState: { cookies: [], origins: [] } },
+          },
+        },
+        {
+          createSession: async () => session,
+          runTurn: async (_session, request) =>
+            await new Promise((_resolve, reject) => {
+              request.signal?.addEventListener(
+                "abort",
+                () => reject(new Error("aborted")),
+                { once: true }
+              );
+            }),
+          firstContentTimeoutMs: 25,
+        }
+      ),
+      /first content timed out after 25ms/
+    );
   });
 
   test("executes through an injected browser session factory", async () => {
