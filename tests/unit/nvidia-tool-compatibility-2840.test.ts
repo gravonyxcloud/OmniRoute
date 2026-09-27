@@ -12,6 +12,75 @@ import { FORMATS } from "../../open-sse/translator/formats.ts";
 import { openaiToClaudeResponse } from "../../open-sse/translator/response/openai-to-claude.ts";
 import { createPassthroughStreamWithLogger } from "../../open-sse/utils/stream.ts";
 
+test("Nemotron Ultra tool requests use the low-latency agent profile by default", () => {
+  const oldProfile = process.env.NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE;
+  delete process.env.NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE;
+  try {
+    const transformed = new DefaultExecutor("nvidia").transformRequest(
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      {
+        model: "nvidia/nemotron-3-ultra-550b-a55b",
+        messages: [{ role: "user", content: "Inspect the project and edit the page." }],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "read_file",
+              description: "Read a file",
+              parameters: { type: "object", properties: {} },
+            },
+          },
+        ],
+        reasoning_effort: "max",
+        max_tokens: 1024,
+      },
+      true,
+      null
+    );
+
+    assert.equal(transformed.reasoning_effort, undefined);
+    assert.equal(transformed.chat_template_kwargs.enable_thinking, true);
+    assert.equal(transformed.chat_template_kwargs.medium_effort, true);
+    assert.equal(transformed.chat_template_kwargs.force_nonempty_content, true);
+    assert.equal(transformed.max_tokens, 4096, "thinking agent keeps a usable output floor");
+  } finally {
+    if (oldProfile === undefined) delete process.env.NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE;
+    else process.env.NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE = oldProfile;
+  }
+});
+
+test("Nemotron Ultra preserve profile keeps an explicit max reasoning request", () => {
+  const oldProfile = process.env.NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE;
+  process.env.NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE = "preserve";
+  try {
+    const transformed = new DefaultExecutor("nvidia").transformRequest(
+      "nvidia/nemotron-3-ultra-550b-a55b",
+      {
+        model: "nvidia/nemotron-3-ultra-550b-a55b",
+        messages: [{ role: "user", content: "Think deeply." }],
+        tools: [
+          {
+            type: "function",
+            function: { name: "lookup", description: "Lookup", parameters: { type: "object", properties: {} } },
+          },
+        ],
+        reasoning_effort: "max",
+        max_tokens: 8192,
+      },
+      true,
+      null
+    );
+
+    assert.equal(transformed.reasoning_effort, "max");
+    assert.equal(transformed.chat_template_kwargs.enable_thinking, true);
+    assert.equal(transformed.chat_template_kwargs.medium_effort, undefined);
+    assert.equal(transformed.chat_template_kwargs.force_nonempty_content, true);
+  } finally {
+    if (oldProfile === undefined) delete process.env.NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE;
+    else process.env.NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE = oldProfile;
+  }
+});
+
 test("NVIDIA keeps tool calls and tool results linked with deterministic 9-character IDs", () => {
   const body = {
     messages: [
