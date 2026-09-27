@@ -9,6 +9,7 @@ import { BaseExecutor, type ExecuteInput } from "./base.ts";
 const CHATGPT_WEB_URL = "https://chatgpt.com";
 
 function statusForAdapterError(message: string): number {
+  if (/first content timed out|browser turn timed out/i.test(message)) return 504;
   if (/storage state|credentials|connection ID/i.test(message)) return 401;
   // Preserve upstream quota semantics so the shared account-fallback loop can exclude a
   // depleted Free session and immediately try the next configured ChatGPT Web account.
@@ -48,13 +49,16 @@ export class ChatGptWebExecutor extends BaseExecutor {
         /first-party|browser execution|request client|request module|challenge bridge/i.test(
           message
         );
+      const status = statusForAdapterError(message);
       return makeExecutorErrorResult(
-        statusForAdapterError(message),
+        status,
         toolsUnsupported
           ? "Tools are not supported by the selected model."
-          : bridgeUnavailable
-            ? "Provider connection is temporarily unavailable."
-            : message || "ChatGPT Web browser execution failed",
+          : status === 504
+            ? "Provider did not start responding in time."
+            : bridgeUnavailable
+              ? "Provider connection is temporarily unavailable."
+              : message || "ChatGPT Web browser execution failed",
         input.body,
         CHATGPT_WEB_URL,
         undefined,
