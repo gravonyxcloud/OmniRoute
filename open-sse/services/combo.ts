@@ -128,6 +128,7 @@ import { buildAutoQuotaThresholds } from "./combo/quotaExhaustionCutoff.ts";
 import { expandTargetsByFingerprints } from "./combo/fingerprintExpansion.ts";
 import { resolveComboTargetPipeline } from "./combo/targetResolution.ts";
 import { dispatchWithCooldownRetry } from "./combo/comboAttemptLoop.ts";
+import { shouldEnableComboCooldownWaitForTargets } from "./combo/comboCooldownRetry.ts";
 import { evaluateExecuteTargetGates } from "./combo/executeTargetGates.ts";
 import { executeTargetAttempt } from "./combo/executeTargetAttempt.ts";
 import type { AttemptLoopDeps, AttemptLoopState } from "./combo/attemptLoopTypes.ts";
@@ -986,12 +987,15 @@ async function handleComboChatInner({
   // We snapshot them now so cleanup can happen after the attempt loop finishes.
   const _registeredExecutionKeys = orderedTargets.map((t) => t.executionKey).filter(Boolean);
 
+  const comboCooldownWaitEnabled =
+    isComboCooldownWaitEligible(strategy, resilienceSettings.comboCooldownWait) &&
+    shouldEnableComboCooldownWaitForTargets(
+      orderedTargets,
+      resilienceSettings.comboCooldownWait.enabled
+    );
   const isNvidiaSingletonCombo =
     orderedTargets.length === 1 &&
     String(orderedTargets[0]?.provider || "").toLowerCase() === "nvidia";
-  const comboCooldownWaitEnabled =
-    !isNvidiaSingletonCombo &&
-    isComboCooldownWaitEligible(strategy, resilienceSettings.comboCooldownWait);
 
   if (isNvidiaSingletonCombo && resilienceSettings.comboCooldownWait.enabled) {
     log.debug(
