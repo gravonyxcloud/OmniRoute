@@ -55,6 +55,15 @@ const CHATGPT_WEB_API_BACKEND_ISOLATION = [
   "Attachments explicitly included in this API request remain valid request input.",
 ].join("\n");
 
+const CHATGPT_WEB_RESPONSE_CONTRACT = [
+  "API RESPONSE CONTRACT — mandatory for this turn:",
+  "Return only the user-facing answer or a client-tool envelope required by the client protocol.",
+  "Never expose hidden reasoning, chain-of-thought, scratchpad, internal deliberation, planning notes, self-talk, recap text, or meta-commentary about deciding how to answer.",
+  "Do not prefix the answer with labels such as Thought, Thinking, Analysis, Reasoning, Baked, Cogitated, Recap, Plan, or similar status/debug prose.",
+  "If internal reasoning is available, keep it internal and provide only the concise conclusion needed by the user.",
+].join("\n");
+
+
 // Combo-facing TTFT guard. A single fixed 20s gate was too aggressive for browser-backed
 // Thinking/Pro turns and produced false 504s even while ChatGPT was still processing.
 // Use a model-aware base plus a small prompt-size allowance. Genuine browser/page errors
@@ -661,6 +670,7 @@ export function prepareChatGptWebBrowserRequest(
     buildPrompt(body, {
       additionalControl: [
         CHATGPT_WEB_API_BACKEND_ISOLATION,
+        CHATGPT_WEB_RESPONSE_CONTRACT,
         ...(tools && !tools.required ? [tools.prompt] : []),
       ],
       includeFinalDirective: tools?.required !== true,
