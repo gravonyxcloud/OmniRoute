@@ -6,6 +6,10 @@ on:
       - feat/api-key-plans
     paths:
       - open-sse/utils/chatgptWebExecutorAdapter.ts
+      - open-sse/utils/chatgptWebBrowserSession.ts
+      - open-sse/utils/chatgptWebClientTools.ts
+      - open-sse/executors/chatgpt-web.ts
+      - open-sse/services/combo/executeTargetAttempt.ts
       - open-sse/services/identityMasking.ts
       - open-sse/services/combo/comboErrorAggregation.ts
       - open-sse/handlers/chatCore.ts
@@ -15,7 +19,14 @@ on:
       - open-sse/services/autoCombo/resilienceCandidateFilter.ts
       - src/sse/services/auth.ts
       - src/app/api/v1/models/catalog.ts
+      - src/app/api/providers/[id]/models/route.ts
+      - src/app/(dashboard)/dashboard/providers/[id]/ProviderDetailPageClient.tsx
+      - src/app/(dashboard)/dashboard/providers/[id]/hooks/useModelImportHandlers.ts
+      - src/app/(dashboard)/dashboard/providers/[id]/providerPageHelpers.ts
       - tests/unit/chatgpt-web-executor-adapter-cleanroom.test.ts
+      - tests/unit/chatgpt-web-browser-session-cleanroom.test.ts
+      - tests/unit/provider-models-route.test.ts
+      - tests/unit/provider-page-hidden-modality-chat.test.ts
       - tests/unit/identity-masking.test.ts
       - tests/unit/combo-error-aggregation.test.ts
       - tests/unit/api-key-catalog-scope.test.ts
@@ -57,6 +68,9 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/chatgpt-web-executor-adapter-cleanroom.test.ts \
+            tests/unit/chatgpt-web-browser-session-cleanroom.test.ts \
+            tests/unit/provider-models-route.test.ts \
+            tests/unit/provider-page-hidden-modality-chat.test.ts \
             tests/unit/identity-masking.test.ts \
             tests/unit/combo-error-aggregation.test.ts \
             tests/unit/api-key-catalog-scope.test.ts \
