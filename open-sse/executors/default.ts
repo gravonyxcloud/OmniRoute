@@ -67,7 +67,57 @@ import { resolveAlibabaProviderBaseUrl } from "@/shared/constants/alibabaProvide
 import { usesCcWireImage } from "../services/ccWireImageBuiltins.ts";
 
 const NVIDIA_TOOL_CALL_ID_PATTERN = /^[A-Za-z0-9]{9}$/;
+const NVIDIA_NEMOTRON_ULTRA_PATTERN = /^nvidia\/nemotron-3-ultra-550b-a55b$/i;
 const PERPLEXITY_AGENT_DEFAULT_MAX_OUTPUT_TOKENS = 4096;
+
+/**
+ * NVIDIA's Nemotron 3 Ultra model card recommends medium-effort reasoning as the
+ * starting point for agent workloads and requires force_nonempty_content when
+ * reasoning + tools are combined. Claude Code / coding agents often send a
+ * generic top-level reasoning_effort=max, which can make a simple tool turn spend
+ * most of its latency in a long hidden reasoning trace before the first tool call.
+ *
+ * Custom fork policy: tool-using Ultra requests default to a latency-oriented
+ * medium reasoning profile. Set NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE=preserve
+ * to keep the caller's original full/max effort, or =full to explicitly force
+ * full thinking. Non-tool chat requests are left semantically unchanged.
+ */
+function applyNvidiaNemotronUltraAgentDefaults<T>(model: string, body: T): T {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+  const record = body as Record<string, unknown>;
+  const outboundModel = typeof record.model === "string" ? record.model : model;
+  if (!NVIDIA_NEMOTRON_ULTRA_PATTERN.test(outboundModel)) return body;
+
+  const hasTools = Array.isArray(record.tools) && record.tools.length > 0;
+  if (!hasTools) return body;
+
+  const rawKwargs = record.chat_template_kwargs;
+  const kwargs =
+    rawKwargs && typeof rawKwargs === "object" && !Array.isArray(rawKwargs)
+      ? { ...(rawKwargs as Record<string, unknown>) }
+      : {};
+
+  if (kwargs.enable_thinking === undefined) kwargs.enable_thinking = true;
+  if (kwargs.force_nonempty_content === undefined) kwargs.force_nonempty_content = true;
+
+  const profile = (process.env.NVIDIA_NEMOTRON_AGENT_REASONING_PROFILE || "medium")
+    .trim()
+    .toLowerCase();
+  let next: Record<string, unknown> = { ...record, chat_template_kwargs: kwargs };
+
+  if (profile === "medium" && kwargs.enable_thinking !== false) {
+    if (kwargs.medium_effort === undefined) kwargs.medium_effort = true;
+    // Avoid sending two conflicting reasoning controls. NVIDIA's Ultra-specific
+    // tuning is carried by chat_template_kwargs for this profile.
+    if (Object.prototype.hasOwnProperty.call(next, "reasoning_effort")) {
+      delete next.reasoning_effort;
+    }
+  } else if (profile === "full") {
+    delete kwargs.medium_effort;
+  }
+
+  return next as T;
+}
 
 function defaultPerplexityAgentMaxOutputTokens<T>(body: T): T {
   if (!body || typeof body !== "object" || Array.isArray(body)) return body;
@@ -817,6 +867,7 @@ export class DefaultExecutor extends BaseExecutor {
 
     if (this.provider === "nvidia") {
       normalizeNvidiaToolCallIds(withDefaults);
+      withDefaults = applyNvidiaNemotronUltraAgentDefaults(model, withDefaults);
     }
 
     // Port of decolua/9router commit d652300e:
@@ -1082,8 +1133,10 @@ export class DefaultExecutor extends BaseExecutor {
 
     const extraBody = body.extra_body as Record<string, unknown> | undefined;
     const thinking = extraBody?.thinking as Record<string, unknown> | undefined;
+    const chatTemplateKwargs = body.chat_template_kwargs as Record<string, unknown> | undefined;
     const effort = body.reasoning_effort;
     const reasoningEnabled =
+      chatTemplateKwargs?.enable_thinking === true ||
       thinking?.type === "enabled" ||
       (typeof effort === "string" && effort !== "none" && effort !== "off") ||
       effort === true ||
