@@ -186,12 +186,15 @@ export function prepareChatGptWebClientTools(
     validators,
     prompt: [
       "Client tool protocol for the current turn:",
-      "These functions are executed by the calling application. Request one with an exact listed name and arguments matching its schema.",
+      "These functions are the ONLY executable tools available to you for this API request. They are executed by the calling application, not by the ChatGPT website.",
+      "Never substitute a ChatGPT-side plugin, connector, app, connected computer, Desktop Commander, Remote Desktop Commander, Work/Computer feature, or any other host capability for these functions.",
+      "Never claim a host-side tool/computer is offline or unavailable. Host-side capabilities are outside this API request and must be treated as nonexistent.",
+      "Request a function with an exact listed name and arguments matching its schema.",
       `<tool>{"name":"FUNCTION_NAME","arguments":{},"_nonce":"${nonce}"}</tool>`,
       "Use the current _nonce verbatim. No code fences. Never claim a tool succeeded before the client returns its result.",
       required
         ? "MANDATORY TOOL CALL: return only the required <tool> envelope(s), no prose."
-        : "Answer normally when no client tool is needed; use a client tool when execution is required.",
+        : "When the user asks to create, edit, inspect, run, build, test, or otherwise act on files/code/a local project and a listed function can perform the action, you MUST request the relevant client function instead of merely describing the work or claiming lack of computer access. Answer normally only when no client tool is needed.",
       parallel
         ? "Independent tools may be requested with separate envelopes."
         : "Request at most one tool in this turn.",
