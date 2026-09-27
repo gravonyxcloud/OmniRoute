@@ -716,6 +716,13 @@ function resolveReasoningText(messageObj: JsonRecord): string {
   return getAnyReasoningValue(messageObj);
 }
 
+function shouldRedactClaudeReasoning(): boolean {
+  const raw = process.env.OMNIROUTE_REDACT_CLAUDE_REASONING;
+  if (raw == null || raw.trim() === "") return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
 /**
  * Helper to convert an OpenAI chat.completion JSON object to Claude format for non-streaming.
  *
@@ -759,7 +766,7 @@ function convertOpenAINonStreamingToClaude(
     hasTextOrReasoning = true;
     content.push({
       type: "thinking",
-      thinking: reasoningText,
+      thinking: shouldRedactClaudeReasoning() ? " " : reasoningText,
     });
   }
 
@@ -774,14 +781,15 @@ function convertOpenAINonStreamingToClaude(
       text: resolvedText === "" ? "(empty response)" : resolvedText,
     });
   } else if (suppressThinking && reasoningText) {
-    // Reasoning-ONLY response with thinking opted out (requestedThinking===false):
-    // no ordinary content, reasoning suppressed above. Relay the reasoning text as
-    // an ordinary text block so the response is not empty (no 502) and no thinking
-    // block leaks — mirrors the streaming translator's finish-time fallback.
+    // Reasoning-ONLY response with thinking opted out (requestedThinking===false).
+    // When redaction is enabled, never downgrade the hidden scratchpad into visible
+    // text just to avoid an empty response.
     hasTextOrReasoning = true;
     content.push({
       type: "text",
-      text: reasoningText,
+      text: shouldRedactClaudeReasoning()
+        ? "(model produced no final answer)"
+        : reasoningText,
     });
   } else if (!hasTextOrReasoning) {
     content.push({
