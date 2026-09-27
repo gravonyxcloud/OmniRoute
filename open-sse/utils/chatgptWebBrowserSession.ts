@@ -97,6 +97,8 @@ export interface ChatGptWebBrowserSubmission {
   prompt: string;
   attachments: ChatGptWebResolvedAttachment[];
   signal?: AbortSignal | null;
+  /** Full accumulated assistant text as it becomes visible/decodable. */
+  onPartialText?: (text: string) => void;
 }
 
 export interface ChatGptWebBrowserTurnRequest {
@@ -104,6 +106,8 @@ export interface ChatGptWebBrowserTurnRequest {
   attachments?: ChatGptWebResolvedAttachment[];
   timeoutMs?: number;
   signal?: AbortSignal | null;
+  /** Full accumulated assistant text as it becomes visible/decodable. */
+  onPartialText?: (text: string) => void;
 }
 
 export interface ChatGptWebBrowserTurnResult {
@@ -182,6 +186,23 @@ function snapshotMessageRole(snapshot: unknown): string | null {
   if (!isRecord(snapshot) || !isRecord(snapshot.message)) return null;
   const author = isRecord(snapshot.message.author) ? snapshot.message.author : null;
   return typeof author?.role === "string" ? author.role : null;
+}
+
+function assistantTextFromSnapshot(snapshot: unknown): string | null {
+  if (!isRecord(snapshot) || !isRecord(snapshot.message)) return null;
+  const message = snapshot.message;
+  const author = isRecord(message.author) ? message.author : null;
+  const content = isRecord(message.content) ? message.content : null;
+  const parts = Array.isArray(content?.parts) ? content.parts : [];
+  if (
+    author?.role !== "assistant" ||
+    content?.content_type !== "text" ||
+    !parts.every((part) => typeof part === "string")
+  ) {
+    return null;
+  }
+  const text = (parts as string[]).join("");
+  return text ? text : null;
 }
 
 function terminalResult(
@@ -267,11 +288,13 @@ class ChatGptWebBrowserTurnRunner {
   private readonly resultPromise: Promise<ChatGptWebBrowserTurnResult>;
   private resolveResult: (result: ChatGptWebBrowserTurnResult) => void = () => {};
   private rejectResult: (error: Error) => void = () => {};
+  private lastPartialText = "";
 
   constructor(
     private readonly session: ChatGptWebBrowserSession,
     private readonly prompt: string,
-    private readonly attachments: ChatGptWebResolvedAttachment[]
+    private readonly attachments: ChatGptWebResolvedAttachment[],
+    private readonly onPartialText?: (text: string) => void
   ) {
     this.resultPromise = new Promise((resolve, reject) => {
       this.resolveResult = resolve;
@@ -279,6 +302,20 @@ class ChatGptWebBrowserTurnRunner {
     });
     // Browser events can finish while Playwright is still resolving submission.
     void this.resultPromise.catch(() => {});
+  }
+
+  private emitPartial(text: string | null | undefined): void {
+    if (!this.onPartialText || typeof text !== "string" || !text) return;
+    if (text === this.lastPartialText) return;
+    // ChatGPT's document stream is normally append-only. Ignore shorter snapshots
+    // caused by transient rerenders so clients never receive a backwards delta.
+    if (this.lastPartialText && !text.startsWith(this.lastPartialText)) return;
+    this.lastPartialText = text;
+    try {
+      this.onPartialText(text);
+    } catch {
+      // A telemetry/stream consumer callback must never break the browser turn.
+    }
   }
 
   private fail(error: Error): void {
@@ -345,8 +382,10 @@ class ChatGptWebBrowserTurnRunner {
       const frame = this.topicStream.ingestFrame(frameText);
       for (const encodedItem of frame.encodedItems) {
         if (!this.decoder.ingest(encodedItem).changed) continue;
+        const snapshot = this.decoder.snapshot();
+        this.emitPartial(assistantTextFromSnapshot(snapshot));
         this.latestTerminalAssistant =
-          maybeTerminalResult(this.decoder.snapshot(), this.conversationId, this.turnExchangeId) ??
+          maybeTerminalResult(snapshot, this.conversationId, this.turnExchangeId) ??
           this.latestTerminalAssistant;
       }
       if (frame.done) this.finishFrame();
@@ -410,12 +449,15 @@ class ChatGptWebBrowserTurnRunner {
         prompt: this.prompt,
         attachments: this.attachments,
         signal: this.turnController.signal,
+        onPartialText: (text) => this.emitPartial(text),
       })
       .then((directResponse) => {
         if (this.settled) return;
         if (typeof directResponse === "string") {
+          const result = parseChatGptWebDirectConversation(directResponse);
+          this.emitPartial(result.text);
           this.settled = true;
-          this.resolveResult(parseChatGptWebDirectConversation(directResponse));
+          this.resolveResult(result);
           return;
         }
         this.completeFromRenderedAssistant();
@@ -492,7 +534,12 @@ export async function runChatGptWebBrowserTurn(
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new Error("ChatGPT Web browser turn requires a positive timeout");
   }
-  const runner = new ChatGptWebBrowserTurnRunner(session, prompt, request.attachments ?? []);
+  const runner = new ChatGptWebBrowserTurnRunner(
+    session,
+    prompt,
+    request.attachments ?? [],
+    request.onPartialText
+  );
   return runner.run(timeoutMs, request.signal);
 }
 
@@ -699,12 +746,22 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
 
   private async waitForRenderedAssistant(
     minimumCount: number,
-    timeoutMs: number
+    timeoutMs: number,
+    onPartialText?: (text: string) => void
   ): Promise<string | null> {
     const deadline = Date.now() + timeoutMs;
+    let lastText = "";
     while (Date.now() < deadline) {
       const snapshot = await this.renderedAssistantSnapshot(minimumCount);
       const text = snapshot.text ? stripChatGptWebUiChrome(snapshot.text) : "";
+      if (text && text !== lastText) {
+        if (!lastText || text.startsWith(lastText)) {
+          lastText = text;
+          try {
+            onPartialText?.(text);
+          } catch {}
+        }
+      }
       if (text && !snapshot.active) return text;
       await this.page.waitForTimeout(200);
     }
@@ -824,7 +881,11 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
       await composer.press("Enter");
     }
 
-    const text = await this.waitForRenderedAssistant(initialAssistantCount, 90_000);
+    const text = await this.waitForRenderedAssistant(
+      initialAssistantCount,
+      90_000,
+      request.onPartialText
+    );
     if (!text) throw new Error("ChatGPT Web composer returned no rendered assistant response");
     this.lastRenderedAssistantText = text;
   }
