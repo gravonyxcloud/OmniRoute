@@ -986,10 +986,19 @@ async function handleComboChatInner({
   // We snapshot them now so cleanup can happen after the attempt loop finishes.
   const _registeredExecutionKeys = orderedTargets.map((t) => t.executionKey).filter(Boolean);
 
-  const comboCooldownWaitEnabled = isComboCooldownWaitEligible(
-    strategy,
-    resilienceSettings.comboCooldownWait
-  );
+  const isNvidiaSingletonCombo =
+    orderedTargets.length === 1 &&
+    String(orderedTargets[0]?.provider || "").toLowerCase() === "nvidia";
+  const comboCooldownWaitEnabled =
+    !isNvidiaSingletonCombo &&
+    isComboCooldownWaitEligible(strategy, resilienceSettings.comboCooldownWait);
+
+  if (isNvidiaSingletonCombo && resilienceSettings.comboCooldownWait.enabled) {
+    log.debug(
+      "COMBO",
+      "NVIDIA singleton fast path: skipping combo-level cooldown waits; provider RPM/concurrency gates remain active"
+    );
+  }
   const comboCooldownAttempt = { current: 0 };
   const comboCooldownBudgetLeftMs = { current: resilienceSettings.comboCooldownWait.budgetMs };
   const comboTimeoutMs = config.comboTimeoutMs || 0;
