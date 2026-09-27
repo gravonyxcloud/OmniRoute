@@ -686,13 +686,20 @@ async function createDefaultSession(
     headless: shouldUseHeadlessChatGptWebBrowser(),
     executablePath: input.chromeExecutablePath,
   });
-  const page =
-    pooled.warmupPage && !pooled.warmupPage.isClosed() ? pooled.warmupPage : await openPage(pooled);
-  if (pooled.warmupPage !== page) pooled.warmupPage = page;
+  // Never run customer turns on the shared warmup page.
+  //
+  // The BrowserContext is intentionally pooled so the authenticated ChatGPT cookies
+  // and first-party session remain warm. The Page is NOT pooled: a page owns DOM,
+  // composer state, rendered assistant turns, temporary-chat navigation, and request
+  // listeners. Reusing one page across n8n / Claude Code / Codex requests lets
+  // concurrent calls overwrite each other's composer and can return another request's
+  // rendered assistant text. Give every API request its own short-lived page while
+  // keeping the expensive authenticated context shared.
+  const page = await openPage(pooled);
   return new PlaywrightChatGptWebBrowserSession(page, {
     pageUrl: CHATGPT_WEB_PAGE_URL,
     selection: input.selection,
-    closePageOnCleanup: false,
+    closePageOnCleanup: true,
   });
 }
 
