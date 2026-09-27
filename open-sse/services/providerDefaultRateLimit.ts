@@ -7,8 +7,10 @@
  * declare a default here and a sliding window (burst-free, unlike Bottleneck's
  * fixed-window reservoir which refills in one burst every interval) enforces it
  * proactively. `nvidia` is the first (and currently only) real entry — NVIDIA NIM's
- * free tier is documented as "~40 RPM" and exposes no rate-limit headers or usage
- * API (#6846 Phase 1). Every other provider still gets zero behavior change; the
+ * free tier is documented as "up to 40 RPM" and exposes no rate-limit headers or
+ * usage API (#6846 Phase 1). We intentionally run below the advertised ceiling
+ * (36 RPM) to absorb retries, clock jitter, and concurrent public API clients.
+ * Every other provider still gets zero behavior change; the
  * whole path is a no-op unless an entry (or a resolved override, see below) exists.
  *
  * Composed into the rolling lease gate in `withRateLimit` (rateLimitManager.ts).
@@ -25,14 +27,17 @@ import {
 // Opt-in per-provider caps. Example shape (commented — add real entries as needed):
 //   "some-headerless-provider": { requests: 60, windowMs: 60_000 },
 const PROVIDER_DEFAULT_RATE_LIMITS: Record<string, RateLimitWindow> = {
-  nvidia: { requests: 40, windowMs: 60_000 },
+  // 10% safety headroom below NVIDIA's "up to 40 RPM" ceiling.
+  nvidia: { requests: 36, windowMs: 60_000 },
 };
 
 /** #6846 Phase 1: default per-connection concurrency cap for providers whose static
  * budget is enforced via `open-sse/services/rateLimitSemaphore.ts` (nvidia only,
- * today). Mid-point of the issue's suggested 4-8 range. */
+ * today). Keep NVIDIA conservative for a public multi-client gateway: requests
+ * are paced separately by rateLimitManager, while this cap prevents long-running
+ * streams from piling up on the same credential. */
 export const PROVIDER_DEFAULT_CONCURRENCY_CAP: Record<string, number> = {
-  nvidia: 6,
+  nvidia: 3,
 };
 
 let providerDefaultOverrides: Record<string, RateLimitWindow> | null = null;
