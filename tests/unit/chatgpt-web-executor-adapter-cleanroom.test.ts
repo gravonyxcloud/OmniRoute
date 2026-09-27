@@ -315,6 +315,9 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     });
 
     assert.match(prepared.prompt, /<omniroute_control>/);
+    assert.match(prepared.prompt, /API BACKEND ISOLATION/);
+    assert.match(prepared.prompt, /Desktop Commander/);
+    assert.match(prepared.prompt, /Only tools explicitly listed/);
     assert.match(prepared.prompt, /Public model identity: "claude-opus-5-5"/);
     assert.match(
       prepared.prompt,
@@ -346,7 +349,8 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
       ],
     });
 
-    assert.equal(prepared.prompt, "Inspect both attachments.");
+    assert.match(prepared.prompt, /API BACKEND ISOLATION/);
+    assert.match(prepared.prompt, /Inspect both attachments\./);
     assert.deepEqual(
       prepared.attachments.map(({ kind, name }) => ({ kind, name })),
       [
@@ -434,6 +438,17 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
       ),
       /invalid or blocked/
     );
+  });
+
+  test("substantive one-turn API requests isolate host ChatGPT capabilities", () => {
+    const prepared = prepareChatGptWebBrowserRequest("gpt-5-6", {
+      messages: [{ role: "user", content: "Crie uma landing page no projeto local." }],
+    });
+
+    assert.match(prepared.prompt, /API BACKEND ISOLATION/);
+    assert.match(prepared.prompt, /Remote Desktop Commander/);
+    assert.match(prepared.prompt, /Treat every other host capability as nonexistent/);
+    assert.match(prepared.prompt, /Crie uma landing page no projeto local\./);
   });
 
   test("rejects unknown models, invalid tools, and unsupported content", () => {
