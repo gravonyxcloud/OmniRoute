@@ -45,13 +45,17 @@ const CHATGPT_WEB_PROMPT_CHAR_BUDGET = 48_000;
 const CHATGPT_WEB_TRUNCATION_MARKER =
   "\n\n[Older context omitted by OmniRoute browser transport]\n\n";
 
-// Combo-facing TTFT guard. The browser turn itself may legitimately continue for much
-// longer, but a provider that has not produced *any* assistant text within this window
-// should fail over rather than making Claude Code wait 1-3 minutes. Override with
-// CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS when an installation needs a different budget.
-const DEFAULT_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS = 20_000;
-const MIN_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS = 3_000;
-const MAX_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS = 60_000;
+// Combo-facing TTFT guard. A single fixed 20s gate was too aggressive for browser-backed
+// Thinking/Pro turns and produced false 504s even while ChatGPT was still processing.
+// Use a model-aware base plus a small prompt-size allowance. Genuine browser/page errors
+// still reject immediately, so this only extends healthy in-flight turns.
+// Operators can override the computed budget with CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS.
+const CHATGPT_WEB_FIRST_CONTENT_INSTANT_MS = 40_000;
+const CHATGPT_WEB_FIRST_CONTENT_THINKING_MS = 55_000;
+const CHATGPT_WEB_FIRST_CONTENT_PRO_MS = 75_000;
+const CHATGPT_WEB_FIRST_CONTENT_PROMPT_ALLOWANCE_MAX_MS = 15_000;
+const MIN_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS = 5_000;
+const MAX_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS = 90_000;
 
 const FIRST_PARTY_COOKIE_HOSTS = ["chatgpt.com", "openai.com"] as const;
 
@@ -729,15 +733,36 @@ async function createDefaultSession(
   });
 }
 
-function resolveChatGptWebFirstContentTimeoutMs(
+export function resolveChatGptWebFirstContentTimeoutMs(
+  model: string,
+  prompt: string,
   env: NodeJS.ProcessEnv = process.env
 ): number {
   const raw = Number(env.CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS);
-  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS;
-  return Math.min(
-    Math.max(Math.floor(raw), MIN_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS),
-    MAX_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(
+      Math.max(Math.floor(raw), MIN_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS),
+      MAX_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS
+    );
+  }
+
+  const normalizedModel = String(model || "").toLowerCase();
+  const baseMs = normalizedModel.includes("pro")
+    ? CHATGPT_WEB_FIRST_CONTENT_PRO_MS
+    : normalizedModel.includes("thinking") || normalizedModel.includes("reasoning")
+      ? CHATGPT_WEB_FIRST_CONTENT_THINKING_MS
+      : CHATGPT_WEB_FIRST_CONTENT_INSTANT_MS;
+
+  // Browser composer + first-party processing cost rises with a larger coding-agent
+  // prompt. Add at most 15s so large legitimate turns do not false-timeout, while
+  // trivial greetings retain the fast base deadline.
+  const promptChars = typeof prompt === "string" ? prompt.length : 0;
+  const promptAllowanceMs = Math.min(
+    CHATGPT_WEB_FIRST_CONTENT_PROMPT_ALLOWANCE_MAX_MS,
+    Math.ceil(promptChars / 4_000) * 1_000
   );
+
+  return Math.min(baseMs + promptAllowanceMs, MAX_CHATGPT_WEB_FIRST_CONTENT_TIMEOUT_MS);
 }
 
 function chatGptWebUsage(prompt: string | undefined, completion: string | undefined) {
@@ -1067,7 +1092,7 @@ export async function executeChatGptWebCleanRoom(
     Number.isFinite(configuredFirstContentTimeoutMs) &&
     configuredFirstContentTimeoutMs > 0
       ? Math.floor(configuredFirstContentTimeoutMs)
-      : resolveChatGptWebFirstContentTimeoutMs();
+      : resolveChatGptWebFirstContentTimeoutMs(input.model, prepared.prompt);
   let firstContentTimer: ReturnType<typeof setTimeout> | null = null;
   const firstContentTimeout = new Promise<never>((_, reject) => {
     firstContentTimer = setTimeout(() => {
