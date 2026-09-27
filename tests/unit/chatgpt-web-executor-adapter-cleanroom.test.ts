@@ -574,10 +574,12 @@ describe("ChatGPT Web per-request browser isolation", () => {
       },
     } as unknown as import("playwright").Page;
 
+    let freshPageUrl = "about:blank";
     const freshPage = {
-      url: () => "about:blank",
-      goto: async () => {
+      url: () => freshPageUrl,
+      goto: async (url: string) => {
         freshGotoCalls += 1;
+        freshPageUrl = url;
         return null;
       },
       close: async () => {
