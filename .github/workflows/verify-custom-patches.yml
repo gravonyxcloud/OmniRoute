@@ -9,6 +9,11 @@ on:
       - open-sse/services/identityMasking.ts
       - open-sse/services/combo/comboErrorAggregation.ts
       - open-sse/handlers/chatCore.ts
+      - open-sse/executors/opencodeGeoBlock.ts
+      - open-sse/services/opencodeFreeTierSkip.ts
+      - open-sse/services/combo/comboPredicates.ts
+      - open-sse/services/autoCombo/resilienceCandidateFilter.ts
+      - src/sse/services/auth.ts
       - src/app/api/v1/models/catalog.ts
       - tests/unit/chatgpt-web-executor-adapter-cleanroom.test.ts
       - tests/unit/identity-masking.test.ts
@@ -16,6 +21,8 @@ on:
       - tests/unit/api-key-catalog-scope.test.ts
       - tests/unit/models-catalog-combo-access.test.ts
       - tests/unit/response-model-echo-1311.test.ts
+      - tests/unit/opencode-free-tier-combo-scoped-failure-14313.test.ts
+      - tests/unit/opencode-free-tier-noauth-ttl-skip-14313.test.ts
       - .github/workflows/verify-custom-patches.yml
   workflow_dispatch:
 
@@ -54,7 +61,9 @@ jobs:
             tests/unit/combo-error-aggregation.test.ts \
             tests/unit/api-key-catalog-scope.test.ts \
             tests/unit/models-catalog-combo-access.test.ts \
-            tests/unit/response-model-echo-1311.test.ts
+            tests/unit/response-model-echo-1311.test.ts \
+            tests/unit/opencode-free-tier-combo-scoped-failure-14313.test.ts \
+            tests/unit/opencode-free-tier-noauth-ttl-skip-14313.test.ts
 
       - name: Typecheck touched runtime files
         run: npm run typecheck:core
