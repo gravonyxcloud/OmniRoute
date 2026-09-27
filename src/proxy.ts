@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { runAuthzPipeline } from "./server/authz/pipeline";
 
 // #10627: the proxy runs in its own Next.js runtime and never executes
@@ -20,7 +20,82 @@ void import("./lib/db/readCache")
     );
   });
 
+function normalizedRequestHost(request: NextRequest): string {
+  const raw = request.headers.get("host") || request.nextUrl.host || "";
+  const first = raw.split(",")[0]?.trim().toLowerCase() || "";
+  if (!first) return "";
+  // URL() handles IPv6 brackets and strips the port safely.
+  try {
+    return new URL(`http://${first}`).hostname.replace(/\.$/, "");
+  } catch {
+    return first.replace(/^\[/, "").replace(/\](:\d+)?$/, "").replace(/:\d+$/, "").replace(/\.$/, "");
+  }
+}
+
+export function configuredApiOnlyHosts(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  return new Set(
+    String(env.OMNIROUTE_API_ONLY_HOSTS || "")
+      .split(/[\s,]+/)
+      .map((host) => host.trim().toLowerCase().replace(/\.$/, ""))
+      .filter(Boolean)
+  );
+}
+
+export function isApiOnlyAllowedPath(pathname: string): boolean {
+  const lower = pathname.toLowerCase();
+  return lower === "/v1" || lower.startsWith("/v1/");
+}
+
+function shouldRunLegacyAuthz(pathname: string): boolean {
+  const lower = pathname.toLowerCase();
+  return (
+    pathname === "/" ||
+    lower === "/dashboard" ||
+    lower.startsWith("/dashboard/") ||
+    lower === "/home" ||
+    lower.startsWith("/home/") ||
+    lower === "/api" ||
+    lower.startsWith("/api/") ||
+    lower === "/v1" ||
+    lower.startsWith("/v1/") ||
+    lower === "/v1beta" ||
+    lower.startsWith("/v1beta/") ||
+    lower === "/chat" ||
+    lower.startsWith("/chat/") ||
+    lower === "/responses" ||
+    lower.startsWith("/responses/") ||
+    lower === "/codex" ||
+    lower.startsWith("/codex/") ||
+    lower === "/models"
+  );
+}
+
+function apiOnlyNotFound(): NextResponse {
+  return new NextResponse(null, {
+    status: 404,
+    headers: {
+      "Cache-Control": "no-store",
+      "X-Robots-Tag": "noindex, nofollow, noarchive",
+    },
+  });
+}
+
 export async function proxy(request: NextRequest) {
+  const apiOnlyHosts = configuredApiOnlyHosts();
+  const host = normalizedRequestHost(request);
+
+  if (host && apiOnlyHosts.has(host)) {
+    // Dedicated public API hostname: expose exactly /v1 and /v1/*.
+    // Dashboard, login, management APIs, docs, root redirects and client aliases
+    // intentionally look nonexistent. The EasyPanel/internal hostname remains
+    // unaffected and can still serve the full dashboard.
+    if (!isApiOnlyAllowedPath(request.nextUrl.pathname)) return apiOnlyNotFound();
+    return runAuthzPipeline(request, { enforce: true });
+  }
+
+  // The catch-all matcher below exists only so API-only hosts can hide every
+  // non-/v1 route. Preserve the historical authz surface for all other hosts.
+  if (!shouldRunLegacyAuthz(request.nextUrl.pathname)) return NextResponse.next();
   return runAuthzPipeline(request, { enforce: true });
 }
 
@@ -34,6 +109,9 @@ export async function proxy(request: NextRequest) {
 // next.config.mjs rewrites and src/server/authz/classify.ts.
 export const config = {
   matcher: [
+    // Catch-all is required for OMNIROUTE_API_ONLY_HOSTS: otherwise paths such
+    // as /login or /docs would bypass this proxy and remain visible.
+    "/:path*",
     "/",
     "/dashboard/:path*",
     "/home",
