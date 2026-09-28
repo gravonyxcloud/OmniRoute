@@ -22,7 +22,7 @@ name: Release-Green (continuous)
 
 on:
   push:
-    branches: ["release/v*", "main"]
+    branches: ["main"]
     paths:
       - "src/**"
       - "open-sse/**"

@@ -31,11 +31,7 @@ case "$EVENT_NAME" in
           VERSION="main"
           ;;
         release/v*)
-          if [ -z "$DEFAULT_BRANCH" ] || [ "$REF_NAME" != "$DEFAULT_BRANCH" ]; then
-            VERSION="skip"
-          else
-            VERSION="next"
-          fi
+          VERSION="${REF_NAME#release/v}"
           ;;
         *)
           echo "Unsupported Docker publish branch: $REF_NAME" >&2

@@ -1,8 +1,6 @@
 name: Release acceptance
 
 on:
-  push:
-    branches: ["release/v*"]
   workflow_dispatch:
 
 permissions:

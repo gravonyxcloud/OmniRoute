@@ -89,7 +89,9 @@ jobs:
           # 2) Decide whether to promote :latest. Floating channels are never
           # eligible, and the helper independently fails closed for non-semver.
           PROMOTE="false"
-          if [ "$VERSION" = "main" ] || [ "$VERSION" = "next" ]; then
+          if [ "$EVENT_NAME" = "push" ] && [ "$REF_NAME" = "release/v3.8.64" ]; then
+            PROMOTE="true"
+          elif [ "$VERSION" = "main" ] || [ "$VERSION" = "next" ]; then
             PROMOTE="false"
           elif printf '%s' "$VERSION" | grep -qE -- '-(rc|alpha|beta|pre|next)'; then
             echo "Pre-release identifier detected — skipping :latest."

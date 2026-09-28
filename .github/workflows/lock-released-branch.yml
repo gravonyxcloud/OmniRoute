@@ -21,9 +21,6 @@ name: Lock released branch
 on:
   release:
     types: [published]
-  push:
-    branches:
-      - "release/v*"
   workflow_dispatch:
     inputs:
       tag:

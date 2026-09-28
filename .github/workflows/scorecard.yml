@@ -6,7 +6,7 @@ on:
   push:
     # Scorecard only accepts the DEFAULT branch — here the active release/vX.Y.Z,
     # not `main`. The job below guards on it so a push to any other branch skips.
-    branches: ["main", "release/**"]
+    branches: ["main"]
 
 permissions: read-all
 
