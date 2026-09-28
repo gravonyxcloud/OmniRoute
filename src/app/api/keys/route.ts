@@ -11,6 +11,7 @@ import { syncToCloud } from "@/lib/cloudSync";
 import { createKeySchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { isApiKeyRevealEnabled, maskStoredApiKey } from "@/lib/apiKeyExposure";
+import { listTokenLimits } from "@/lib/db/tokenLimits";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { normalizeSelfServiceScopesForCreate } from "@/shared/constants/selfServiceScopes";
 import * as log from "@/sse/utils/logger";
@@ -83,6 +84,10 @@ export async function POST(request) {
       weeklyUsageLimitUsd,
       chaosModeEnabled,
       expiresAt,
+      catalogScope,
+      customerEmail,
+      planId,
+      tokensPerHourLimit,
     } = validation.data;
 
     // Always get machineId from server
@@ -94,6 +99,10 @@ export async function POST(request) {
       allowedCombos,
       allowedConnections,
       expiresAt,
+      catalogScope,
+      customerEmail,
+      planId,
+      tokensPerHourLimit,
     });
     if (
       noLog === true ||
@@ -123,6 +132,12 @@ export async function POST(request) {
     // this is safe to leave unawaited.
     void syncKeysToCloudIfEnabled();
 
+    const globalHourlyLimit = apiKey.planId
+      ? listTokenLimits(apiKey.id).find(
+          (l) => l.scopeType === "global" && l.resetInterval === "hourly"
+        )
+      : undefined;
+
     return NextResponse.json(
       {
         key: apiKey.key,
@@ -139,7 +154,14 @@ export async function POST(request) {
         dailyUsageLimitUsd: dailyUsageLimitUsd ?? null,
         weeklyUsageLimitUsd: weeklyUsageLimitUsd ?? null,
         chaosModeEnabled: chaosModeEnabled === true,
-        expiresAt: expiresAt ?? null,
+        expiresAt: apiKey.expiresAt ?? null,
+        catalogScope: apiKey.catalogScope,
+        customerEmail: apiKey.customerEmail ?? null,
+        planId: apiKey.planId ?? null,
+        planDays: apiKey.planDays ?? null,
+        planStartedAt: apiKey.planStartedAt ?? null,
+        renewalsCount: apiKey.renewalsCount,
+        tokensPerHourLimit: globalHourlyLimit?.tokenLimit ?? null,
         streamDefaultMode: "legacy",
         compressionEnabled: true,
         cacheDefaultMode: "legacy",
