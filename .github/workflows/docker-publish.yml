@@ -116,7 +116,9 @@ jobs:
           # 3) Skip immutable version tags that already exist. Floating `main`
           # and `next` channels are intentionally rebuilt on every matching push.
           SKIP="false"
-          if [ "$VERSION" != "main" ] && [ "$VERSION" != "next" ]; then
+          if [ "$EVENT_NAME" = "push" ] && [ "$REF_NAME" = "release/v3.8.64" ]; then
+            echo "Stable fork rebuild requested for $REF_NAME — rebuilding even if tag $VERSION already exists."
+          elif [ "$VERSION" != "main" ] && [ "$VERSION" != "next" ]; then
             if docker manifest inspect "gabrielsilva543/omniroute:${VERSION}" >/dev/null 2>&1; then
               echo "Image gabrielsilva543/omniroute:${VERSION} already exists on Docker Hub — skipping rebuild."
               SKIP="true"
