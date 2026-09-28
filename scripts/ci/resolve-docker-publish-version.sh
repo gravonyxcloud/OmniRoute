@@ -8,7 +8,7 @@
 # - workflow_dispatch: requested version without a leading v
 # - push tag: tag without a leading v
 # - push main: main
-# - push to the current default release/v* branch: next
+# - push to release/v*: versioned Docker tag from the branch name
 # - release: release tag without a leading v
 set -euo pipefail
 
