@@ -1,4 +1,4 @@
-﻿name: Publish to Docker Hub
+name: Publish to Docker Hub
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
       - ".github/workflows/**"
   # Use 'released' instead of 'published' so editing/re-publishing old releases
   # does NOT re-trigger this workflow. 'released' fires only on the initial
-  # release publication (and pre-release â†’ release transition).
+  # release publication (and pre-release → release transition).
   release:
     types: [released]
   workflow_dispatch:
@@ -92,7 +92,7 @@ jobs:
           if [ "$VERSION" = "main" ] || [ "$VERSION" = "next" ]; then
             PROMOTE="false"
           elif printf '%s' "$VERSION" | grep -qE -- '-(rc|alpha|beta|pre|next)'; then
-            echo "Pre-release identifier detected â€” skipping :latest."
+            echo "Pre-release identifier detected — skipping :latest."
             PROMOTE="false"
           elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             PROMOTE="${PROMOTE_INPUT:-false}"
@@ -114,7 +114,7 @@ jobs:
           SKIP="false"
           if [ "$VERSION" != "main" ] && [ "$VERSION" != "next" ]; then
             if docker manifest inspect "gabrielsilva543/omniroute:${VERSION}" >/dev/null 2>&1; then
-              echo "Image gabrielsilva543/omniroute:${VERSION} already exists on Docker Hub â€” skipping rebuild."
+              echo "Image gabrielsilva543/omniroute:${VERSION} already exists on Docker Hub — skipping rebuild."
               SKIP="true"
             fi
           fi
@@ -128,7 +128,7 @@ jobs:
     if: needs.prepare.outputs.skip != 'true'
     # amd64: the .113 omni-build pool (31 GB / 32 cores, ONE listener since
     # #12048). Hosted ubuntu-24.04 is ~7 GB and dies ResourceExhausted (#11976).
-    # Falls back to hosted when USE_VPS_RUNNER is off. arm64: no ARM box â€” stay
+    # Falls back to hosted when USE_VPS_RUNNER is off. arm64: no ARM box — stay
     # on GitHub's ubuntu-24.04-arm.
     # Webpack on BOTH arches: Turbopack on omniroute-113-6 hit
     # TurbopackInternalError "there must be a path to a root" after 26 min
@@ -138,7 +138,7 @@ jobs:
     runs-on: ${{ matrix.arch == 'amd64' && (vars.USE_VPS_RUNNER == 'true' && fromJSON('["self-hosted","omni-build"]') || 'ubuntu-24.04') || 'ubuntu-24.04-arm' }}
     # Share the 1-slot omni-build ceiling (#12048) with ci.yml `Build` /
     # npm-publish. Same group as main's Build so a :next publish waits beside
-    # the artefact instead of sitting next to it. arm64 is hosted â€” its own
+    # the artefact instead of sitting next to it. arm64 is hosted — its own
     # group, cancelled by the workflow-level concurrency.
     concurrency:
       group: ${{ matrix.arch == 'amd64' && 'heavy-build-main' || format('docker-publish-arm-{0}', github.ref) }}
@@ -156,7 +156,7 @@ jobs:
             arch: arm64
     env:
       IMAGE_NAME: gabrielsilva543/omniroute
-      GHCR_IMAGE_NAME: ghcr.io/gabrielsilva543/omniroute
+      GHCR_IMAGE_NAME: ghcr.io/gravonyxcloud/omniroute
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -230,7 +230,7 @@ jobs:
         # (AGENTS.md -> Environment). Its `bun run build` has been OOM-killing on
         # both arches; letting that sink the whole publish means the SUPPORTED
         # runner-base / runner-web images never reach the registry either. The
-        # image is still built and pushed whenever it succeeds â€” only its power to
+        # image is still built and pushed whenever it succeeds — only its power to
         # block the release is removed.
         continue-on-error: true
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
@@ -258,7 +258,7 @@ jobs:
         # (AGENTS.md -> Environment). Its `bun run build` has been OOM-killing on
         # both arches; letting that sink the whole publish means the SUPPORTED
         # runner-base / runner-web images never reach the registry either. The
-        # image is still built and pushed whenever it succeeds â€” only its power to
+        # image is still built and pushed whenever it succeeds — only its power to
         # block the release is removed.
         continue-on-error: true
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
@@ -323,7 +323,7 @@ jobs:
           name: digests-bun-base-${{ matrix.arch }}
           path: /tmp/digests/bun-base/*
           # `ignore`, not `error`: the bun build is non-blocking, so an absent
-          # digest is the expected outcome of a failed/skipped bun image â€” the
+          # digest is the expected outcome of a failed/skipped bun image — the
           # manifest step already treats these tags as optional. Leaving `error`
           # here just relocates the blocker from the manifest to the upload.
           if-no-files-found: ignore
@@ -335,7 +335,7 @@ jobs:
           name: digests-bun-web-${{ matrix.arch }}
           path: /tmp/digests/bun-web/*
           # `ignore`, not `error`: the bun build is non-blocking, so an absent
-          # digest is the expected outcome of a failed/skipped bun image â€” the
+          # digest is the expected outcome of a failed/skipped bun image — the
           # manifest step already treats these tags as optional. Leaving `error`
           # here just relocates the blocker from the manifest to the upload.
           if-no-files-found: ignore
@@ -354,7 +354,7 @@ jobs:
       security-events: write
     env:
       IMAGE_NAME: gabrielsilva543/omniroute
-      GHCR_IMAGE_NAME: ghcr.io/gabrielsilva543/omniroute
+      GHCR_IMAGE_NAME: ghcr.io/gravonyxcloud/omniroute
       VERSION: ${{ needs.prepare.outputs.version }}
       PROMOTE_LATEST: ${{ needs.prepare.outputs.promote_latest }}
     steps:
@@ -427,7 +427,7 @@ jobs:
             done < <(find "$dir" -type f | sort)
             if [ "${#refs[@]}" -eq 0 ]; then
               if [ -n "$optional" ]; then
-                echo "::warning::No image digests in $dir â€” skipping optional tag ${image}:${VERSION}${suffix}" >&2
+                echo "::warning::No image digests in $dir — skipping optional tag ${image}:${VERSION}${suffix}" >&2
                 return 0
               fi
               echo "No image digests in $dir" >&2
@@ -453,7 +453,7 @@ jobs:
             done < <(find "$dir" -type f | sort)
             if [ "${#refs[@]}" -eq 0 ]; then
               if [ -n "$optional" ]; then
-                echo "::warning::No image digests in $dir â€” skipping optional tag ${image}:${VERSION}${suffix}" >&2
+                echo "::warning::No image digests in $dir — skipping optional tag ${image}:${VERSION}${suffix}" >&2
                 return 0
               fi
               echo "No image digests in $dir" >&2
@@ -539,7 +539,7 @@ jobs:
       # never blocks (exit-code 0). The blocking gate below narrows to CRITICAL.
       #
       # ignore-unfixed mirrors the blocking gate: the Security tab must surface only
-      # ACTIONABLE vulnerabilities â€” ones with a published fix we can pull by rebuilding
+      # ACTIONABLE vulnerabilities — ones with a published fix we can pull by rebuilding
       # on a patched base or bumping the dep. Without it the advisory upload floods the
       # tab with unfixable base-image OS CVEs (Debian trixie packages with no upstream
       # patch yet, overwhelmingly local-only and not reachable from the proxy request
@@ -564,7 +564,7 @@ jobs:
       # SARIF step above, not blocking). ignore-unfixed:true so an unfixable base-image
       # CVE with no upstream patch does not red the release (reduces false-blocks);
       # a fixable CRITICAL still blocks. Per docs/security/SUPPLY_CHAIN.md. NB: Trivy
-      # scans against a CVE DB that grows continuously â€” a newly-disclosed CRITICAL on
+      # scans against a CVE DB that grows continuously — a newly-disclosed CRITICAL on
       # an unchanged base image can red this gate; the fix is to rebuild on a patched
       # base, bump the dep, or add a justified .trivyignore entry (see the CVE-variance
       # note in docs/security/SUPPLY_CHAIN.md).
@@ -598,6 +598,5 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: gabrielsilva543/omniroute
-          short-description: "OmniRoute â€” Unified AI proxy. Route any LLM through one endpoint."
+          short-description: "OmniRoute — Unified AI proxy. Route any LLM through one endpoint."
           readme-filepath: ./README.md
-
