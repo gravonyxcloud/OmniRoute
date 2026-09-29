@@ -12,6 +12,15 @@ import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { extractUsageFromResponse } from "../usageExtractor.ts";
 import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
 import { getSemanticCacheManager } from "../../services/cache/semanticCacheManager.ts";
+import type { ClientRoutingIdentity } from "./clientRoutingIdentity.ts";
+
+function rewriteClientModel(
+  response: Record<string, unknown>,
+  publicModel: string | null | undefined
+): Record<string, unknown> {
+  if (!publicModel || !("model" in response)) return response;
+  return { ...response, model: publicModel };
+}
 
 export async function checkSemanticCache({
   semanticCacheEnabled,
@@ -28,6 +37,7 @@ export async function checkSemanticCache({
   persistAttemptLogs,
   apiKeyId,
   cacheDefaultMode,
+  clientRoutingIdentity,
 }: {
   semanticCacheEnabled: boolean;
   // Only the fields this read path actually touches are named; everything else
@@ -45,6 +55,7 @@ export async function checkSemanticCache({
   persistAttemptLogs: (args: unknown) => void;
   apiKeyId?: string | null;
   cacheDefaultMode?: "legacy" | "bypass" | null;
+  clientRoutingIdentity?: ClientRoutingIdentity | null;
 }) {
   // Per-key bypass: skip cache lookup entirely when the API key opts out.
   if (cacheDefaultMode === "bypass") return null;
@@ -89,8 +100,12 @@ export async function checkSemanticCache({
     }
 
     if (cached) {
+      const clientCached =
+        clientRoutingIdentity?.masked === true
+          ? rewriteClientModel(cached, clientRoutingIdentity.model)
+          : cached;
       log?.debug?.("CACHE", `Semantic cache HIT (${hitType}) for ${model} (stream=${stream})`);
-      reqLogger.logConvertedResponse(cached);
+      reqLogger.logConvertedResponse(clientCached);
       const cachedUsage =
         extractUsageFromResponse(cached, provider) ||
         (cached?.usage as Record<string, unknown> | undefined);
@@ -105,7 +120,7 @@ export async function checkSemanticCache({
         responseBody: cached,
         providerRequest: null,
         providerResponse: null,
-        clientResponse: cached,
+        clientResponse: clientCached,
         // Both hit types are served without an upstream call; attemptLogging only
         // knows "semantic" | "upstream", so a similarity hit must not fall through
         // to "upstream" (#14159). The hit type is surfaced via the response headers.
@@ -117,13 +132,23 @@ export async function checkSemanticCache({
       finalizePendingScope(pendingScope, {
         status: 200,
         providerResponse: cached,
-        clientResponse: cached,
+        clientResponse: clientCached,
       });
 
+      const clientEntry =
+        managerResult.entry && clientRoutingIdentity?.masked === true
+          ? {
+              ...managerResult.entry,
+              response: clientCached,
+              streamChunks: managerResult.entry.streamChunks?.map((chunk) =>
+                rewriteClientModel(chunk, clientRoutingIdentity.model)
+              ),
+            }
+          : managerResult.entry;
       const cachedSse = stream
-        ? managerResult.entry
-          ? manager.synthesizeSseFromEntry(managerResult.entry)
-          : synthesizeOpenAiSseFromJson(JSON.stringify(cached))
+        ? clientEntry
+          ? manager.synthesizeSseFromEntry(clientEntry)
+          : synthesizeOpenAiSseFromJson(JSON.stringify(clientCached))
         : "";
 
       const tokensSaved = managerResult.entry
@@ -169,8 +194,9 @@ export async function checkSemanticCache({
       // the client is 0 (consumers that sum X-OmniRoute-Response-Cost must not charge for
       // hits). The original/would-have-been cost is surfaced via X-OmniRoute-Cost-Saved.
       attachOmniRouteMetaHeaders(headers, {
-        provider,
-        model,
+        provider: clientRoutingIdentity?.provider ?? provider,
+        model: clientRoutingIdentity?.model ?? model,
+        strategy: clientRoutingIdentity?.masked ? clientRoutingIdentity.strategy : undefined,
         cacheHit: true,
         latencyMs: Date.now() - startTime,
         usage: cachedUsage,
@@ -179,7 +205,7 @@ export async function checkSemanticCache({
       });
       return {
         success: true,
-        response: new Response(cachedSse || JSON.stringify(cached), {
+        response: new Response(cachedSse || JSON.stringify(clientCached), {
           headers,
         }),
       };

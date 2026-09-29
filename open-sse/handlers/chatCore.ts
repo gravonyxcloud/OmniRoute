@@ -132,6 +132,8 @@ import {
   injectSystemPromptPostTranslation,
   injectSystemPromptPreTranslation,
 } from "../services/systemPrompt.ts";
+import { injectResponseLanguageDirective } from "./chatCore/responseLanguage.ts";
+import { resolveClientRoutingIdentity } from "./chatCore/clientRoutingIdentity.ts";
 import {
   buildDirectIdentityMaskText,
   injectIdentityMask,
@@ -625,6 +627,14 @@ export async function handleChatCore({
       log?.debug?.("CUSTOMSP", "custom system prompt injected");
     }
   }
+  // Keep client-facing replies in the user's language regardless of which
+  // backend/provider a combo resolves to. The helper is idempotent so combo
+  // retries/re-entry cannot stack duplicate directives.
+  const languageAdjustedBody = injectResponseLanguageDirective(body);
+  if (languageAdjustedBody !== body) {
+    body = languageAdjustedBody;
+    log?.debug?.("LANGUAGE", "response language continuity directive injected");
+  }
   // ── Plugin onRequest hook ──
   // Dynamic import cached by Node.js after first call — minimal overhead
   const pluginGate = await runPluginOnRequestHook({
@@ -1041,6 +1051,17 @@ export async function handleChatCore({
   // Auto-echo the listing-valid form for bare requests to noAuth catalog
   // providers so clients validating response.model against /v1/models don't warn.
   echoModel = resolveNoAuthEchoModel(requestedModel, provider) ?? echoModel;
+  const clientRoutingIdentity = resolveClientRoutingIdentity({
+    provider,
+    model,
+    comboStrategy,
+    catalogScope: apiKeyInfo?.catalogScope,
+    requestedModel,
+    comboName,
+  });
+  if (clientRoutingIdentity.masked && clientRoutingIdentity.model) {
+    echoModel = clientRoutingIdentity.model;
+  }
   const detailedLoggingEnabled =
     !noLogEnabled &&
     (settings.call_log_pipeline_enabled === true ||
@@ -1294,6 +1315,7 @@ export async function handleChatCore({
     apiKeyId: apiKeyInfo?.id ?? undefined,
     cacheDefaultMode: (apiKeyInfo as { cacheDefaultMode?: "legacy" | "bypass" } | null)
       ?.cacheDefaultMode,
+    clientRoutingIdentity,
   });
   if (cacheHit) {
     return cacheHit;
@@ -5658,6 +5680,9 @@ export async function handleChatCore({
         compressionResponseMeta,
         comboStrategy,
         fallbackAttempts,
+        catalogScope: apiKeyInfo?.catalogScope,
+        requestedModel,
+        comboName,
       });
       // #6426: align response body `model` with the `X-OmniRoute-Model` header
       // (both must be the resolved backend model). Some upstreams (notably legacy
@@ -5847,6 +5872,9 @@ export async function handleChatCore({
     compressionResponseMeta,
     comboStrategy,
     fallbackAttempts,
+    catalogScope: apiKeyInfo?.catalogScope,
+    requestedModel,
+    comboName,
   });
 
   // The streaming headers (turn-state included, when present) are committed to

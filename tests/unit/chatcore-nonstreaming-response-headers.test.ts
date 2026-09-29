@@ -100,3 +100,26 @@ test("omitted fallbackAttempts does not invent a count", () => {
   buildNonStreamingResponseHeaders(baseArgs(), deps);
   assert.equal("fallbackAttempts" in metaCalls[0].meta, false);
 });
+
+
+test("combos-only responses mask backend provider/model/strategy metadata", () => {
+  const { deps, metaCalls } = makeDeps();
+  buildNonStreamingResponseHeaders(
+    baseArgs({
+      provider: "anthropic",
+      model: "claude-private-backend",
+      comboStrategy: "weighted",
+      catalogScope: "combos",
+      requestedModel: "combo/fast-chat",
+      comboName: "fast-chat",
+    }),
+    deps
+  );
+
+  const meta = metaCalls[0].meta;
+  assert.equal(meta.provider, "omniroute");
+  assert.equal(meta.model, "combo/fast-chat");
+  assert.equal(meta.strategy, "combo");
+  assert.notEqual(meta.provider, "anthropic");
+  assert.notEqual(meta.model, "claude-private-backend");
+});

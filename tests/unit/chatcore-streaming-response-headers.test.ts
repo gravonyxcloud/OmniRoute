@@ -78,3 +78,26 @@ test("omitted fallbackAttempts does not invent a count", () => {
   assembleStreamingResponseHeaders(baseArgs(), build);
   assert.equal("fallbackAttempts" in calls[0].meta, false);
 });
+
+
+test("combos-only streaming headers mask backend routing identity", () => {
+  const { build, calls } = makeBuild();
+  assembleStreamingResponseHeaders(
+    baseArgs({
+      provider: "nvidia",
+      model: "private/nemotron-backend",
+      comboStrategy: "priority",
+      catalogScope: "combos",
+      requestedModel: "combo/customer-chat",
+      comboName: "customer-chat",
+    }),
+    build
+  );
+
+  const meta = calls[0].meta;
+  assert.equal(meta.provider, "omniroute");
+  assert.equal(meta.model, "combo/customer-chat");
+  assert.equal(meta.strategy, "combo");
+  assert.notEqual(meta.provider, "nvidia");
+  assert.notEqual(meta.model, "private/nemotron-backend");
+});

@@ -632,3 +632,87 @@ test("#12734: identical tool_choice/tools/response_format across requests still 
 
   assert.ok(result, "identical tool_choice/tools/response_format must still HIT");
 });
+
+
+test("semantic cache HIT masks backend identity for combos-only clients", async () => {
+  clearCache();
+  const cached = {
+    id: "chatcmpl-commercial-cache",
+    model: "private/backend-model",
+    choices: [
+      { index: 0, message: { role: "assistant", content: "cached public answer" }, finish_reason: "stop" },
+    ],
+    usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
+  };
+  const { args } = makeHitArgs({
+    body: {
+      model: "private/backend-model",
+      messages: [{ role: "user", content: "commercial cache query" }],
+      temperature: 0,
+    },
+    model: "private/backend-model",
+    provider: "anthropic",
+    stream: false,
+    clientRoutingIdentity: {
+      provider: "omniroute",
+      model: "combo/fast-chat",
+      strategy: "combo",
+      masked: true,
+    },
+  });
+  seedHit(args, cached);
+
+  const result = await checkSemanticCache(args as Parameters<typeof checkSemanticCache>[0]);
+  assert.ok(result);
+  const response = result.response as Response;
+
+  assert.equal(response.headers.get(OMNIROUTE_RESPONSE_HEADERS.provider), "omniroute");
+  assert.equal(response.headers.get(OMNIROUTE_RESPONSE_HEADERS.model), "combo/fast-chat");
+  assert.doesNotMatch(
+    response.headers.get(OMNIROUTE_RESPONSE_HEADERS.decision) || "",
+    /anthropic|private\/backend-model/
+  );
+
+  const body = (await response.json()) as Record<string, unknown>;
+  assert.equal(body.model, "combo/fast-chat");
+  assert.notEqual(body.model, "private/backend-model");
+});
+
+test("streaming semantic cache replay rewrites the cached backend model", async () => {
+  clearCache();
+  const cached = {
+    id: "chatcmpl-commercial-cache-stream",
+    model: "private/backend-stream-model",
+    choices: [
+      { index: 0, message: { role: "assistant", content: "cached stream" }, finish_reason: "stop" },
+    ],
+    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+  };
+  const { args } = makeHitArgs({
+    body: {
+      model: "private/backend-stream-model",
+      messages: [{ role: "user", content: "commercial streaming cache query" }],
+      temperature: 0,
+    },
+    model: "private/backend-stream-model",
+    provider: "openai",
+    stream: true,
+    clientRoutingIdentity: {
+      provider: "omniroute",
+      model: "combo/stream-chat",
+      strategy: "combo",
+      masked: true,
+    },
+  });
+  seedHit(args, cached);
+
+  const result = await checkSemanticCache(args as Parameters<typeof checkSemanticCache>[0]);
+  assert.ok(result);
+  const response = result.response as Response;
+  const body = await response.text();
+
+  assert.match(body, /combo\/stream-chat/);
+  assert.doesNotMatch(body, /private\/backend-stream-model/);
+  assert.equal(response.headers.get(OMNIROUTE_RESPONSE_HEADERS.provider), "omniroute");
+  assert.equal(response.headers.get(OMNIROUTE_RESPONSE_HEADERS.model), "combo/stream-chat");
+});
