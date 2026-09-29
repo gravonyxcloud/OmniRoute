@@ -180,10 +180,10 @@ test("renewApiKey renews an expired key from now", async () => {
   const db = core.getDbInstance() as unknown as {
     prepare: (sql: string) => { run: (params: unknown[]) => void };
   };
-  db.prepare("UPDATE api_keys SET expires_at = ? WHERE id = ?").run([
+  db.prepare("UPDATE api_keys SET expires_at = ? WHERE id = ?").run(
     "2020-01-01T00:00:00.000Z",
-    created.id,
-  ]);
+    created.id
+  );
 
   const renewed = await apiKeysDb.renewApiKey(created.id, "7d");
   assert.equal(renewed.status, "ok");
@@ -216,10 +216,10 @@ test("renewApiKey rejects revoked keys and unknown ids", async () => {
   const db = core.getDbInstance() as unknown as {
     prepare: (sql: string) => { run: (params: unknown[]) => void };
   };
-  db.prepare("UPDATE api_keys SET revoked_at = ? WHERE id = ?").run([
+  db.prepare("UPDATE api_keys SET revoked_at = ? WHERE id = ?").run(
     new Date().toISOString(),
-    created.id,
-  ]);
+    created.id
+  );
 
   const revoked = await apiKeysDb.renewApiKey(created.id, "7d");
   assert.equal(revoked.status, "revoked");
