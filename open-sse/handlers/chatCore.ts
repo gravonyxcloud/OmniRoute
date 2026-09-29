@@ -133,10 +133,12 @@ import {
   injectSystemPromptPreTranslation,
 } from "../services/systemPrompt.ts";
 import {
+  buildComboIdentityMaskText,
   buildDirectIdentityMaskText,
   injectIdentityMask,
   isIdentityMaskingEnabled,
 } from "../services/identityMasking.ts";
+import { applyResponseLanguagePolicy } from "../services/responseLanguage.ts";
 import { translateRequest, needsTranslation } from "../translator/index.ts";
 import { applyReasoningRuleDirective } from "@/lib/reasoningRouting/policy";
 import { withReasoningRuleContext } from "../utils/reasoningRuleContext.ts";
@@ -1032,8 +1034,12 @@ export async function handleChatCore({
   // `oc/nemotron-3-ultra-free`) is not recognized by the client on `--resume`.
   const isClaudeCodeClient = isClaudeCodeOriginatedHeaders(clientRawRequest?.headers);
 
+  const forceCommercialComboIdentity = apiKeyInfo?.catalogScope === "combos";
   let echoModel =
-    (settings.echoRequestedModelName === true || isCodexResponsesEcho || isClaudeCodeClient) &&
+    (forceCommercialComboIdentity ||
+      settings.echoRequestedModelName === true ||
+      isCodexResponsesEcho ||
+      isClaudeCodeClient) &&
     typeof requestedModel === "string" &&
     requestedModel
       ? requestedModel
@@ -3097,11 +3103,19 @@ export async function handleChatCore({
       // gated PRE-translation pass before translateRequest instead.
       bodyToSend = injectSystemPromptPostTranslation(bodyToSend, { targetFormat });
 
+      // Global response-language policy: keep natural-language replies in the
+      // user's latest language across every upstream/provider.
+      bodyToSend = applyResponseLanguagePolicy(bodyToSend, targetFormat);
+
       // Identity masking — upstream models must never reveal their real provider/vendor.
-      // Combo requests are masked at the per-combo phase (comboAgentMiddleware, where the
-      // combo name is known); this global default covers DIRECT (non-combo) requests using
-      // the requested model alias as the surface name.
-      if (!comboName && isIdentityMaskingEnabled()) {
+      // Commercial combos-only API keys enforce this post-translation even if the
+      // global switch or a per-combo override attempted to disable masking.
+      if (comboName && apiKeyInfo?.catalogScope === "combos") {
+        const maskText = buildComboIdentityMaskText(comboName);
+        if (maskText) {
+          bodyToSend = injectIdentityMask(bodyToSend, maskText, targetFormat);
+        }
+      } else if (!comboName && isIdentityMaskingEnabled()) {
         const maskText = buildDirectIdentityMaskText(
           typeof modelToCall === "string" && modelToCall.trim() ? modelToCall : undefined
         );
