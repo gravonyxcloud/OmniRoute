@@ -255,15 +255,15 @@ function policyErrorResponse(
   );
 }
 
-async function resolveRequestedComboName(modelStr: string): Promise<string | null> {
-  const exact = await getComboByName(modelStr);
-  if (exact && typeof exact.name === "string") return exact.name;
+async function resolveExplicitComboName(modelStr: string): Promise<string | null> {
+  const candidate = modelStr.startsWith("combo/") ? modelStr.slice(6) : modelStr;
+  const combo = await getComboByName(candidate);
+  return combo && typeof combo.name === "string" ? combo.name : null;
+}
 
-  if (modelStr.startsWith("combo/")) {
-    const withoutPrefix = modelStr.slice(6);
-    const prefixed = await getComboByName(withoutPrefix);
-    if (prefixed && typeof prefixed.name === "string") return prefixed.name;
-  }
+async function resolveRequestedComboName(modelStr: string): Promise<string | null> {
+  const explicit = await resolveExplicitComboName(modelStr);
+  if (explicit) return explicit;
 
   const mapped = await resolveComboForModel(modelStr);
   const mappedName = normalizeComboAccessName(mapped?.name);
@@ -603,20 +603,26 @@ async function validateModelAccess(context: PolicyContext): Promise<Response | n
     }
   }
   if (apiKeyInfo.catalogScope === "combos") {
-    // Combos-only keys may dispatch exclusively to stored OmniRoute combos.
-    // `auto/*` ids are virtual (never a stored combo) and direct provider
-    // models pass through only when they resolve to an existing combo name.
-    const isVirtualAuto = modelStr.startsWith("auto/");
-    if (isVirtualAuto || !requestedComboName) {
+    // Commercial combos-only keys must dispatch through an EXPLICIT stored
+    // combo id. A provider model that merely maps to a combo is still a direct
+    // upstream-model request and must not be accepted.
+    let explicitComboName: string | null = null;
+    try {
+      explicitComboName = await resolveExplicitComboName(modelStr);
+    } catch {
+      explicitComboName = null;
+    }
+    if (!explicitComboName) {
       return policyErrorResponse(
         request,
         HTTP_STATUS.FORBIDDEN,
-        `Model "${modelStr}" is not a stored OmniRoute combo for this API key`,
-        `This API key may only use combos created in OmniRoute. Choose a combo name or combo/<name>.`,
+        "Requested route is not available for this API key",
+        "Requested route is not available for this API key. Choose one of the available combo models.",
         "invalid_request_error",
         HTTP_STATUS.BAD_REQUEST
       );
     }
+    requestedComboName = explicitComboName;
   }
   if (requestedComboName || !hasModelRestrictions) return null;
   if (await isModelAllowedForKey(apiKey, modelStr)) return null;
