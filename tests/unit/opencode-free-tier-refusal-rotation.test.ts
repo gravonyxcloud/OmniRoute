@@ -246,7 +246,16 @@ describe("OpencodeExecutor free-tier refusal retry with observed tools", () => {
 
   // Single direct account (fast path): first dispatch 403 FreeTier, retry carries
   // the union and succeeds — one extra fetch, original tools intact first.
+  //
+  // Since #14156 the first dispatch already appends configured placeholders.
+  // Configure one distinct name so the retry still has observed names to add.
   it("retries once with observed names appended and returns the retry success", async () => {
+    const prevConfigured = process.env.OPENCODE_FREE_TIER_PLACEHOLDER_TOOLS;
+    process.env.OPENCODE_FREE_TIER_PLACEHOLDER_TOOLS = "bash";
+    after(() => {
+      if (prevConfigured === undefined) delete process.env.OPENCODE_FREE_TIER_PLACEHOLDER_TOOLS;
+      else process.env.OPENCODE_FREE_TIER_PLACEHOLDER_TOOLS = prevConfigured;
+    });
     const exec = new OpencodeExecutor("opencode");
     recordAcceptedToolNames("opencode", "muse-spark-1.3-contributor-free", undefined, [
       "edit",
@@ -285,13 +294,55 @@ describe("OpencodeExecutor free-tier refusal retry with observed tools", () => {
 
     assert.strictEqual(result.response.status, 200);
     assert.strictEqual(seenTools.length, 2, "exactly one retry dispatch");
-    assert.deepEqual(seenTools[0], ["glob", "read"], "first dispatch keeps client tools");
+    assert.deepEqual(
+      seenTools[0],
+      ["glob", "read", "bash"],
+      "first dispatch keeps client tools first, then the configured placeholders (#14156)"
+    );
     assert.deepEqual(
       seenTools[1],
-      ["glob", "read", "edit", "write"],
+      ["glob", "read", "edit", "write", "bash"],
       "retry appends observed names after client tools"
     );
     await result.response.body?.cancel();
+  });
+
+  // #14156 + #14464 interaction: without distinct configured names the first
+  // dispatch already carries the observed names, so do not resend the same shape.
+  it("does not re-send the refused shape when the first dispatch already carried the observed names", async () => {
+    delete process.env.OPENCODE_FREE_TIER_PLACEHOLDER_TOOLS;
+    const exec = new OpencodeExecutor("opencode");
+    recordAcceptedToolNames("opencode", "muse-spark-1.3-contributor-free", undefined, [
+      "edit",
+      "write",
+    ]);
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const parsed = JSON.parse(String((init as Record<string, unknown>)?.body ?? "{}")) as {
+        tools?: unknown[];
+      };
+      seenTools.push(Array.isArray(parsed.tools) ? parsed.tools.map(toolNameOf) : null);
+      return new Response(REFUSAL_BODY, {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof globalThis.fetch;
+
+    const result = await runWithBody(exec, {
+      model: "muse-spark-1.3-contributor-free",
+      messages: [{ role: "user", content: "hi" }],
+      stream: true,
+      tools: [
+        { type: "function", function: { name: "glob", parameters: { type: "object" } } },
+        { type: "function", function: { name: "read", parameters: { type: "object" } } },
+      ],
+    });
+
+    assert.strictEqual(result.response.status, 403);
+    assert.deepEqual(
+      seenTools,
+      [["glob", "read", "edit", "write"]],
+      "one dispatch, no duplicate retry"
+    );
   });
 
   // Retry refusal: the ORIGINAL 403 is propagated and the store is untouched.
