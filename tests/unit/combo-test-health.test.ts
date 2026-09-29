@@ -42,6 +42,25 @@ test("combo test helper preserves streamed upstream errors", () => {
   });
 });
 
+test("combo test helper accepts usage-only reasoning as a healthy streamed completion", () => {
+  const result = extractComboTestStreamResult(
+    'data: {"choices":[],"usage":{"prompt_tokens":338,"completion_tokens":64,"total_tokens":402,"completion_tokens_details":{"reasoning_tokens":59}}}\n\n' +
+      'data: [DONE]\n\n'
+  );
+
+  assert.deepEqual(result, {
+    text: "[reasoning-only completion]",
+  });
+});
+
+test("combo test helper accepts Responses-style output reasoning usage", () => {
+  const result = extractComboTestStreamResult(
+    'data: {"choices":[],"usage":{"input_tokens":20,"output_tokens":40,"output_tokens_details":{"reasoning_tokens":40}}}\n\n'
+  );
+
+  assert.equal(result.text, "[reasoning-only completion]");
+});
+
 test("combo test helper extracts text from chat-completions responses", () => {
   const text = extractComboTestResponseText({
     choices: [

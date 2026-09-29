@@ -10,6 +10,7 @@ import {
   extractModelTestResponseText,
   runSingleModelTest,
   resolveModelTestTimeoutMs,
+  resolveChatModelTestProbe,
   classifyTestErrorQuota,
 } from "@/lib/api/modelTestRunner.ts";
 import Bottleneck from "bottleneck";
@@ -61,6 +62,35 @@ test("parseRetryAfterHeader parses an HTTP-date into a non-negative seconds delt
   // A date in the past clamps to 0 (never negative).
   const past = new Date(Date.now() - 60_000).toUTCString();
   assert.equal(parseRetryAfterHeader(past), 0);
+});
+
+// ---------------------------------------------------------------------------
+// OpenCode free-tier model probes — the upstream contract still streams, but
+// the dashboard probe should ask OmniRoute for reconstructed JSON with enough
+// output budget for reasoning-heavy models to finish.
+// ---------------------------------------------------------------------------
+
+test("OpenCode free-tier probes use reconstructed JSON with a larger output budget", () => {
+  for (const [provider, model] of [
+    ["opencode", "opencode/big-pickle"],
+    ["opencode-zen", "opencode-zen/mimo-v2.6-flash-free"],
+    ["oc", "oc/ling-2.6-1t-free"],
+  ] as const) {
+    assert.deepEqual(resolveChatModelTestProbe(provider, model, true), {
+      stream: false,
+      maxTokens: 256,
+    });
+  }
+});
+
+test("ordinary model probes keep the existing streaming behavior", () => {
+  assert.deepEqual(resolveChatModelTestProbe("nvidia", "nvidia/some-model", true), {
+    stream: true,
+    maxTokens: 64,
+  });
+  assert.deepEqual(resolveChatModelTestProbe("openai", "openai/gpt-5.6", false), {
+    stream: false,
+  });
 });
 
 // ---------------------------------------------------------------------------

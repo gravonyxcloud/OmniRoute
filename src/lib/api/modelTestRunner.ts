@@ -31,6 +31,7 @@ const ZAI_WEB_PROVIDER_ID = "zai-web";
 const ZAI_WEB_TEST_TIMEOUT_MS = 60_000;
 const SLOW_WEB_TEST_MODELS = new Set(["dola-pro"]);
 const STREAMING_CHAT_TEST_MAX_TOKENS = 64;
+const OPENCODE_FREE_MODEL_TEST_MAX_TOKENS = 256;
 // Responses calls the same budget `max_output_tokens`; `max_tokens` is silently
 // ignored on that endpoint, which would let a reasoning model spend the whole
 // default budget before emitting any visible text.
@@ -40,6 +41,32 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+export function resolveChatModelTestProbe(
+  providerId: string,
+  modelStr: string,
+  streamChat: boolean
+): { stream: boolean; maxTokens?: number } {
+  const provider = providerId.trim().toLowerCase();
+  const modelId = modelStr.split("/").pop()?.trim().toLowerCase() ?? "";
+  const isOpenCodeFree =
+    (provider === "opencode" || provider === "opencode-zen" || provider === "oc") &&
+    (modelId === "big-pickle" || modelId.endsWith("-free"));
+
+  // OpenCode's free-tier contract requires upstream streaming, but its executor
+  // already forces that internally even for JSON callers. Health probes are more
+  // reliable as JSON because reasoning-heavy free models can spend the old
+  // 64-token streaming budget entirely on hidden reasoning, leaving the dashboard
+  // with a valid HTTP 200 but no client-visible text. Give the executor enough
+  // budget to finish and let it rebuild the forced upstream SSE into JSON.
+  if (isOpenCodeFree) {
+    return { stream: false, maxTokens: OPENCODE_FREE_MODEL_TEST_MAX_TOKENS };
+  }
+
+  return streamChat
+    ? { stream: true, maxTokens: STREAMING_CHAT_TEST_MAX_TOKENS }
+    : { stream: false };
 }
 
 function getErrorMessage(error: unknown): string {
@@ -483,6 +510,7 @@ export async function runSingleModelTest(
   ]);
   const { isRerank, isEmbedding, isAudioTranscription, isResponses, isNonChatGeneration } =
     detectTestKind(fullModelStr, customModel, nodeApiType);
+  const chatProbe = resolveChatModelTestProbe(providerId, fullModelStr, streamChat);
 
   // #13376: Skip image/music/video generation models — dispatching them as
   // chat completions incurs real billable generations the operator never asked for.
@@ -526,8 +554,8 @@ export async function runSingleModelTest(
             stream: false,
           }
         : buildComboTestRequestBody(fullModelStr, isEmbedding, {
-            stream: !isEmbedding && streamChat,
-            maxTokens: !isEmbedding && streamChat ? STREAMING_CHAT_TEST_MAX_TOKENS : undefined,
+            stream: !isEmbedding && chatProbe.stream,
+            maxTokens: !isEmbedding ? chatProbe.maxTokens : undefined,
           });
 
   // Per-model AbortController. We track whether the timeout fired so we can
@@ -662,7 +690,10 @@ export async function runSingleModelTest(
       // deactivated") would run outside runAsProbe and could still reach
       // markAccountUnavailable (#9817).
       const parsedResponse = await runAsProbe(() =>
-        extractModelTestResponseText(res, !isEmbedding && !isRerank && !isResponses && streamChat)
+        extractModelTestResponseText(
+          res,
+          !isEmbedding && !isRerank && !isResponses && chatProbe.stream
+        )
       );
       responseText = parsedResponse.text;
       streamError = parsedResponse.error;

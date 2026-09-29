@@ -76,17 +76,23 @@ function getUsageReasoningTokens(body: JsonRecord): number {
   if (!usage) return 0;
 
   const completionDetails = asRecord(usage.completion_tokens_details);
+  const outputDetails = asRecord(usage.output_tokens_details);
   const topLevelReasoning =
     typeof usage.reasoning_tokens === "number" && Number.isFinite(usage.reasoning_tokens)
       ? usage.reasoning_tokens
       : 0;
-  const detailedReasoning =
+  const completionReasoning =
     typeof completionDetails.reasoning_tokens === "number" &&
     Number.isFinite(completionDetails.reasoning_tokens)
       ? completionDetails.reasoning_tokens
       : 0;
+  const outputReasoning =
+    typeof outputDetails.reasoning_tokens === "number" &&
+    Number.isFinite(outputDetails.reasoning_tokens)
+      ? outputDetails.reasoning_tokens
+      : 0;
 
-  return Math.max(topLevelReasoning, detailedReasoning);
+  return Math.max(topLevelReasoning, completionReasoning, outputReasoning);
 }
 
 function hasReasoningOnlyCompletion(body: JsonRecord): boolean {
@@ -140,6 +146,10 @@ export type ComboTestStreamResult = {
   error?: { message: string; statusCode?: number };
 };
 
+type StreamPayloadResult = ComboTestStreamResult & {
+  reasoningUsage?: boolean;
+};
+
 function extractStreamError(body: JsonRecord): ComboTestStreamResult["error"] {
   const error = asRecord(body.error);
   const message =
@@ -163,10 +173,11 @@ function extractStreamError(body: JsonRecord): ComboTestStreamResult["error"] {
   };
 }
 
-function extractStreamPayload(payload: string): ComboTestStreamResult | undefined {
+function extractStreamPayload(payload: string): StreamPayloadResult | undefined {
   try {
     const body = JSON.parse(payload);
-    const error = extractStreamError(asRecord(body));
+    const bodyRecord = asRecord(body);
+    const error = extractStreamError(bodyRecord);
     if (error) return { text: "", error };
 
     const collected: string[] = [];
@@ -179,7 +190,10 @@ function extractStreamPayload(payload: string): ComboTestStreamResult | undefine
       if (content) collected.push(content);
       else if (reasoning) collected.push(reasoning);
     }
-    return { text: collected.join("") };
+    return {
+      text: collected.join(""),
+      ...(getUsageReasoningTokens(bodyRecord) > 0 ? { reasoningUsage: true } : {}),
+    };
   } catch {
     // Ignore malformed/non-JSON SSE events; a later valid event can still
     // prove that the model is healthy.
@@ -190,6 +204,7 @@ function extractStreamPayload(payload: string): ComboTestStreamResult | undefine
 export function extractComboTestStreamResult(streamBody: string): ComboTestStreamResult {
   const collected: string[] = [];
   let streamError: ComboTestStreamResult["error"];
+  let reasoningUsage = false;
   for (const line of streamBody.split(/\r?\n/)) {
     if (!line.startsWith("data:")) continue;
     const payload = line.slice(5).trim();
@@ -197,9 +212,16 @@ export function extractComboTestStreamResult(streamBody: string): ComboTestStrea
     const result = extractStreamPayload(payload);
     if (!result) continue;
     if (result.error) streamError = result.error;
-    else if (result.text) collected.push(result.text);
+    else {
+      if (result.text) collected.push(result.text);
+      if (result.reasoningUsage) reasoningUsage = true;
+    }
   }
-  return { text: collected.join("").trim(), ...(streamError ? { error: streamError } : {}) };
+  const text = collected.join("").trim();
+  return {
+    text: text || (reasoningUsage ? "[reasoning-only completion]" : ""),
+    ...(streamError ? { error: streamError } : {}),
+  };
 }
 
 export function extractComboTestStreamText(streamBody: string): string {
