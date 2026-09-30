@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   PlaywrightChatGptWebBrowserSession,
+  isChatGptFirstPartyModuleFailure,
   runChatGptWebBrowserTurn,
   type ChatGptWebBrowserSession,
   type ChatGptWebBrowserSessionHandlers,
@@ -82,6 +83,51 @@ class FakeBrowserSession implements ChatGptWebBrowserSession {
 }
 
 describe("ChatGPT Web clean-room browser-owned session", () => {
+  test("classifies current first-party module discovery failures including nested causes", () => {
+    assert.equal(
+      isChatGptFirstPartyModuleFailure(
+        new Error("wrapper", {
+          cause: new Error("ChatGPT Web first-party request module was not loaded"),
+        })
+      ),
+      true
+    );
+    assert.equal(
+      isChatGptFirstPartyModuleFailure(
+        new Error("ChatGPT Web first-party bridge module failed to load: csp blocked")
+      ),
+      true
+    );
+    assert.equal(isChatGptFirstPartyModuleFailure(new Error("upstream returned 429")), false);
+  });
+
+  test("accepts a DOM fallback turn result returned directly by the browser session", async () => {
+    let cleaned = 0;
+    const session = {
+      url: () => "https://chatgpt.com/?temporary-chat=true",
+      start: async () => async () => {
+        cleaned += 1;
+      },
+      submitPrompt: async () => ({
+        conversationId: "temporary",
+        turnExchangeId: "dom-turn-1",
+        text: "DOM_OK",
+        status: "finished_successfully",
+        endTurn: true as const,
+      }),
+    } satisfies ChatGptWebBrowserSession;
+
+    const result = await runChatGptWebBrowserTurn(session, {
+      prompt: "fallback prompt",
+      attachments: [],
+      timeoutMs: 1_000,
+    });
+
+    assert.equal(result.text, "DOM_OK");
+    assert.equal(result.turnExchangeId, "dom-turn-1");
+    assert.equal(cleaned, 1);
+  });
+
   test("decodes a direct first-party conversation response without DOM or WebSocket handoff", async () => {
     const directSse =
       'event: delta_encoding\ndata: "v1"\n\n' +
