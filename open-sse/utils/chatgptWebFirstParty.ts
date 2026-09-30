@@ -24,6 +24,8 @@ export type ChatGptWebUiSelection =
       modelLabel: "GPT-6 Pro" | "GPT-5.6 Sol" | "GPT-5.5";
       effortIndex: 0 | 1 | 2 | 3 | 4;
       fixedModel?: boolean;
+      uiLabel?: "GPT-6 Pro" | "Instant" | "Medium" | "High" | "Extra High" | "Pro";
+      allowEffortControlFallback?: boolean;
     }
   | {
       kind: "free";

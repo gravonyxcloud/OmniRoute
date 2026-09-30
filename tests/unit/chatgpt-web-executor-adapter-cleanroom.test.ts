@@ -19,7 +19,13 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
         prepareChatGptWebBrowserRequest(model, {
           messages: [{ role: "user", content: "hello" }],
         }).selection,
-        { kind: "picker", modelLabel: "GPT-6 Pro", effortIndex: 0, fixedModel: true }
+        {
+          kind: "picker",
+          modelLabel: "GPT-6 Pro",
+          effortIndex: 0,
+          fixedModel: true,
+          uiLabel: "GPT-6 Pro",
+        }
       );
     }
   });
@@ -32,7 +38,14 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
       }),
       {
         prompt: "hello",
-        selection: { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 3 },
+        selection: {
+          kind: "picker",
+          modelLabel: "GPT-5.6 Sol",
+          effortIndex: 3,
+          fixedModel: true,
+          uiLabel: "Extra High",
+          allowEffortControlFallback: true,
+        },
         attachments: [],
       }
     );
@@ -40,19 +53,40 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
       prepareChatGptWebBrowserRequest("gpt-5-6-pro", {
         messages: [{ role: "user", content: "hello" }],
       }).selection,
-      { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 4 }
+      {
+        kind: "picker",
+        modelLabel: "GPT-5.6 Sol",
+        effortIndex: 4,
+        fixedModel: true,
+        uiLabel: "Pro",
+        allowEffortControlFallback: true,
+      }
     );
     assert.deepEqual(
       prepareChatGptWebBrowserRequest("gpt-5-6-instant", {
         messages: [{ role: "user", content: "hello" }],
       }).selection,
-      { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 0 }
+      {
+        kind: "picker",
+        modelLabel: "GPT-5.6 Sol",
+        effortIndex: 0,
+        fixedModel: true,
+        uiLabel: "Instant",
+        allowEffortControlFallback: true,
+      }
     );
     assert.deepEqual(
       prepareChatGptWebBrowserRequest("gpt-5-6", {
         messages: [{ role: "user", content: "hello" }],
       }).selection,
-      { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 0 }
+      {
+        kind: "picker",
+        modelLabel: "GPT-5.6 Sol",
+        effortIndex: 0,
+        fixedModel: true,
+        uiLabel: "Instant",
+        allowEffortControlFallback: true,
+      }
     );
   });
 
@@ -532,6 +566,9 @@ describe("ChatGPT Web clean-room executor response adapter", () => {
       kind: "picker",
       modelLabel: "GPT-5.6 Sol",
       effortIndex: 4,
+      fixedModel: true,
+      uiLabel: "Pro",
+      allowEffortControlFallback: true,
     });
     assert.deepEqual(observed?.storageState, { cookies: [], origins: [] });
     assert.equal(observed?.userAgent, "CleanRoomBrowser/1.0");

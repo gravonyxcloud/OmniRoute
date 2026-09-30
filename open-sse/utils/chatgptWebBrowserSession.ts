@@ -178,29 +178,38 @@ async function selectPickerMode(page: Page, selection: Extract<ChatGptWebUiSelec
   };
 
   let menu = await openMenu();
+  const slider = page.locator(CHATGPT_EFFORT_SLIDER_SELECTOR).filter({ visible: true }).last();
+  const targetLabel = selection.uiLabel ?? selection.modelLabel;
   const currentLabel = (await control.innerText().catch(() => "")).trim();
-  if (!currentLabel.includes(selection.modelLabel)) {
+  if (!currentLabel.includes(targetLabel)) {
     const exact = menu
       .locator('[role="menuitemradio"], [role="menuitem"], button')
-      .filter({ hasText: selection.modelLabel })
+      .filter({ hasText: targetLabel })
       .filter({ visible: true });
     if ((await exact.count()) === 0) {
-      await page.keyboard.press("Escape").catch(() => {});
-      throw new Error(`ChatGPT Web model is not available in the current account: ${selection.modelLabel}`);
+      const canUseSlider =
+        selection.allowEffortControlFallback === true &&
+        (await slider.isVisible().catch(() => false));
+      if (!canUseSlider) {
+        await page.keyboard.press("Escape").catch(() => {});
+        throw new Error(
+          `ChatGPT Web mode is not available in the current account: ${targetLabel}`
+        );
+      }
+    } else {
+      await exact.first().click();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (selection.fixedModel) {
+        await page.keyboard.press("Escape").catch(() => {});
+        return;
+      }
+      menu = await openMenu();
     }
-    await exact.first().click();
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    if (selection.fixedModel) {
-      await page.keyboard.press("Escape").catch(() => {});
-      return;
-    }
-    menu = await openMenu();
   } else if (selection.fixedModel) {
     await page.keyboard.press("Escape").catch(() => {});
     return;
   }
 
-  const slider = page.locator(CHATGPT_EFFORT_SLIDER_SELECTOR).filter({ visible: true }).last();
   if (await slider.isVisible().catch(() => false)) {
     let state = parseChatGptEffortSliderState(
       await slider.getAttribute("aria-valuemin"),

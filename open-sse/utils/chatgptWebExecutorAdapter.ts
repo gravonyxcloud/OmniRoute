@@ -287,10 +287,31 @@ function normalizedModel(value: string): string {
     .replace(/\./g, "-");
 }
 
+function currentSolUiLabel(index: 0 | 1 | 2 | 3 | 4) {
+  return (["Instant", "Medium", "High", "Extra High", "Pro"] as const)[index];
+}
+
+function solSelection(index: 0 | 1 | 2 | 3 | 4): ChatGptWebUiSelection {
+  return {
+    kind: "picker",
+    modelLabel: "GPT-5.6 Sol",
+    effortIndex: index,
+    fixedModel: true,
+    uiLabel: currentSolUiLabel(index),
+    allowEffortControlFallback: true,
+  };
+}
+
 function resolveSelection(model: string, body: JsonRecord): ChatGptWebUiSelection {
   const normalized = normalizedModel(model);
   if (normalized === "gpt-6-pro" || normalized === "gpt-6-astra") {
-    return { kind: "picker", modelLabel: "GPT-6 Pro", effortIndex: 0, fixedModel: true };
+    return {
+      kind: "picker",
+      modelLabel: "GPT-6 Pro",
+      effortIndex: 0,
+      fixedModel: true,
+      uiLabel: "GPT-6 Pro",
+    };
   }
   if (normalized === "gpt-5-6-luna-free") {
     return { kind: "free", thinkEnabled: false };
@@ -299,17 +320,13 @@ function resolveSelection(model: string, body: JsonRecord): ChatGptWebUiSelectio
     return { kind: "free", thinkEnabled: true };
   }
   if (normalized === "gpt-5-6-pro") {
-    return { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 4 };
+    return solSelection(4);
   }
   if (normalized === "gpt-5-6-instant" || normalized === "gpt-5-6") {
-    return { kind: "picker", modelLabel: "GPT-5.6 Sol", effortIndex: 0 };
+    return solSelection(0);
   }
   if (["gpt-5-6-thinking", "gpt-5-6-sol"].includes(normalized)) {
-    return {
-      kind: "picker",
-      modelLabel: "GPT-5.6 Sol",
-      effortIndex: effortIndex(reasoningEffort(body)),
-    };
+    return solSelection(effortIndex(reasoningEffort(body)));
   }
   if (normalized === "gpt-5-5-pro") {
     return { kind: "picker", modelLabel: "GPT-5.5", effortIndex: 4 };
