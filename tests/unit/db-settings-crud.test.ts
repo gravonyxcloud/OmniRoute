@@ -72,7 +72,9 @@ test("getSettings exposes defaults and updateSettings persists typed values", as
   assert.equal(defaults.maxRetryIntervalSec, 30);
   assert.equal(defaults.antigravitySignatureCacheMode, "enabled");
   assert.equal(defaults.comboConfigMode, "guided");
-  assert.equal(defaults.mcpEnabled, false);
+  assert.equal(defaults.mcpEnabled, true);
+  assert.equal(defaults.mcpTransport, "streamable-http");
+  assert.equal(defaults.skillsEnabled, true);
   assert.equal(defaults.a2aEnabled, false);
   assert.equal(updated.requireLogin, false);
   assert.equal(updated.cloudEnabled, true);

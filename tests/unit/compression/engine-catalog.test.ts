@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ENGINE_CATALOG, engineMeta, ENGINE_IDS } from "@omniroute/open-sse/services/compression/engineCatalog.ts";
+import { ENGINE_CATALOG, engineMeta, ENGINE_IDS, isSafeDefault } from "@omniroute/open-sse/services/compression/engineCatalog.ts";
 import { DEFAULT_COMPRESSION_CONFIG } from "@omniroute/open-sse/services/compression/types.ts";
 
 test("catalog lists every engine with stackPriority", () => {
@@ -20,9 +20,18 @@ test("ENGINE_IDS is ordered by stackPriority", () => {
   const ps = ENGINE_IDS.map((id) => engineMeta(id).stackPriority);
   assert.deepEqual(ps, [...ps].sort((a,b)=>a-b));
 });
-test("default config has an engines map + activeComboId", () => {
+test("default config enables only catalog-declared safe engines", () => {
+  assert.equal(DEFAULT_COMPRESSION_CONFIG.enabled, true);
+  assert.equal(DEFAULT_COMPRESSION_CONFIG.defaultMode, "stacked");
   assert.equal(typeof DEFAULT_COMPRESSION_CONFIG.engines, "object");
   assert.equal(DEFAULT_COMPRESSION_CONFIG.activeComboId, null);
-  // default-off: every engine disabled by default (opt-in preserved)
-  for (const id of ENGINE_IDS) assert.equal(DEFAULT_COMPRESSION_CONFIG.engines[id]?.enabled, false);
+
+  const safeIds = ENGINE_IDS.filter(isSafeDefault);
+  assert.deepEqual(
+    DEFAULT_COMPRESSION_CONFIG.stackedPipeline?.map((step) => step.engine),
+    safeIds
+  );
+  for (const id of ENGINE_IDS) {
+    assert.equal(DEFAULT_COMPRESSION_CONFIG.engines[id]?.enabled, isSafeDefault(id));
+  }
 });

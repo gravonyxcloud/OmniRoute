@@ -9,7 +9,7 @@
  * Phase 5: 'rtk', 'codex-responses', and 'stacked' modes (tool-output filters + multi-engine pipeline).
  */
 
-import { ENGINE_IDS } from "./engineCatalog.ts";
+import { ENGINE_IDS, isSafeDefault } from "./engineCatalog.ts";
 import type { ContextBudgetConfig } from "./adaptiveCompression/types.ts";
 import type { FidelityGateConfig } from "./fidelityGate.ts";
 import type { RiskGateConfig } from "./riskGate/riskGate.ts";
@@ -418,10 +418,12 @@ export const DEFAULT_CODEX_RESPONSES_CONFIG: CodexResponsesConfig = {
   ],
 };
 
+const SAFE_DEFAULT_COMPRESSION_ENGINES = ENGINE_IDS.filter(isSafeDefault);
+
 export const DEFAULT_COMPRESSION_CONFIG: CompressionConfig = {
-  enabled: false,
-  defaultMode: "off",
-  autoTriggerMode: "lite",
+  enabled: true,
+  defaultMode: "stacked",
+  autoTriggerMode: "stacked",
   autoTriggerTokens: 0,
   cacheMinutes: 5,
   preserveSystemPrompt: true,
@@ -429,11 +431,12 @@ export const DEFAULT_COMPRESSION_CONFIG: CompressionConfig = {
   mcpDescriptionCompressionEnabled: true,
   comboOverrides: {},
   compressionComboId: null,
-  stackedPipeline: [
-    { engine: "rtk", intensity: "standard" },
-    { engine: "caveman", intensity: "full" },
-  ],
-  engines: Object.fromEntries(ENGINE_IDS.map((id) => [id, { enabled: false }])),
+  stackedPipeline: SAFE_DEFAULT_COMPRESSION_ENGINES.map((engine) => ({
+    engine: engine as CompressionEngineId,
+  })),
+  engines: Object.fromEntries(
+    ENGINE_IDS.map((id) => [id, { enabled: SAFE_DEFAULT_COMPRESSION_ENGINES.includes(id) }])
+  ),
   activeComboId: null,
   ultraEngine: "heuristic",
   ultraSlmPrewarm: false,

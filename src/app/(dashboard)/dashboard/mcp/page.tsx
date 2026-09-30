@@ -230,9 +230,9 @@ function DisabledPanel() {
 export default function McpPage() {
   const t = useTranslations("mcpDashboard");
   const [mcpStatus, setMcpStatus] = useState<ServiceStatus>({ online: false, loading: true });
-  const [mcpEnabled, setMcpEnabled] = useState(false);
+  const [mcpEnabled, setMcpEnabled] = useState(true);
   const [mcpToggling, setMcpToggling] = useState(false);
-  const [mcpTransport, setMcpTransport] = useState<McpTransport>("stdio");
+  const [mcpTransport, setMcpTransport] = useState<McpTransport>("streamable-http");
   const [transportSaving, setTransportSaving] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
 

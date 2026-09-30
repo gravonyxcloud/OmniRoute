@@ -46,7 +46,9 @@ describe("compression derived-pipeline integration (Task 12)", () => {
       // Panel-configured: the engines map drives dispatch (a stored engines row exists).
       enginesExplicit: true,
       engines: {
-        ...DEFAULT_COMPRESSION_CONFIG.engines,
+        ...Object.fromEntries(
+          Object.keys(DEFAULT_COMPRESSION_CONFIG.engines).map((id) => [id, { enabled: false }])
+        ),
         rtk: { enabled: true },
         caveman: { enabled: true, level: "full" },
       },

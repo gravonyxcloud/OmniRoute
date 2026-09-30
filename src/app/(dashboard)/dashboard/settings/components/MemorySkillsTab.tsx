@@ -36,13 +36,13 @@ const STRATEGIES = [
 
 export default function MemorySkillsTab() {
   const [config, setConfig] = useState<MemoryConfig>({
-    // Off by default (matches DEFAULT_MEMORY_SETTINGS) — memory injects ~maxTokens
-    // of billed context per request, so it's opt-in. See PRD-2026-06-19-no-memory-header.
+    // Memory stays opt-in because it injects billed context. Skills are enabled by
+    // default independently and can still be disabled explicitly by the operator.
     enabled: false,
     maxTokens: 2000,
     retentionDays: 30,
     strategy: "hybrid",
-    skillsEnabled: false,
+    skillsEnabled: true,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

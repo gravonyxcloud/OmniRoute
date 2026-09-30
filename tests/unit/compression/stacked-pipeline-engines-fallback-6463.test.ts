@@ -36,7 +36,9 @@ describe("stacked pipeline honors engines map when stackedPipeline is missing (#
       enabled: true,
       stackedPipeline: [],
       engines: {
-        ...DEFAULT_COMPRESSION_CONFIG.engines,
+        ...Object.fromEntries(
+          Object.keys(DEFAULT_COMPRESSION_CONFIG.engines).map((id) => [id, { enabled: false }])
+        ),
         rtk: { enabled: true },
         caveman: { enabled: true, level: "full" },
       },
