@@ -62,6 +62,18 @@ function credentialsFor(fingerprints: string[]): ProviderCredentials {
   };
 }
 
+function directCredentialsFor(fingerprints: string[]): ProviderCredentials {
+  return {
+    apiKey: null,
+    accessToken: null,
+    connectionId: "noauth",
+    providerSpecificData: {
+      fingerprints,
+      accountProxies: [],
+    },
+  };
+}
+
 describe("OpencodeExecutor transient-failure rotation", () => {
   let originalFetch: typeof globalThis.fetch;
   let observed: string[];
@@ -165,6 +177,23 @@ describe("OpencodeExecutor transient-failure rotation", () => {
 
     assert.strictEqual((result as { response: Response }).response.status, 500);
     assert.strictEqual(observed.length, 1);
+  });
+
+  it("multi-account direct 5xx stops after one alternate fingerprint", async () => {
+    const exec = new OpencodeExecutor("opencode-zen");
+    installFetch([{ status: 500 }, { status: 500 }, { status: 200 }]);
+
+    const result = await exec.execute({
+      model: "muse-spark-1.3-contributor-free",
+      body: { messages: [{ role: "user", content: "hi" }], stream: false },
+      stream: false,
+      signal: null,
+      credentials: directCredentialsFor([FP_A, FP_B, FP_C]),
+      log,
+    });
+
+    assert.strictEqual((result as { response: Response }).response.status, 500);
+    assert.deepEqual(observed, ["direct", "direct"], "direct transient wave is bounded to 2 calls");
   });
 
   it("true mono-direct (no fingerprints) propagates 500 without success mark", async () => {

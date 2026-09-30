@@ -652,6 +652,12 @@ export class OpencodeExecutor extends BaseExecutor {
       // them this request — only acted on when OPENCODE_TRANSIENT_FAILOVER_BACKOFF is on.
       let transientStreak = 0;
       let transientPausedMs = 0;
+      // Fingerprint-only accounts without a dedicated proxy share the same network
+      // egress. Rotating through hundreds/thousands of them after the same upstream
+      // 5xx/empty rejection only amplifies latency. Allow one alternate fingerprint
+      // for request-specific variance, then surface the latest transient result.
+      let directTransientAttempts = 0;
+      const maxDirectTransientAttempts = 2;
 
       for (let attempt = 0; attempt < this.accounts.length + emptyRejectionBudget; attempt++) {
         const isProxiedCandidate = (a: OpencodeAccountState): boolean => {
@@ -833,17 +839,22 @@ export class OpencodeExecutor extends BaseExecutor {
           if (key !== null) geoTriedProxyKeys.add(key);
           else directTried = true;
           transientStreak = priorTransientStreak + 1;
+          if (key === null) {
+            directTransientAttempts++;
+            const rotate = directTransientAttempts < maxDirectTransientAttempts;
+            log?.warn?.(
+              "OPENCODE",
+              `${cid}transient upstream ${status} on account ${masked} (proxy direct), ${rotate ? "rotating to one alternate fingerprint…" : "stopping direct fingerprint wave"}`
+            );
+            if (!rotate) return result;
+            continue;
+          }
           log?.warn?.(
             "OPENCODE",
-            `${cid}transient upstream ${status} on account ${masked} (proxy ${key ?? "direct"}), rotating to next…`
+            `${cid}transient upstream ${status} on account ${masked} (proxy ${key}), rotating to next…`
           );
-          // Deliberately a separate branch from the 400-empty arm below,
-          // not one merged `if`: this arm never touches the body, the 400
-          // arm must clone-read it. Both share the predicate + tried-set.
-          // Single proxied account: one retry via the existing budget (a
-          // proxy-less single account takes the fast path, never the loop).
-          // Transient is not deterministic like geo: upstream may recover.
-          // No 0-retry guard here (it stays geo-only).
+          // Dedicated proxies represent genuinely distinct egress and retain the
+          // existing rotation behavior. Direct fingerprints are bounded above.
           continue;
         }
 
@@ -934,6 +945,17 @@ export class OpencodeExecutor extends BaseExecutor {
           if (bodyText !== null && isRetriableUpstreamFailure(400, bodyText)) {
             const chatcmplId = extractChatcmplId(bodyText);
             transientStreak = priorTransientStreak + 1;
+            const key = proxyKeyOf(account.proxy);
+            if (key === null) {
+              directTransientAttempts++;
+              const rotate = directTransientAttempts < maxDirectTransientAttempts;
+              log?.warn?.(
+                "OPENCODE",
+                `${cid}upstream empty rejection on account ${masked} (${chatcmplId}), ${rotate ? "rotating to one alternate fingerprint…" : "stopping direct fingerprint wave"}`
+              );
+              if (!rotate) return result;
+              continue;
+            }
             log?.warn?.(
               "OPENCODE",
               `${cid}upstream empty rejection on account ${masked} (${chatcmplId}), rotating to next…`
