@@ -19,6 +19,7 @@ import {
   CHATGPT_EFFORT_MENU_SELECTOR,
   CHATGPT_EFFORT_ITEM_SELECTOR,
   CHATGPT_EFFORT_SLIDER_SELECTOR,
+  CHATGPT_SEND_BUTTON_SELECTOR,
   CHATGPT_STOP_BUTTON_SELECTOR,
   parseChatGptEffortSliderState,
 } from "../vendor/codex-chatgpt-web/chatgpt-session.ts";
@@ -280,7 +281,7 @@ async function executeChatGptWebDomFallback(
   const form = composer.locator("xpath=ancestor::form[1]");
   await composer.fill(request.prompt);
 
-  const send = form.getByTestId("send-button");
+  const send = form.locator(CHATGPT_SEND_BUTTON_SELECTOR).filter({ visible: true }).last();
   const sendDeadline = Date.now() + 10_000;
   while (!(await send.isEnabled().catch(() => false))) {
     if (Date.now() >= sendDeadline) throw new Error("ChatGPT send button remained disabled");
