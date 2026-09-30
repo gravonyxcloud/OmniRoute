@@ -296,75 +296,168 @@ async function discoverFirstPartyModule(page: Page): Promise<FirstPartyModuleRes
   });
 }
 
+function buildBridgeModuleSource(
+  assetUrl: string,
+  contract: ChatGptWebFirstPartyModuleContract
+): string {
+  const urlLiteral = JSON.stringify(requireChatGptAssetUrl(assetUrl));
+  const contractLiteral = JSON.stringify(contract);
+  const keyLiteral = JSON.stringify(FIRST_PARTY_BRIDGE_KEY);
+  return [
+    `import * as upstream from ${urlLiteral};`,
+    `const names = ${contractLiteral};`,
+    `window[${keyLiteral}] = {`,
+    `finalizeRequirements: upstream[names.finalizeRequirements],`,
+    `proofManager: upstream[names.proofManager],`,
+    `turnstileManager: upstream[names.turnstileManager],`,
+    `requestClient: upstream[names.requestClient],`,
+    `buildSentinelHeaders: upstream[names.buildSentinelHeaders]`,
+    `};`,
+  ].join("");
+}
+
+/// One captured explanation for why the bridge module did not load.
+export interface ChatGptWebBridgeFailureSignal {
+  kind: "csp" | "requestfailed" | "pageerror";
+  detail: string;
+}
+
+/**
+ * Collector for the reasons a bridge load can fail. `script.onerror` receives a
+ * bare `Event` with no reason attached, so without these listeners the only
+ * thing reaching the operator is "failed to load" (#14773).
+ *
+ * Returns a live array plus a `dispose` that detaches the listeners, so a failed
+ * load does not leak handlers onto a long-lived page.
+ */
+export function collectBridgeFailureSignals(
+  page: Pick<Page, "on" | "off">,
+  assetUrl: string
+): { signals: ChatGptWebBridgeFailureSignal[]; dispose: () => void } {
+  const signals: ChatGptWebBridgeFailureSignal[] = [];
+
+  const onRequestFailed = (request: {
+    url: () => string;
+    failure: () => { errorText: string } | null;
+  }) => {
+    const url = request.url();
+    // Only the module asset and the blob wrapper matter here. The page keeps
+    // making its own requests while we wait, and an unrelated failure would be
+    // a misleading explanation rather than no explanation.
+    if (url !== assetUrl && !url.startsWith("blob:")) return;
+    signals.push({
+      kind: "requestfailed",
+      detail: `${url} failed: ${request.failure()?.errorText ?? "unknown error"}`,
+    });
+  };
+  const onPageError = (error: unknown) => {
+    signals.push({
+      kind: "pageerror",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  };
+
+  page.on("requestfailed", onRequestFailed as never);
+  page.on("pageerror", onPageError as never);
+
+  return {
+    signals,
+    dispose: () => {
+      page.off("requestfailed", onRequestFailed as never);
+      page.off("pageerror", onPageError as never);
+    },
+  };
+}
+
+/**
+ * Compose the operator-facing reason from whatever was captured.
+ *
+ * A CSP violation wins when present: it is the one cause that is a property of
+ * chatgpt.com rather than of this install, so it is the signal that says
+ * "the upstream changed" rather than "your session is stale" (#14773 problem 2).
+ */
+export function describeBridgeLoadFailure(signals: ChatGptWebBridgeFailureSignal[]): string {
+  const base = "ChatGPT Web first-party bridge module failed to load";
+  if (signals.length === 0) {
+    return `${base} (no CSP violation, failed request or page error was captured)`;
+  }
+  const ranked =
+    signals.find((signal) => signal.kind === "csp") ??
+    signals.find((signal) => signal.kind === "requestfailed") ??
+    signals[0]!;
+  return `${base}: ${ranked.kind}: ${ranked.detail}`;
+}
+
 async function ensureFirstPartyBridge(page: Page): Promise<void> {
   const ready = await page.evaluate((key) => {
     const root = globalThis as typeof globalThis & Record<string, unknown>;
-    const bridge = root[key] as {
-      finalizeRequirements?: unknown;
-      proofManager?: { getEnforcementToken?: unknown };
-      turnstileManager?: { getEnforcementToken?: unknown };
-      requestClient?: { safePost?: unknown };
-      buildSentinelHeaders?: unknown;
-    } | null;
-    return Boolean(
-      bridge &&
-      typeof bridge.finalizeRequirements === "function" &&
-      typeof bridge.proofManager?.getEnforcementToken === "function" &&
-      typeof bridge.turnstileManager?.getEnforcementToken === "function" &&
-      typeof bridge.requestClient?.safePost === "function" &&
-      typeof bridge.buildSentinelHeaders === "function"
-    );
+    return typeof root[key] === "object" && root[key] !== null;
   }, FIRST_PARTY_BRIDGE_KEY);
   if (ready) return;
 
   const { assetUrl, contract } = await discoverFirstPartyModule(page);
-  await page.evaluate(
-    async ({ bridgeKey, assetUrl: url, contract: names }) => {
-      const root = globalThis as typeof globalThis & Record<string, unknown>;
-      const existing = root[bridgeKey] as {
-        finalizeRequirements?: unknown;
-        proofManager?: { getEnforcementToken?: unknown };
-        turnstileManager?: { getEnforcementToken?: unknown };
-        requestClient?: { safePost?: unknown };
-        buildSentinelHeaders?: unknown;
-      } | null;
-      const existingReady = Boolean(
-        existing &&
-        typeof existing.finalizeRequirements === "function" &&
-        typeof existing.proofManager?.getEnforcementToken === "function" &&
-        typeof existing.turnstileManager?.getEnforcementToken === "function" &&
-        typeof existing.requestClient?.safePost === "function" &&
-        typeof existing.buildSentinelHeaders === "function"
-      );
-      if (existingReady) return;
-
-      // A previous page version can leave an incomplete bridge behind after a
-      // failed import or an HMR refresh. Replace it instead of treating the
-      // presence of any object as success.
-      delete root[bridgeKey];
-
-      // Import the validated first-party URL in the page's module context. A blob
-      // script is rejected by ChatGPT's CSP even when its imported asset is allowed.
-      // Keep this import native: the callback is serialized and runs in Chromium,
-      // where server-side bundler helpers are unavailable.
-      const upstream = await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ url);
-      root[bridgeKey] = {
-        finalizeRequirements: upstream[names.finalizeRequirements],
-        proofManager: upstream[names.proofManager],
-        turnstileManager: upstream[names.turnstileManager],
-        requestClient: upstream[names.requestClient],
-        buildSentinelHeaders: upstream[names.buildSentinelHeaders],
-      };
-    },
-    { bridgeKey: FIRST_PARTY_BRIDGE_KEY, assetUrl: requireChatGptAssetUrl(assetUrl), contract }
-  );
+  const moduleSource = buildBridgeModuleSource(assetUrl, contract);
+  const collected = collectBridgeFailureSignals(page, assetUrl);
+  try {
+    await page.evaluate(
+      ({ bridgeKey, moduleSource: source }) =>
+        new Promise<void>((resolve, reject) => {
+          const root = globalThis as typeof globalThis & Record<string, unknown>;
+          if (typeof root[bridgeKey] === "object" && root[bridgeKey] !== null) {
+            resolve();
+            return;
+          }
+          // A CSP `script-src` refusal is only observable inside the page: it
+          // does not surface as a failed request, and `script.onerror` carries
+          // no reason. Captured here and folded into the rejection so it
+          // survives back across the evaluate boundary.
+          let cspDetail = "";
+          const onViolation = (event: SecurityPolicyViolationEvent) => {
+            if (!cspDetail) {
+              cspDetail = `${event.violatedDirective} blocked ${event.blockedURI}`;
+            }
+          };
+          document.addEventListener("securitypolicyviolation", onViolation);
+          const done = (blobUrl: string) => {
+            URL.revokeObjectURL(blobUrl);
+            document.removeEventListener("securitypolicyviolation", onViolation);
+          };
+          const blobUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+          const script = document.createElement("script");
+          script.type = "module";
+          script.src = blobUrl;
+          script.onload = () => {
+            done(blobUrl);
+            if (typeof root[bridgeKey] === "object" && root[bridgeKey] !== null) resolve();
+            else reject(new Error("ChatGPT Web first-party bridge did not initialize"));
+          };
+          script.onerror = () => {
+            done(blobUrl);
+            reject(new Error(cspDetail ? `csp: ${cspDetail}` : "no in-page reason"));
+          };
+          document.head.appendChild(script);
+        }),
+      { bridgeKey: FIRST_PARTY_BRIDGE_KEY, moduleSource }
+    );
+  } catch (error) {
+    const inPage = error instanceof Error ? error.message : String(error);
+    const signals = [...collected.signals];
+    if (inPage.startsWith("csp: ")) {
+      signals.unshift({ kind: "csp", detail: inPage.slice("csp: ".length) });
+    } else if (inPage && inPage !== "no in-page reason") {
+      signals.push({ kind: "pageerror", detail: inPage });
+    }
+    // `cause` keeps the original for anyone reading a stack; the message is what
+    // reaches the operator log through buildErrorBody()/sanitizeErrorMessage().
+    throw new Error(describeBridgeLoadFailure(signals), { cause: error });
+  } finally {
+    collected.dispose();
+  }
 }
 
 function directModel(selection: ChatGptWebUiSelection): { model: string; reason: boolean } {
   if (selection.kind === "free") return { model: "auto", reason: selection.thinkEnabled };
-  if (selection.modelLabel === "GPT-6 Pro") {
-    return { model: "gpt-6-pro", reason: false };
-  }
+  if (selection.modelLabel === "GPT-6 Pro") return { model: "gpt-6-pro", reason: false };
   const base = selection.modelLabel === "GPT-5.6 Sol" ? "gpt-5-6" : "gpt-5-5";
   if (selection.effortIndex === 4) return { model: `${base}-pro`, reason: false };
   return { model: base, reason: selection.effortIndex > 0 };

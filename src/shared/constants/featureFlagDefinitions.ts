@@ -267,10 +267,10 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     key: "OPENCODE_RATE_LIMITED_429_EARLY_STOP",
     label: "OpenCode Rate-Limited 429 Early Stop",
     description:
-      "For the OpenCode multi-account rotation, stop the account wave at the first 429 classified as a real rate limit (a parseable Retry-After header, or a body naming a rate/usage limit) and return that upstream 429 unchanged (status, body, Retry-After and quota headers), instead of trying every remaining account. Unclassified 429s keep rotating. Off by default: the free tier is limited per egress IP (#9611), so every 429 rotates to the next account, and an exhausted wave returns the last upstream 429.",
+      "For the OpenCode multi-account rotation, stop the account wave at the first 429 classified as a real rate limit (a parseable Retry-After header, or a body naming a rate/usage limit) and return that upstream 429 unchanged (status, body, Retry-After and quota headers), instead of trying every remaining account. Unclassified 429s keep rotating. Enabled by default to prevent very large fingerprint pools from turning one rate-limited request into minutes of cross-account retries.",
     descriptionI18nKey: "featureFlagOpencodeRateLimited429EarlyStopDescription",
     category: "network",
-    defaultValue: "false",
+    defaultValue: "true",
     type: "boolean",
     requiresRestart: false,
     warningLevel: "caution",

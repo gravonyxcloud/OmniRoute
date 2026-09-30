@@ -15,8 +15,8 @@ import { getProviderErrorRuleMatch } from "../../open-sse/config/providerErrorRu
 import { resetDbInstance } from "../../src/lib/db/core.ts";
 
 // #13657 rework: the 429 classifier is kept; stopping the cross-account wave at a
-// classified 429 is opt-in (OPENCODE_RATE_LIMITED_429_EARLY_STOP, default off —
-// the free tier is per egress IP, #9611). Whatever ends the wave, the client gets
+// classified 429 is controlled by OPENCODE_RATE_LIMITED_429_EARLY_STOP and is
+// enabled by default to avoid pathological rotation through very large pools. Whatever ends the wave, the client gets
 // the REAL last upstream 429 (status, body, Retry-After, quota headers), never a
 // synthetic drain, so the opencode provider error rules keep matching it.
 const FLAG = "OPENCODE_RATE_LIMITED_429_EARLY_STOP";
@@ -178,7 +178,7 @@ describe("OpencodeExecutor 429 wave", () => {
   };
 
   it("flag off: a classified 429 still rotates to the next account (#9611)", async () => {
-    delete process.env[FLAG];
+    process.env[FLAG] = "false";
     const exec = new OpencodeExecutor("opencode-zen");
     installFetch([RATE_LIMITED, { status: 200 }]);
 
@@ -190,7 +190,7 @@ describe("OpencodeExecutor 429 wave", () => {
   });
 
   it("flag off: an exhausted wave returns the last real upstream 429 untouched", async () => {
-    delete process.env[FLAG];
+    process.env[FLAG] = "false";
     const exec = new OpencodeExecutor("opencode-zen");
     installFetch([
       { status: 429, body: '{"error":"first"}' },
