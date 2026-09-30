@@ -21,8 +21,9 @@ export interface ChatGptWebFirstPartyRequest {
 export type ChatGptWebUiSelection =
   | {
       kind: "picker";
-      modelLabel: "GPT-5.6 Sol" | "GPT-5.5";
+      modelLabel: "GPT-6 Pro" | "GPT-5.6 Sol" | "GPT-5.5";
       effortIndex: 0 | 1 | 2 | 3 | 4;
+      fixedModel?: boolean;
     }
   | {
       kind: "free";
@@ -359,6 +360,9 @@ async function ensureFirstPartyBridge(page: Page): Promise<void> {
 
 function directModel(selection: ChatGptWebUiSelection): { model: string; reason: boolean } {
   if (selection.kind === "free") return { model: "auto", reason: selection.thinkEnabled };
+  if (selection.modelLabel === "GPT-6 Pro") {
+    return { model: "gpt-6-pro", reason: false };
+  }
   const base = selection.modelLabel === "GPT-5.6 Sol" ? "gpt-5-6" : "gpt-5-5";
   if (selection.effortIndex === 4) return { model: `${base}-pro`, reason: false };
   return { model: base, reason: selection.effortIndex > 0 };

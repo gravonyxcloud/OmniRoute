@@ -189,7 +189,14 @@ async function selectPickerMode(page: Page, selection: Extract<ChatGptWebUiSelec
     }
     await exact.first().click();
     await new Promise((resolve) => setTimeout(resolve, 250));
+    if (selection.fixedModel) {
+      await page.keyboard.press("Escape").catch(() => {});
+      return;
+    }
     menu = await openMenu();
+  } else if (selection.fixedModel) {
+    await page.keyboard.press("Escape").catch(() => {});
+    return;
   }
 
   const slider = page.locator(CHATGPT_EFFORT_SLIDER_SELECTOR).filter({ visible: true }).last();

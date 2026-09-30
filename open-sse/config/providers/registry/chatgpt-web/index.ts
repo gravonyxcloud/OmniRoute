@@ -22,6 +22,13 @@ export const chatgpt_webProvider: RegistryEntry = {
   authType: "apikey",
   authHeader: "cookie",
   models: [
+    {
+      id: "gpt-6-pro",
+      name: "GPT-6 Pro (Astra)",
+      aliases: ["gpt-6-astra"],
+      ...FIXED_TEXT,
+      supportsReasoning: true,
+    },
     { id: "gpt-5-6", name: "GPT-5.6 Sol — Instant", ...FIXED_TEXT },
     {
       id: "gpt-5-6-thinking",

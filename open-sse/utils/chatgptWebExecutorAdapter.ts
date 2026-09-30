@@ -289,6 +289,9 @@ function normalizedModel(value: string): string {
 
 function resolveSelection(model: string, body: JsonRecord): ChatGptWebUiSelection {
   const normalized = normalizedModel(model);
+  if (normalized === "gpt-6-pro" || normalized === "gpt-6-astra") {
+    return { kind: "picker", modelLabel: "GPT-6 Pro", effortIndex: 0, fixedModel: true };
+  }
   if (normalized === "gpt-5-6-luna-free") {
     return { kind: "free", thinkEnabled: false };
   }

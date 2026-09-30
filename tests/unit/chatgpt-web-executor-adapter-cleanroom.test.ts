@@ -13,6 +13,17 @@ import { resolveChatGptWebAttachments } from "../../open-sse/utils/chatgptWebAtt
 import type { ChatGptWebBrowserSession } from "../../open-sse/utils/chatgptWebBrowserSession.ts";
 
 describe("ChatGPT Web clean-room executor request adapter", () => {
+  test("maps GPT-6 Pro and its Astra alias to the fixed ChatGPT picker entry", () => {
+    for (const model of ["gpt-6-pro", "gpt-6-astra", "chatgpt-web/gpt-6-pro"]) {
+      assert.deepEqual(
+        prepareChatGptWebBrowserRequest(model, {
+          messages: [{ role: "user", content: "hello" }],
+        }).selection,
+        { kind: "picker", modelLabel: "GPT-6 Pro", effortIndex: 0, fixedModel: true }
+      );
+    }
+  });
+
   test("maps observed 5.6 modes without treating Pro as max effort", () => {
     assert.deepEqual(
       prepareChatGptWebBrowserRequest("gpt-5-6-thinking", {
