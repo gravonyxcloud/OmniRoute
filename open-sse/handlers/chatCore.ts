@@ -135,6 +135,10 @@ import {
 import { injectResponseLanguageDirective } from "./chatCore/responseLanguage.ts";
 import { resolveClientRoutingIdentity } from "./chatCore/clientRoutingIdentity.ts";
 import {
+  resolveEmergencyComboCompactionTarget,
+  shouldApplyEmergencyComboCompaction,
+} from "./chatCore/emergencyComboContext.ts";
+import {
   buildDirectIdentityMaskText,
   injectIdentityMask,
   isIdentityMaskingEnabled,
@@ -2204,13 +2208,30 @@ export async function handleChatCore({
 
   // Last-resort compaction against the concrete input budget (not the 70% threshold).
   // Covers cases where the proactive pass was skipped or still left the request oversized (#8560).
+  // Commercial/regular combo routing also gets an emergency safety pass even when the
+  // dashboard compression switch is OFF: a long-running client history should not die
+  // merely because one selected target has a smaller window. This pass keeps system /
+  // developer instructions and the newest tool-safe turns, dropping older history only
+  // when the hard window is actually exceeded.
+  const emergencyComboCompaction = shouldApplyEmergencyComboCompaction({
+    isCombo,
+    reactiveContextCompactionEnabled,
+    nativeCodexPassthrough,
+    estimatedInputTokens: finalEstimatedInputTokens,
+    contextLimit: finalContextLimit,
+  });
   if (
-    reactiveContextCompactionEnabled &&
+    (reactiveContextCompactionEnabled || emergencyComboCompaction) &&
     !nativeCodexPassthrough &&
     finalEstimatedInputTokens >= finalContextLimit &&
     body
   ) {
-    const lastResortTarget = Math.max(1, finalContextLimit - toolsReserve - 1);
+    const lastResortTarget = emergencyComboCompaction
+      ? resolveEmergencyComboCompactionTarget({
+          contextLimit: finalContextLimit,
+          toolsReserve,
+        })
+      : Math.max(1, finalContextLimit - toolsReserve - 1);
     const lastResortAdapter = adaptBodyForCompression(body as Record<string, unknown>);
     const lastResortResult = compressContext(lastResortAdapter.body, {
       provider,

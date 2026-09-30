@@ -233,7 +233,10 @@ function buildHistoryBody(turns: number, finalMessageChars: number) {
   return { model: CHATCORE_PROBE_MODEL, messages, stream: false };
 }
 
-async function invokeChatCoreCapturingUpstream(body: Record<string, unknown>) {
+async function invokeChatCoreCapturingUpstream(
+  body: Record<string, unknown>,
+  options: { isCombo?: boolean; comboName?: string } = {}
+) {
   const originalFetch = globalThis.fetch;
   let dispatched = false;
   let sentBodyJson: string | null = null;
@@ -269,6 +272,8 @@ async function invokeChatCoreCapturingUpstream(body: Record<string, unknown>) {
         headers: new Headers({ accept: "application/json" }),
       },
       userAgent: "unit-test",
+      isCombo: options.isCombo === true,
+      comboName: options.comboName ?? null,
     } as never);
     return { result, dispatched, sentBodyJson };
   } finally {
@@ -303,6 +308,38 @@ test("#10503 real chatCore path: a compressible request dispatches the COMPRESSE
         `smaller than the raw request (${rawLen} chars) — proves compression actually ran ` +
         `and its output (not the raw body) is what reached upstream`
     );
+  } finally {
+    if (originalEnv === undefined) delete process.env[CHATCORE_LIMIT_ENV];
+    else process.env[CHATCORE_LIMIT_ENV] = originalEnv;
+  }
+});
+
+test("combo emergency compaction keeps long-running history alive even when global compression is off", async () => {
+  const originalEnv = process.env[CHATCORE_LIMIT_ENV];
+  process.env[CHATCORE_LIMIT_ENV] = "500";
+  await updateCompressionSettings({
+    enabled: false,
+    defaultMode: "off",
+    autoTriggerTokens: 0,
+    autoTriggerMode: "off",
+    engines: { rtk: { enabled: false }, caveman: { enabled: false } },
+  } as never);
+  try {
+    const body = buildHistoryBody(150, 50);
+    const rawLen = JSON.stringify(body.messages).length;
+
+    const { dispatched, sentBodyJson } = await invokeChatCoreCapturingUpstream(body, {
+      isCombo: true,
+      comboName: "emergency-history-combo",
+    });
+
+    assert.equal(dispatched, true, "combo overflow should compact and continue instead of hard-400");
+    assert.ok(sentBodyJson, "the compacted request must be dispatched");
+    assert.ok(
+      sentBodyJson!.length < rawLen * 0.75,
+      "expected emergency combo compaction to shrink history (" + sentBodyJson!.length + " vs " + rawLen + ")"
+    );
+    assert.match(sentBodyJson!, /Context compressed:/);
   } finally {
     if (originalEnv === undefined) delete process.env[CHATCORE_LIMIT_ENV];
     else process.env[CHATCORE_LIMIT_ENV] = originalEnv;

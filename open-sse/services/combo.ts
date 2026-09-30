@@ -9,6 +9,7 @@ import { errorResponseWithComboDiagnostics } from "../utils/error.ts";
 
 import { recordComboFailure } from "./combo/failureTracker.ts";
 import { buildRecoveryHint } from "./combo/pinRecovery.ts";
+import { sanitizeComboClientErrorResponse } from "./combo/clientErrorSanitizer.ts";
 import { buildTargetTimeoutRunner } from "./combo/targetTimeoutRunner.ts";
 import { getComboMetrics } from "./comboMetrics.ts";
 import { qualityScoreFor } from "./routing/index.ts";
@@ -624,13 +625,19 @@ export async function resolveTargetTimeoutMsForTarget(
 export async function handleComboChat(options: HandleComboChatOptions): Promise<Response> {
   const traceInvocationId = options.invocationId ?? createInvocationId();
   const response = await handleComboChatInner({ ...options, invocationId: traceInvocationId });
-  response.headers.set("X-OmniRoute-Combo-Trace", traceInvocationId);
+  // Nested combo responses remain raw so the parent router can classify/fallback
+  // using full internal detail. Only the top-level client boundary is sanitized.
+  const clientResponse =
+    options.nesting == null
+      ? await sanitizeComboClientErrorResponse(response, options.combo)
+      : response;
+  clientResponse.headers.set("X-OmniRoute-Combo-Trace", traceInvocationId);
   const trace = getComboTrace(traceInvocationId);
   options.log.info(
     "COMBO",
     `combo trace ${traceInvocationId} terminal=${JSON.stringify(trace?.terminal ?? null)} decisions=${trace?.decisions.length ?? 0}`
   );
-  return response;
+  return clientResponse;
 }
 
 async function handleComboChatInner({
