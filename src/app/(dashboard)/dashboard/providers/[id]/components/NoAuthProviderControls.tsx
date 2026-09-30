@@ -147,6 +147,7 @@ export default function NoAuthProviderControls({
         providerId={providerId}
         providerName={accountProviderName}
         generateAccountId={() => crypto.randomUUID().replace(/-/g, "")}
+        enableBulkAccountAdd={providerId === "opencode"}
         generateApiKey={
           providerId === "dahl"
             ? async () => {

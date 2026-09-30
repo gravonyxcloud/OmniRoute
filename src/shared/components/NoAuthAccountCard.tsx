@@ -12,6 +12,7 @@ interface NoAuthAccountCardProps {
   providerName: string;
   generateAccountId: () => string;
   generateApiKey?: () => Promise<string>;
+  enableBulkAccountAdd?: boolean;
   dataKey?: string;
   description?: string;
   addLabel?: string;
@@ -63,6 +64,8 @@ const PROXY_TYPES = [
   { value: "socks5", label: "SOCKS5" },
 ];
 
+const MAX_BULK_ACCOUNT_ADD = 1000;
+
 function getAccountProxies(conn: Connection | undefined): AccountProxyConfig[] {
   return (conn?.providerSpecificData?.accountProxies as AccountProxyConfig[]) || [];
 }
@@ -94,6 +97,7 @@ export default function NoAuthAccountCard({
   providerName,
   generateAccountId,
   generateApiKey,
+  enableBulkAccountAdd = false,
   dataKey = "fingerprints",
   description,
   addLabel,
@@ -109,6 +113,7 @@ export default function NoAuthAccountCard({
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [accountAddCount, setAccountAddCount] = useState(1);
   const [proxyAccountId, setProxyAccountId] = useState<string | null>(null);
   const [proxyMode, setProxyMode] = useState<"saved" | "custom">("saved");
   const [savedProxies, setSavedProxies] = useState<SavedProxy[]>([]);
@@ -182,7 +187,10 @@ export default function NoAuthAccountCard({
   const handleAddAccount = async () => {
     setAdding(true);
     try {
-      const accountId = generateAccountId();
+      const count = enableBulkAccountAdd
+        ? Math.min(MAX_BULK_ACCOUNT_ADD, Math.max(1, Math.trunc(accountAddCount) || 1))
+        : 1;
+      const accountIds = Array.from({ length: count }, () => generateAccountId());
       const apiKey = generateApiKey ? await generateApiKey() : undefined;
       if (connections.length === 0) {
         const res = await fetch("/api/providers", {
@@ -192,7 +200,7 @@ export default function NoAuthAccountCard({
             provider: providerId,
             name: t("accountName", { provider: providerName, number: 1 }),
             ...(apiKey ? { apiKey } : {}),
-            providerSpecificData: { [dataKey]: [accountId] },
+            providerSpecificData: { [dataKey]: accountIds },
           }),
         });
         if (!res.ok) {
@@ -200,7 +208,7 @@ export default function NoAuthAccountCard({
           throw new Error(errData?.error || t("createConnectionFailed"));
         }
       } else {
-        const updated = [...allAccountIds, accountId];
+        const updated = [...allAccountIds, ...accountIds];
         const res = await fetch(`/api/providers/${conn.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -395,8 +403,34 @@ export default function NoAuthAccountCard({
                 size="sm"
               />
             )}
+            {enableBulkAccountAdd && (
+              <input
+                data-testid="bulk-account-count"
+                type="number"
+                min={1}
+                max={MAX_BULK_ACCOUNT_ADD}
+                step={1}
+                value={accountAddCount || ""}
+                onChange={(e) => setAccountAddCount(Number(e.target.value))}
+                onBlur={() =>
+                  setAccountAddCount((value) =>
+                    Math.min(MAX_BULK_ACCOUNT_ADD, Math.max(1, Math.trunc(value) || 1))
+                  )
+                }
+                disabled={adding || !enabled}
+                title={resolvedAddLabel}
+                className="w-20 rounded-md border border-black/10 bg-bg px-2 py-1 text-center text-xs tabular-nums dark:border-white/10"
+              />
+            )}
             <Button size="sm" icon="add" onClick={handleAddAccount} disabled={adding || !enabled}>
-              {adding ? t("adding") : resolvedAddLabel}
+              {adding
+                ? t("adding")
+                : enableBulkAccountAdd && accountAddCount > 1
+                  ? `${resolvedAddLabel} ×${Math.min(
+                      MAX_BULK_ACCOUNT_ADD,
+                      Math.max(1, Math.trunc(accountAddCount) || 1)
+                    )}`
+                  : resolvedAddLabel}
             </Button>
             {showManualKeyInput && (
               <div className="flex items-center gap-2">

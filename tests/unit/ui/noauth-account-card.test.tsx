@@ -43,7 +43,7 @@ function setupFetch(fingerprints: string[]) {
 
 const containers: Array<{ root: ReturnType<typeof createRoot>; el: HTMLDivElement }> = [];
 
-function renderCard() {
+function renderCard(enableBulkAccountAdd = false) {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
@@ -54,6 +54,7 @@ function renderCard() {
         providerId={PROVIDER_ID}
         providerName="MiMoCode"
         generateAccountId={() => `gen-${counter++}`}
+        enableBulkAccountAdd={enableBulkAccountAdd}
       />
     );
   });
@@ -181,6 +182,69 @@ function setupFetchWithProxies(fingerprints: string[], accountProxies: unknown[]
   vi.stubGlobal("fetch", mockFetch);
   return { mockFetch, putBodies };
 }
+
+describe("NoAuthAccountCard bulk account add", () => {
+  it("adds 100 generated accounts with a single provider update", async () => {
+    const fps = makeFingerprints(2);
+    const { putBodies } = setupFetchWithProxies(fps);
+    const el = renderCard(true);
+    await waitForCondition(() => grid(el)?.querySelectorAll("[data-account-id]").length === 2);
+
+    const countInput = el.querySelector<HTMLInputElement>("[data-testid='bulk-account-count']")!;
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value"
+    )!.set!;
+    act(() => {
+      setter.call(countInput, "100");
+      countInput.dispatchEvent(new Event("input", { bubbles: true }));
+      countInput.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await waitForCondition(() => el.textContent?.includes("Add Account ×100") ?? false);
+    const addBtn = Array.from(el.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Add Account ×100")
+    )!;
+    act(() => addBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    await waitForCondition(() => putBodies.length > 0);
+    expect(putBodies).toHaveLength(1);
+    const body = putBodies[0] as { providerSpecificData?: { fingerprints?: string[] } };
+    const stored = body.providerSpecificData?.fingerprints ?? [];
+    expect(stored).toHaveLength(102);
+    expect(stored.slice(0, 2)).toEqual(fps);
+    expect(stored.slice(2)).toEqual(
+      Array.from({ length: 100 }, (_, index) => `gen-${index}`)
+    );
+  });
+
+  it("clamps a bulk add operation to 1000 accounts", async () => {
+    const fps = makeFingerprints(1);
+    const { putBodies } = setupFetchWithProxies(fps);
+    const el = renderCard(true);
+    await waitForCondition(() => grid(el)?.querySelectorAll("[data-account-id]").length === 1);
+
+    const countInput = el.querySelector<HTMLInputElement>("[data-testid='bulk-account-count']")!;
+    const setter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value"
+    )!.set!;
+    act(() => {
+      setter.call(countInput, "5000");
+      countInput.dispatchEvent(new Event("input", { bubbles: true }));
+      countInput.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const addBtn = Array.from(el.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Add Account ×1000")
+    )!;
+    act(() => addBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    await waitForCondition(() => putBodies.length > 0);
+    const body = putBodies[0] as { providerSpecificData?: { fingerprints?: string[] } };
+    expect(body.providerSpecificData?.fingerprints).toHaveLength(1001);
+  });
+});
 
 describe("NoAuthAccountCard proxy pool dropdown (#5217 Gap 1)", () => {
   it("defaults the editor to the Saved Proxy Pool dropdown when pool proxies exist", async () => {
