@@ -805,6 +805,22 @@ export class OpencodeExecutor extends BaseExecutor {
         transientStreak = 0;
 
         const status = result.response.status;
+
+        // A 401 is credential-scoped, not fingerprint/proxy-scoped. Every
+        // fingerprint in this executor shares the same provider credential, so
+        // rotating through hundreds/thousands of fingerprints after an invalid
+        // API key only multiplies latency and can make model tests appear hung.
+        // Surface the first 401 immediately so the combo/router can advance to a
+        // synthetic noauth candidate or the next provider.
+        if (status === 401) {
+          log?.warn?.(
+            "OPENCODE",
+            `${cid}authentication failed (401) on account ${masked}; stopping account rotation`
+          );
+          markOutcome(account, result.response);
+          return result;
+        }
+
         if (status === 429) {
           markCooldown(account);
           // The provider refused through this member: set it aside beyond the account

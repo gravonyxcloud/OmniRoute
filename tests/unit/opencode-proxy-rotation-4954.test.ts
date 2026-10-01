@@ -146,6 +146,27 @@ describe("OpencodeExecutor per-account proxy + rotation (#4954)", () => {
     );
   });
 
+  it("stops immediately on a 401 instead of rotating identical credentials", async () => {
+    const exec = new OpencodeExecutor("opencode-zen");
+    installFetchStub([401, 200]);
+
+    const result = await exec.execute({
+      model: "deepseek-v4-flash-free",
+      body: { messages: [{ role: "user", content: "hi" }], stream: false },
+      stream: false,
+      signal: null,
+      credentials: credentialsWithProxies(),
+      log,
+    });
+
+    assert.strictEqual((result as any).response.status, 401);
+    assert.strictEqual(
+      observed.length,
+      1,
+      "401 must stop the fingerprint wave because every fingerprint shares the same credential"
+    );
+  });
+
   it("rotates to the next account (and its proxy) on a 429", async () => {
     const exec = new OpencodeExecutor("opencode-zen");
     // first account → 429, second account → 200
