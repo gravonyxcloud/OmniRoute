@@ -44,6 +44,15 @@ function isConnectionHealthy(connection: ProviderConnectionView): boolean {
   const status = (connection.testStatus || "").trim().toLowerCase();
   if (TERMINAL_TEST_STATUSES.has(status)) return false;
   if (status === "unavailable") return false;
+
+  // Optional-key noauth providers must never prefer a credential that has
+  // already been classified as authentication-invalid. Otherwise every free
+  // request burns time on a known-dead key before reaching the synthetic
+  // noauth path (OpenCode free can make this look like an infinite hang).
+  const errorCode = String(connection.errorCode ?? "").trim();
+  const errorType = (connection.lastErrorType || "").trim().toLowerCase();
+  if (errorCode.startsWith("401") || errorType === "unauthorized") return false;
+
   return true;
 }
 

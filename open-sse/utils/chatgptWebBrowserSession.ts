@@ -11,9 +11,22 @@ import {
   ChatGptWebTopicStream,
   parseChatGptWebConversationHandoff,
 } from "./chatgptWebTransport.ts";
+import {
+  CHATGPT_ASSISTANT_TURN_SELECTOR,
+  CHATGPT_COMPOSER_SELECTOR,
+  CHATGPT_COMPLETION_ACTION_SELECTOR,
+  CHATGPT_EFFORT_CONTROL_SELECTOR,
+  CHATGPT_EFFORT_MENU_SELECTOR,
+  CHATGPT_EFFORT_ITEM_SELECTOR,
+  CHATGPT_EFFORT_SLIDER_SELECTOR,
+  CHATGPT_SEND_BUTTON_SELECTOR,
+  CHATGPT_STOP_BUTTON_SELECTOR,
+  parseChatGptEffortSliderState,
+} from "../vendor/codex-chatgpt-web/chatgpt-session.ts";
 
 type JsonRecord = Record<string, unknown>;
 type Page = import("playwright").Page;
+type Locator = import("playwright").Locator;
 
 const CHATGPT_WEB_ORIGIN = "https://chatgpt.com";
 const DEFAULT_TURN_TIMEOUT_MS = 180_000;
@@ -35,7 +48,9 @@ export interface ChatGptWebBrowserSessionHandlers {
 export interface ChatGptWebBrowserSession {
   url(): string;
   start(handlers: ChatGptWebBrowserSessionHandlers): Promise<() => Promise<void>>;
-  submitPrompt(request: ChatGptWebBrowserSubmission): Promise<string | void>;
+  submitPrompt(
+    request: ChatGptWebBrowserSubmission
+  ): Promise<string | ChatGptWebBrowserTurnResult | void>;
   readRenderedAssistantText?(timeoutMs?: number): Promise<string | null>;
 }
 
@@ -94,6 +109,235 @@ function requireFirstPartyUrl(value: string): void {
   if (url.origin !== CHATGPT_WEB_ORIGIN) {
     throw new Error("ChatGPT Web browser session requires the first-party chatgpt.com origin");
   }
+}
+
+function errorMessages(error: unknown): string {
+  const messages: string[] = [];
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof Error) {
+      messages.push(current.message);
+      current = current.cause;
+      continue;
+    }
+    messages.push(String(current));
+    break;
+  }
+  return messages.join(" | ");
+}
+
+export function isChatGptFirstPartyModuleFailure(error: unknown): boolean {
+  const message = errorMessages(error).toLowerCase();
+  return (
+    message.includes("first-party request module was not loaded") ||
+    message.includes("first-party module contract was not found") ||
+    message.includes("first-party module contract exports were not found") ||
+    message.includes("first-party bridge module failed to load")
+  );
+}
+
+async function visibleComposer(page: Page) {
+  const composers = page.locator(CHATGPT_COMPOSER_SELECTOR).filter({ visible: true });
+  await composers.last().waitFor({ state: "visible", timeout: 30_000 });
+  const count = await composers.count();
+  if (count < 1) throw new Error("ChatGPT Web DOM fallback could not find the composer");
+  return composers.last();
+}
+
+async function setLunaThinkMode(
+  composerForm: Locator,
+  enabled: boolean
+): Promise<void> {
+  const controls = composerForm
+    .getByRole("button", { name: "Think", exact: true })
+    .filter({ visible: true });
+  const count = await controls.count();
+  if (count === 0) {
+    if (enabled) throw new Error("ChatGPT Think control is not available");
+    return;
+  }
+  const control = controls.first();
+  const pressed = await control.getAttribute("aria-pressed");
+  if (pressed !== "true" && pressed !== "false") return;
+  if ((pressed === "true") !== enabled) await control.click();
+}
+
+async function selectPickerMode(page: Page, selection: Extract<ChatGptWebUiSelection, { kind: "picker" }>) {
+  const composer = await visibleComposer(page);
+  const form = composer.locator("xpath=ancestor::form[1]");
+  const control = form.locator(CHATGPT_EFFORT_CONTROL_SELECTOR).filter({ visible: true }).last();
+  await control.waitFor({ state: "visible", timeout: 30_000 });
+
+  const openMenu = async () => {
+    const menu = page.locator(CHATGPT_EFFORT_MENU_SELECTOR).filter({ visible: true }).last();
+    if (!(await menu.isVisible().catch(() => false))) await control.click({ force: true });
+    await menu.waitFor({ state: "visible", timeout: 15_000 });
+    return menu;
+  };
+
+  let menu = await openMenu();
+  const slider = page.locator(CHATGPT_EFFORT_SLIDER_SELECTOR).filter({ visible: true }).last();
+  const targetLabel = selection.uiLabel ?? selection.modelLabel;
+  const currentLabel = (await control.innerText().catch(() => "")).trim();
+  if (!currentLabel.includes(targetLabel)) {
+    const exact = menu
+      .locator('[role="menuitemradio"], [role="menuitem"], button')
+      .filter({ hasText: targetLabel })
+      .filter({ visible: true });
+    if ((await exact.count()) === 0) {
+      const canUseSlider =
+        selection.allowEffortControlFallback === true &&
+        (await slider.isVisible().catch(() => false));
+      if (!canUseSlider) {
+        await page.keyboard.press("Escape").catch(() => {});
+        throw new Error(
+          `ChatGPT Web mode is not available in the current account: ${targetLabel}`
+        );
+      }
+    } else {
+      await exact.first().click();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (selection.fixedModel) {
+        await page.keyboard.press("Escape").catch(() => {});
+        return;
+      }
+      menu = await openMenu();
+    }
+  } else if (selection.fixedModel) {
+    await page.keyboard.press("Escape").catch(() => {});
+    return;
+  }
+
+  if (await slider.isVisible().catch(() => false)) {
+    let state = parseChatGptEffortSliderState(
+      await slider.getAttribute("aria-valuemin"),
+      await slider.getAttribute("aria-valuemax"),
+      await slider.getAttribute("aria-valuenow")
+    );
+    if (!state) throw new Error("ChatGPT effort slider exposed an invalid state");
+    const target = state.min + selection.effortIndex;
+    if (target > state.max) {
+      throw new Error(`ChatGPT effort index ${selection.effortIndex} is unavailable`);
+    }
+    const owner = slider.locator("xpath=ancestor::*[@role='menuitem'][1]");
+    while (state.value !== target) {
+      const key = target > state.value ? "ArrowRight" : "ArrowLeft";
+      const previous = state.value;
+      await owner.press(key);
+      const deadline = Date.now() + 5_000;
+      do {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        state = parseChatGptEffortSliderState(
+          await slider.getAttribute("aria-valuemin"),
+          await slider.getAttribute("aria-valuemax"),
+          await slider.getAttribute("aria-valuenow")
+        );
+        if (!state) throw new Error("ChatGPT effort slider lost its semantic state");
+      } while (state.value === previous && Date.now() < deadline);
+      if (state.value === previous) throw new Error("ChatGPT effort slider did not move");
+    }
+    await page.keyboard.press("Escape").catch(() => {});
+    return;
+  }
+
+  const items = menu.locator(CHATGPT_EFFORT_ITEM_SELECTOR).filter({ visible: true });
+  if ((await items.count()) > selection.effortIndex) {
+    const item = items.nth(selection.effortIndex);
+    if ((await item.getAttribute("aria-checked")) !== "true") await item.click();
+  }
+  await page.keyboard.press("Escape").catch(() => {});
+}
+
+async function selectDomMode(page: Page, selection: ChatGptWebUiSelection): Promise<void> {
+  const composer = await visibleComposer(page);
+  const form = composer.locator("xpath=ancestor::form[1]");
+  if (selection.kind === "free") {
+    await setLunaThinkMode(form, selection.thinkEnabled);
+    return;
+  }
+  await selectPickerMode(page, selection);
+}
+
+async function readDomAssistantText(assistant: Locator): Promise<string> {
+  return assistant.evaluate((element) => {
+    const root = element as HTMLElement;
+    const markdown = [...root.querySelectorAll<HTMLElement>(".markdown")]
+      .filter((node) => !node.parentElement?.closest(".markdown"))
+      .filter((node) => node.closest("[data-streaming-response-status]") === null)
+      .filter((node) => node.closest('[data-testid^="cot-v5"]') === null)
+      .map((node) => node.innerText.trim())
+      .filter(Boolean);
+    return (markdown.join("\n\n") || root.innerText || "").trim();
+  });
+}
+
+async function executeChatGptWebDomFallback(
+  page: Page,
+  request: ChatGptWebBrowserSubmission,
+  selection: ChatGptWebUiSelection
+): Promise<ChatGptWebBrowserTurnResult> {
+  if (request.attachments.length > 0) {
+    throw new Error("ChatGPT Web DOM fallback does not support attachments");
+  }
+  if (request.signal?.aborted) throw new Error("ChatGPT Web browser turn aborted");
+  await selectDomMode(page, selection);
+
+  const assistants = page.locator(CHATGPT_ASSISTANT_TURN_SELECTOR);
+  const baseline = await assistants.count();
+  const composer = await visibleComposer(page);
+  const form = composer.locator("xpath=ancestor::form[1]");
+  await composer.fill(request.prompt);
+
+  const send = form.locator(CHATGPT_SEND_BUTTON_SELECTOR).filter({ visible: true }).last();
+  const sendDeadline = Date.now() + 10_000;
+  while (!(await send.isEnabled().catch(() => false))) {
+    if (Date.now() >= sendDeadline) throw new Error("ChatGPT send button remained disabled");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  await send.click();
+
+  const responseDeadline = Date.now() + DEFAULT_TURN_TIMEOUT_MS;
+  while ((await assistants.count()) <= baseline) {
+    if (request.signal?.aborted) throw new Error("ChatGPT Web browser turn aborted");
+    if (Date.now() >= responseDeadline) throw new Error("ChatGPT Web DOM fallback timed out");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const assistant = assistants.nth(baseline);
+  const completion = assistant.locator(CHATGPT_COMPLETION_ACTION_SELECTOR).last();
+  const stop = page.locator(CHATGPT_STOP_BUTTON_SELECTOR).filter({ visible: true }).last();
+  let lastText = "";
+  let stableSince = Date.now();
+
+  while (Date.now() < responseDeadline) {
+    if (request.signal?.aborted) throw new Error("ChatGPT Web browser turn aborted");
+    const text = await readDomAssistantText(assistant).catch(() => "");
+    if (text !== lastText) {
+      lastText = text;
+      stableSince = Date.now();
+    }
+    const done =
+      (await completion.isVisible().catch(() => false)) ||
+      (!(await stop.isVisible().catch(() => false)) &&
+        lastText.length > 0 &&
+        Date.now() - stableSince >= 1_500);
+    if (done && lastText) {
+      const identity =
+        (await assistant.getAttribute("data-testid").catch(() => null)) ??
+        `dom-turn-${Date.now()}`;
+      const conversationId = page.url().match(/\/c\/([^/?#]+)/)?.[1] ?? "temporary";
+      return {
+        conversationId,
+        turnExchangeId: identity,
+        text: lastText,
+        status: "finished_successfully",
+        endTurn: true,
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error("ChatGPT Web DOM fallback timed out waiting for the assistant response");
 }
 
 function maybeTerminalResult(
@@ -358,9 +602,13 @@ class ChatGptWebBrowserTurnRunner {
         signal: this.turnController.signal,
       })
       .then((directResponse) => {
-        if (typeof directResponse !== "string" || this.settled) return;
+        if (this.settled || !directResponse) return;
         this.settled = true;
-        this.resolveResult(parseChatGptWebDirectConversation(directResponse));
+        this.resolveResult(
+          typeof directResponse === "string"
+            ? parseChatGptWebDirectConversation(directResponse)
+            : directResponse
+        );
       })
       .catch((error: unknown) => {
         this.fail(turnError(error, "ChatGPT Web prompt submission failed"));
@@ -462,17 +710,27 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
     }
   }
 
-  async submitPrompt(request: ChatGptWebBrowserSubmission): Promise<string> {
+  async submitPrompt(
+    request: ChatGptWebBrowserSubmission
+  ): Promise<string | ChatGptWebBrowserTurnResult> {
     if (!this.selection) throw new Error("ChatGPT Web direct request requires a model selection");
     requireFirstPartyUrl(this.page.url());
-    return this.executePageRequest(
-      this.page,
-      {
-        prompt: requirePrompt(request.prompt),
-        attachments: request.attachments,
-        selection: this.selection,
-      },
-      { signal: request.signal }
-    );
+    try {
+      return await this.executePageRequest(
+        this.page,
+        {
+          prompt: requirePrompt(request.prompt),
+          attachments: request.attachments,
+          selection: this.selection,
+        },
+        { signal: request.signal }
+      );
+    } catch (error) {
+      if (!isChatGptFirstPartyModuleFailure(error)) throw error;
+      console.warn(
+        "[chatgpt-web] first-party module discovery failed; falling back to authenticated DOM transport"
+      );
+      return executeChatGptWebDomFallback(this.page, request, this.selection);
+    }
   }
 }
