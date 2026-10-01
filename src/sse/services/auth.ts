@@ -19,7 +19,7 @@ import {
   clearConnectionErrorIfUnchanged,
 } from "@/lib/db/providers";
 import { getDbInstance } from "@/lib/db/core";
-import { getRecentEgressIpForConnection, EGRESS_IP_LOOKUP_WINDOW_MS } from "@/lib/db/proxyLogs";
+import { getRecentEgressIpForConnection } from "@/lib/db/proxyLogs";
 import { validateApiKey } from "@/lib/db/apiKeys";
 import {
   getActiveExclusiveConnectionLease,
@@ -2565,6 +2565,8 @@ async function resolveDailyResetForProvider(
  * - No mutex per sibling (markMutexes is per-connection): concurrent 429s may
  *   double-write, idempotent via updateProviderConnection.
  */
+const EGRESS_IP_LOCK_RECENCY_MS = 5 * 60 * 1000;
+
 async function applyEgressIpLockout(
   connectionId: string,
   provider: string,
@@ -2572,7 +2574,10 @@ async function applyEgressIpLockout(
   reason: string
 ): Promise<void> {
   try {
-    const since = new Date(Date.now() - EGRESS_IP_LOOKUP_WINDOW_MS).toISOString();
+    // Routing decisions must use a short recency window. The 24h proxy-log
+    // observation window is useful for dashboards, but it is too stale for
+    // cooldown propagation when accounts can switch proxies between requests.
+    const since = new Date(Date.now() - EGRESS_IP_LOCK_RECENCY_MS).toISOString();
     const recent = getRecentEgressIpForConnection(connectionId, since);
     if (!recent) {
       log.info(
