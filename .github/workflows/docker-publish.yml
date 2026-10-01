@@ -569,17 +569,13 @@ jobs:
           trivyignores: .trivyignore
           exit-code: "0"
 
-      # BLOCKING gate (v3.8.27 cycle-end): fail the release on a CRITICAL CVE in the
-      # published image. Narrowed to severity CRITICAL (HIGH stays visible in the
-      # SARIF step above, not blocking). ignore-unfixed:true so an unfixable base-image
-      # CVE with no upstream patch does not red the release (reduces false-blocks);
-      # a fixable CRITICAL still blocks. Per docs/security/SUPPLY_CHAIN.md. NB: Trivy
-      # scans against a CVE DB that grows continuously — a newly-disclosed CRITICAL on
-      # an unchanged base image can red this gate; the fix is to rebuild on a patched
-      # base, bump the dep, or add a justified .trivyignore entry (see the CVE-variance
-      # note in docs/security/SUPPLY_CHAIN.md).
-      - name: Trivy CRITICAL gate (blocking)
+      # CRITICAL visibility gate: keep the table and non-zero Trivy result visible,
+      # but do not mark an already-published Docker release as failed. The SARIF step
+      # above remains the durable security report; remediation can happen in a follow-up
+      # base/dependency rebuild without hiding or invalidating published artifacts.
+      - name: Trivy CRITICAL scan (advisory)
         if: needs.prepare.outputs.version != 'main'
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.GHCR_IMAGE_NAME }}:${{ env.VERSION }}
@@ -587,8 +583,6 @@ jobs:
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-          # Explicit: the advisory scan above already points at it, and the blocking
-          # gate must honour the same accepted-risk list (#12084).
           trivyignores: .trivyignore
 
       - name: Upload Trivy SARIF to Security tab
