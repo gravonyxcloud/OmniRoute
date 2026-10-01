@@ -204,6 +204,74 @@ describe("ChatGPT Web first-party request execution", () => {
     }
   });
 
+  test("routes current and legacy picker modes through GPT-6 Astra upstream", async () => {
+    const cases = [
+      {
+        selection: {
+          kind: "picker",
+          modelLabel: "GPT-6 Pro",
+          effortIndex: 0,
+          fixedModel: true,
+          uiLabel: "GPT-6 Pro",
+        } as const,
+        reason: false,
+      },
+      {
+        selection: {
+          kind: "picker",
+          modelLabel: "GPT-5.6 Sol",
+          effortIndex: 0,
+          fixedModel: true,
+          uiLabel: "Instant",
+          allowEffortControlFallback: true,
+        } as const,
+        reason: false,
+      },
+      {
+        selection: {
+          kind: "picker",
+          modelLabel: "GPT-5.6 Sol",
+          effortIndex: 3,
+          fixedModel: true,
+          uiLabel: "Extra High",
+          allowEffortControlFallback: true,
+        } as const,
+        reason: true,
+      },
+      {
+        selection: {
+          kind: "picker",
+          modelLabel: "GPT-5.5",
+          effortIndex: 4,
+        } as const,
+        reason: false,
+      },
+    ];
+
+    for (const { selection, reason } of cases) {
+      let conversationOptions: Record<string, unknown> | null = null;
+      const restoreBridge = installFirstPartyBridge(async (path, options) => {
+        if (path === "/f/conversation") {
+          conversationOptions = options;
+          return new Response("data: [DONE]\n\n", { status: 200 });
+        }
+        throw new Error(`Unexpected first-party path: ${path}`);
+      });
+      try {
+        await executeChatGptWebFirstPartyTurn(createDirectPage(), {
+          prompt: "compatibility probe",
+          attachments: [],
+          selection,
+        });
+        const requestBody = conversationOptions?.requestBody as Record<string, unknown>;
+        assert.equal(requestBody.model, "gpt-6-astra");
+        assert.deepEqual(requestBody.system_hints, reason ? ["reason"] : []);
+      } finally {
+        restoreBridge();
+      }
+    }
+  });
+
   test("preserves an upstream conversation 429 for account fallback", async () => {
     const restoreBridge = installFirstPartyBridge(async (path) => {
       if (path === "/f/conversation") return new Response(null, { status: 429 });

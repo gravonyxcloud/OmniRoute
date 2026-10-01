@@ -457,10 +457,16 @@ async function ensureFirstPartyBridge(page: Page): Promise<void> {
 
 function directModel(selection: ChatGptWebUiSelection): { model: string; reason: boolean } {
   if (selection.kind === "free") return { model: "auto", reason: selection.thinkEnabled };
-  if (selection.modelLabel === "GPT-6 Pro") return { model: "gpt-6-pro", reason: false };
-  const base = selection.modelLabel === "GPT-5.6 Sol" ? "gpt-5-6" : "gpt-5-5";
-  if (selection.effortIndex === 4) return { model: `${base}-pro`, reason: false };
-  return { model: base, reason: selection.effortIndex > 0 };
+
+  // Keep the public legacy routes for backwards compatibility, but do not send
+  // retired GPT-5.5/5.6 model ids to ChatGPT's current first-party endpoint.
+  // The current ChatGPT picker is backed by GPT-6 Astra; legacy Instant/Thinking/
+  // Pro routes are compatibility aliases that differ only in the reasoning hint.
+  const reason =
+    selection.modelLabel !== "GPT-6 Pro" &&
+    selection.effortIndex > 0 &&
+    selection.effortIndex < 4;
+  return { model: "gpt-6-astra", reason };
 }
 
 async function registerAttachments(
