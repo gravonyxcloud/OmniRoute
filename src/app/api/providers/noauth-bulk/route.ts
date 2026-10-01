@@ -1,11 +1,27 @@
 import { NextResponse } from "next/server";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
-import { createProviderConnection } from "@/models";
+import {
+  createProviderConnection,
+  getProviderConnections,
+  updateProviderConnection,
+} from "@/models";
 
 const MAX_ACCOUNTS_PER_REQUEST = 1000;
 
 function validAccountId(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_-]{8,128}$/.test(value);
+}
+
+function connectionFingerprints(connection: Record<string, unknown>): string[] {
+  const psd =
+    connection.providerSpecificData &&
+    typeof connection.providerSpecificData === "object" &&
+    !Array.isArray(connection.providerSpecificData)
+      ? (connection.providerSpecificData as Record<string, unknown>)
+      : {};
+  return Array.isArray(psd.fingerprints)
+    ? psd.fingerprints.filter((value): value is string => typeof value === "string")
+    : [];
 }
 
 export async function POST(request: Request) {
@@ -39,41 +55,61 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid account id" }, { status: 400 });
   }
 
-  const created: Array<Record<string, unknown>> = [];
-  const errors: Array<{ index: number; message: string }> = [];
+  const uniqueIncoming = [...new Set(accountIds as string[])];
+  const existing = (await getProviderConnections({ provider: "opencode" })) as Array<
+    Record<string, unknown>
+  >;
 
-  for (let i = 0; i < accountIds.length; i++) {
-    const fingerprint = accountIds[i] as string;
-    try {
-      const connection = await createProviderConnection({
-        provider,
-        authType: "apikey",
-        name: `OpenCode ${fingerprint.slice(0, 12)}`,
-        priority: 1,
-        globalPriority: null,
-        defaultModel: null,
-        providerSpecificData: { fingerprints: [fingerprint] },
-        isActive: true,
-        testStatus: "unknown",
-      });
-      created.push({
-        id: connection.id,
-        name: connection.name,
-        provider: connection.provider,
-      });
-    } catch (error) {
-      errors.push({
-        index: i,
-        message: error instanceof Error ? error.message : "Failed to create connection",
-      });
-    }
+  // OpenCode Free is a no-auth provider. Multiple fingerprints are rotation
+  // identities inside ONE logical connection; they are not API credentials.
+  // Prefer a canonical noauth row. For compatibility, reuse a legacy empty-key
+  // row that already carries fingerprints instead of creating another row.
+  const target =
+    existing.find((connection) => connection.authType === "noauth") ??
+    existing.find((connection) => {
+      const apiKey =
+        typeof connection.apiKey === "string" ? connection.apiKey.trim() : "";
+      return apiKey.length === 0 && connectionFingerprints(connection).length > 0;
+    });
+
+  if (target) {
+    const current = connectionFingerprints(target);
+    const merged = [...new Set([...current, ...uniqueIncoming])];
+    const updated = await updateProviderConnection(String(target.id), {
+      authType: "noauth",
+      providerSpecificData: {
+        ...((target.providerSpecificData as Record<string, unknown> | undefined) ?? {}),
+        fingerprints: merged,
+      },
+      isActive: true,
+    });
+
+    return NextResponse.json({
+      success: uniqueIncoming.length,
+      failed: 0,
+      total: uniqueIncoming.length,
+      connectionId: updated?.id ?? target.id,
+      fingerprints: merged.length,
+    });
   }
 
+  const connection = await createProviderConnection({
+    provider: "opencode",
+    authType: "noauth",
+    name: "OpenCode Free",
+    priority: 1,
+    globalPriority: null,
+    defaultModel: null,
+    providerSpecificData: { fingerprints: uniqueIncoming },
+    isActive: true,
+    testStatus: "unknown",
+  });
+
   return NextResponse.json({
-    success: created.length,
-    failed: errors.length,
-    total: accountIds.length,
-    created,
-    errors,
+    success: uniqueIncoming.length,
+    failed: 0,
+    total: uniqueIncoming.length,
+    connectionId: connection.id,
+    fingerprints: uniqueIncoming.length,
   });
 }
