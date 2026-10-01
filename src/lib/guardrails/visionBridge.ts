@@ -381,8 +381,12 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
       comboVisionBridgeDecision === "process" ||
       comboVisionBridgeDecision === "skip" ||
       comboVisionBridgeDecision === "no-vision";
+    const catalogScope =
+      context.apiKeyInfo?.catalogScope ?? context.apiKeyInfo?.catalog_scope ?? null;
+    const isComboOnlyKey = catalogScope === "combos";
     const rerouteEligible =
       !isNamedCombo &&
+      !isComboOnlyKey &&
       (rerouteTextOnly ||
         ((comboVisionBridgeDecision === "not-combo" || isAuto) && !forceVisionBridge));
     // Forced modes short-circuit BEFORE the auto heuristic (#6640/#7204 untouched):

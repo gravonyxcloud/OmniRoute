@@ -416,6 +416,52 @@ test("VB-S01: reroutes non-vision model with images to best vision model", async
 
 // ── VB-S13: Reroute preserves multiple images ──────────────────────────────
 
+test("combo-only API keys never whole-request reroute outside the commercial combo surface", async () => {
+  const guardrail = createGuardrail();
+
+  const payload = createPayload({
+    model: "minimax/minimax-01",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What is in this image?" },
+          { type: "image_url", image_url: { url: "https://example.com/image.png" } },
+        ],
+      },
+    ],
+  });
+
+  const result = await guardrail.preCall(
+    payload,
+    createContext({
+      model: "minimax/minimax-01",
+      apiKeyInfo: { catalogScope: "combos" },
+    })
+  );
+
+  assert.strictEqual(result.block, false);
+  assert.ok(result.modifiedPayload, "combo-only request should use describe-then-forward");
+  const modified = result.modifiedPayload as {
+    model?: string;
+    messages: Array<{ content: unknown }>;
+  };
+  assert.strictEqual(
+    modified.model,
+    "minimax/minimax-01",
+    "commercial combo surface must preserve the original routing model"
+  );
+  assert.notStrictEqual(result.meta?.rerouted, true, "must not whole-request reroute");
+  assert.strictEqual(visionCallCount, 1, "image should be described internally exactly once");
+  assert.equal(
+    JSON.stringify(modified.messages).includes('"image_url"'),
+    false,
+    "raw image should be replaced before forwarding to the original route"
+  );
+});
+
+// ── VB-S13: Reroute preserves multiple images ──────────────────────────────
+
 test("VB-S13: reroutes with multiple images, all preserved", async () => {
   const guardrail = createGuardrail();
 

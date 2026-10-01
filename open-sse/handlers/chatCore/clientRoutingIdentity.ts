@@ -42,7 +42,7 @@ export function resolveClientRoutingIdentity({
 
   return {
     provider: "omniroute",
-    model: nonEmpty(requestedModel) ?? nonEmpty(comboName) ?? "combo",
+    model: nonEmpty(comboName) ?? nonEmpty(requestedModel) ?? "combo",
     strategy: "combo",
     masked: true,
   };

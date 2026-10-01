@@ -70,6 +70,7 @@ export async function createChatPipelineHarness(prefix) {
     allowedConnections?: string[];
     allowedCombos?: string[];
     allowedModels?: string[];
+    catalogScope?: "all" | "combos" | "models";
   };
 
   type ApiKeyPermissionUpdates = {
@@ -77,6 +78,7 @@ export async function createChatPipelineHarness(prefix) {
     allowedConnections?: string[];
     allowedCombos?: string[];
     allowedModels?: string[];
+    catalogScope?: "all" | "combos" | "models";
   };
 
   function clearSkillState() {
@@ -334,6 +336,7 @@ export async function createChatPipelineHarness(prefix) {
     allowedConnections,
     allowedCombos,
     allowedModels,
+    catalogScope,
   }: SeedApiKeyOptions = {}) {
     const key = await apiKeysDb.createApiKey(name, "machine-test");
     const updates: ApiKeyPermissionUpdates = {};
@@ -341,6 +344,7 @@ export async function createChatPipelineHarness(prefix) {
     if (allowedConnections) updates.allowedConnections = allowedConnections;
     if (allowedCombos) updates.allowedCombos = allowedCombos;
     if (allowedModels) updates.allowedModels = allowedModels;
+    if (catalogScope) updates.catalogScope = catalogScope;
     if (Object.keys(updates).length > 0) {
       await apiKeysDb.updateApiKeyPermissions(key.id, updates);
     }

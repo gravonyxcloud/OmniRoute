@@ -43,6 +43,7 @@ import { mergeAbortSignals } from "@omniroute/open-sse/executors/base.ts";
 import { resolveRequestAutoControls } from "@omniroute/open-sse/services/autoCombo/requestControls.ts";
 import { isVerifiedNativeCodexRequest } from "@omniroute/open-sse/config/codexIdentity.ts";
 import { resolveCompressionSettings } from "@omniroute/open-sse/handlers/chatCore/compressionSettings.ts";
+import { projectClientRoutingErrorMessage } from "@omniroute/open-sse/handlers/chatCore/clientRoutingError.ts";
 import type { CompressionExclusions } from "@omniroute/open-sse/services/compression/exclusions.ts";
 import { resolveComboConfig } from "@omniroute/open-sse/services/comboConfig.ts";
 import { comboPinAllowlist } from "@/lib/combos/steps.ts";
@@ -420,6 +421,107 @@ const comboPromoteDeps = { updateCombo, info: log.info, warn: log.warn };
 
 export { shouldTripProviderBreakerForResult } from "./chatPredicates";
 
+async function maskCommercialComboFailureResponse(
+  response: Response,
+  args: {
+    apiKeyInfo: { catalogScope?: string | null } | null | undefined;
+    comboName?: string | null;
+    request: Request;
+  }
+): Promise<Response> {
+  if (response.ok || args.apiKeyInfo?.catalogScope !== "combos") return response;
+
+  const publicCombo = args.comboName?.trim() || "combo";
+  let rawMessage = "Upstream provider error";
+  let errorCode: string | null = null;
+  let errorType: string | null = null;
+
+  try {
+    const raw = await response.clone().text();
+    rawMessage = raw || rawMessage;
+    try {
+      const parsed = JSON.parse(raw) as {
+        error?: { message?: unknown; code?: unknown; type?: unknown } | unknown;
+        message?: unknown;
+        code?: unknown;
+        type?: unknown;
+      };
+      const nested =
+        parsed?.error && typeof parsed.error === "object" && !Array.isArray(parsed.error)
+          ? (parsed.error as { message?: unknown; code?: unknown; type?: unknown })
+          : null;
+      const candidate = nested?.message ?? parsed?.message;
+      if (typeof candidate === "string" && candidate.trim()) rawMessage = candidate;
+      const code = nested?.code ?? parsed?.code;
+      const type = nested?.type ?? parsed?.type;
+      if (typeof code === "string") errorCode = code;
+      if (typeof type === "string") errorType = type;
+    } catch {
+      // Non-JSON upstream failures are projected from the sanitized text below.
+    }
+  } catch {
+    // A consumed/unreadable body still receives a generic public combo error.
+  }
+
+  const publicMessage = projectClientRoutingErrorMessage({
+    identity: {
+      provider: "omniroute",
+      model: publicCombo,
+      strategy: "combo",
+      masked: true,
+    },
+    statusCode: response.status,
+    message: rawMessage,
+    errorCode,
+    errorType,
+  });
+
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
+  headers.set("X-OmniRoute-Provider", "omniroute");
+  headers.set("X-OmniRoute-Model", publicCombo);
+  headers.set("X-OmniRoute-Strategy", "combo");
+  for (const [name, value] of response.headers.entries()) {
+    const lower = name.toLowerCase();
+    if (
+      lower === "retry-after" ||
+      lower === "x-request-id" ||
+      lower === "x-correlation-id" ||
+      lower.startsWith("access-control-")
+    ) {
+      headers.set(name, value);
+    }
+  }
+
+  const isClaude =
+    args.request.headers.has("anthropic-version") ||
+    (() => {
+      try {
+        return new URL(args.request.url).pathname.endsWith("/messages");
+      } catch {
+        return false;
+      }
+    })();
+
+  const body = isClaude
+    ? {
+        type: "error",
+        error: { type: "api_error", message: publicMessage },
+      }
+    : {
+        error: {
+          message: publicMessage,
+          type: "upstream_error",
+          code: errorCode || undefined,
+        },
+      };
+
+  return new Response(JSON.stringify(body), {
+    status: response.status,
+    headers,
+  });
+}
+
 async function handleChatImplementation(
   request: any,
   clientRawRequest: any = null,
@@ -698,6 +800,26 @@ async function handleChatImplementation(
     return policy.rejection;
   }
   const apiKeyInfo = policy.apiKeyInfo;
+
+  // Commercial / combos-only keys may receive a client-hardcoded model id
+  // (Claude Code, Codex, etc.) that resolves through a stored model→combo
+  // mapping. The policy above already authorizes that mapping, but guardrails
+  // run before normal combo resolution. Materialize the stored combo NOW so a
+  // guardrail can never mistake the client model for a direct route and escape
+  // the commercial combo surface (e.g. Vision Bridge: claude → CFP/Kimi).
+  if (apiKeyInfo?.catalogScope === "combos") {
+    const commercialCombo = await getComboForModel(modelStr);
+    if (commercialCombo?.name) {
+      const previousModel = modelStr;
+      modelStr = commercialCombo.name;
+      body = RoutingModelOps.align(body, modelStr, log);
+      log.info(
+        "ROUTING",
+        `Combos-only key resolved client model to stored combo: ${previousModel} → ${modelStr}`
+      );
+    }
+  }
+
   let managedLease: ManagedLeaseDispatchContext | null = null;
   if (isExclusiveLeaseManagedKey(apiKeyInfo)) {
     try {
@@ -1298,12 +1420,21 @@ async function handleChatImplementation(
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    // Project the final failure onto the commercial combo identity only after
+    // all internal fallback/classification work has finished. This keeps backend
+    // diagnostics intact while preventing provider/model leakage to combos-only clients.
+    const clientResponse = await maskCommercialComboFailureResponse(response, {
+      apiKeyInfo,
+      comboName: combo.name,
+      request,
+    });
+
     // Record telemetry
     recordTelemetry(telemetry);
     // Log combo failures that bypassed handleChatCore (e.g. all targets skipped by circuit breaker).
     // Records BOTH a call_logs row (dashboard/logs) AND a usage_history row attributed to the api key
     // (success:false) so gate/breaker-rejected traffic is counted per key — support-mesh 2026-07-08.
-    if (!response.ok) {
+    if (!clientResponse.ok) {
       try {
         const { recordRejectedRequestUsage, resolveRejectedComboProvider } =
           await import("./rejectedRequestUsage");
@@ -1326,7 +1457,7 @@ async function handleChatImplementation(
     }
     return withModalityBridgeHeader(
       withConversationId(
-        withCorrelationId(withSessionHeader(response, sessionId), reqId),
+        withCorrelationId(withSessionHeader(clientResponse, sessionId), reqId),
         conversationId
       ),
       modalityBridgeHeader
@@ -1374,10 +1505,15 @@ async function handleChatImplementation(
     null,
     false
   );
+  const clientResponse = await maskCommercialComboFailureResponse(response, {
+    apiKeyInfo,
+    comboName: apiKeyInfo?.catalogScope === "combos" ? resolvedModelStr : null,
+    request,
+  });
   recordTelemetry(telemetry);
   return withModalityBridgeHeader(
     withConversationId(
-      withCorrelationId(withSessionHeader(response, sessionId), reqId),
+      withCorrelationId(withSessionHeader(clientResponse, sessionId), reqId),
       conversationId
     ),
     modalityBridgeHeader

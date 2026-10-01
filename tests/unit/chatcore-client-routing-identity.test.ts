@@ -36,12 +36,26 @@ test("combos-only keys expose only the public OmniRoute identity", () => {
 
   assert.deepEqual(identity, {
     provider: "omniroute",
-    model: "combo/fast-chat",
+    model: "fast-chat",
     strategy: "combo",
     masked: true,
   });
   assert.notEqual(identity.provider, "anthropic");
   assert.notEqual(identity.model, "claude-backend-private");
+});
+
+test("combos-only identity always prefers the stored combo over a client hardcoded model", () => {
+  const identity = resolveClientRoutingIdentity({
+    provider: "opencode",
+    model: "mimo-v2.6-flash-free",
+    catalogScope: "combos",
+    requestedModel: "claude-opus-5-5",
+    comboName: "customer-combo",
+  });
+
+  assert.equal(identity.provider, "omniroute");
+  assert.equal(identity.model, "customer-combo");
+  assert.equal(identity.masked, true);
 });
 
 test("combos-only identity falls back to combo name without leaking backend model", () => {

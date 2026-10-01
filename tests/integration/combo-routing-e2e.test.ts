@@ -15,6 +15,7 @@ const {
   handleChat,
   modelComboMappingsDb,
   resetStorage,
+  seedApiKey,
   seedConnection,
   toPlainHeaders,
   waitFor,
@@ -318,6 +319,71 @@ test("model combo mappings route explicit model ids through the configured combo
   assert.equal(fetchCalls.length, 1);
   assert.equal(fetchCalls[0].headers.authorization, "Bearer sk-openai-mapped");
   assert.equal(json.choices[0].message.content, "Mapped combo route");
+});
+
+test("combos-only keys materialize model mappings before guardrails and keep combo identity", async () => {
+  await seedConnection("openai", { apiKey: "sk-openai-commercial" });
+  const combo = await combosDb.createCombo({
+    name: "commercial-router",
+    strategy: "priority",
+    models: ["openai/gpt-4o-mini"],
+  });
+  await modelComboMappingsDb.createModelComboMapping({
+    pattern: "claude-opus-5-5",
+    comboId: combo.id,
+    priority: 100,
+  });
+  const key = await seedApiKey({
+    name: "commercial-key",
+    allowedCombos: ["combo/*"],
+    catalogScope: "combos",
+  });
+
+  const fetchCalls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    fetchCalls.push({
+      url: String(url),
+      body: init.body ? JSON.parse(String(init.body)) : null,
+    });
+    return buildOpenAIResponse("Commercial combo route");
+  };
+
+  const response = await handleChat(
+    buildRequest({
+      authKey: key.key,
+      body: {
+        model: "claude-opus-5-5",
+        stream: false,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "What is in this image?" },
+              {
+                type: "image_url",
+                image_url: {
+                  url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    })
+  );
+
+  assert.equal(response.status, 200);
+  assert.ok(fetchCalls.length >= 1);
+  assert.equal(
+    fetchCalls.some((call) => call.url.includes("cloudflare") || call.url.includes("moonshot")),
+    false,
+    "commercial combo routing must never escape to an unrelated vision provider"
+  );
+  assert.equal(
+    response.headers.get("X-OmniRoute-Model"),
+    "commercial-router",
+    "client-facing success metadata must expose the public combo name"
+  );
 });
 
 test("wildcard model combo mappings resolve arbitrary matching models", async () => {
