@@ -371,18 +371,20 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
     // below does not apply to auto — only the reroute-target credential guard.
     const rerouteTextOnly = settings.visionBridgeRerouteTextOnly === true;
     // Reroute when the operator opted in to direct VLM routing for every text-only
-    // route (keeps image bytes instead of a lossy bridge description), or when the
-    // auto heuristic deems the request eligible. A named combo with ZERO
-    // vision-capable targets ("no-vision") is reroute-eligible too: it behaves
-    // exactly like a single text-only model, and without this fallback an image
-    // request would die in the combo capability filter (capability_mismatch)
-    // whenever the describe path cannot run.
+    // route, or when the auto heuristic deems a NON-COMBO request eligible.
+    //
+    // Named combos are routing boundaries: even a combo with ZERO vision-capable
+    // targets must never whole-request-reroute to a provider/model outside that
+    // combo. For "no-vision" combos we fall through to the describe path below,
+    // replace the image with text, and keep the original combo model intact.
+    const isNamedCombo =
+      comboVisionBridgeDecision === "process" ||
+      comboVisionBridgeDecision === "skip" ||
+      comboVisionBridgeDecision === "no-vision";
     const rerouteEligible =
-      rerouteTextOnly ||
-      ((comboVisionBridgeDecision === "not-combo" ||
-        comboVisionBridgeDecision === "no-vision" ||
-        isAuto) &&
-        !forceVisionBridge);
+      !isNamedCombo &&
+      (rerouteTextOnly ||
+        ((comboVisionBridgeDecision === "not-combo" || isAuto) && !forceVisionBridge));
     // Forced modes short-circuit BEFORE the auto heuristic (#6640/#7204 untouched):
     // - "describe" skips the whole reroute block → straight to the describe path.
     // - "reroute" skips only the keep-credentialed-model guard; the reroute-target

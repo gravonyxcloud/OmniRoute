@@ -169,9 +169,9 @@ test("decision: model-combo mapping routes to the combo decision", async () => {
   assert.equal(await getComboVisionBridgeDecision("mapped-model-alias"), "no-vision");
 });
 
-// ── preCall: no-vision combo reroutes whole request ─────────────────────────
+// ── preCall: no-vision combo preserves the combo routing boundary ───────────
 
-test("preCall: zero-vision combo reroutes the whole request to the bridge model", async () => {
+test("preCall: zero-vision combo keeps the combo and describes the image", async () => {
   resetGuardrailsForTests({ registerDefaults: false });
   await createCombo("text-only-combo", [
     { provider: "google", model: TEXT_MODEL_A },
@@ -182,13 +182,11 @@ test("preCall: zero-vision combo reroutes the whole request to the bridge model"
   const result = await guardrail.preCall(IMAGE_PAYLOAD, {});
 
   assert.equal(result.block, false);
-  // Rerouted: model swapped to the vision bridge model, image bytes KEPT.
-  assert.equal(asModifiedBody(result).model, VISION_MODEL);
-  assert.equal(result.meta.rerouted, true);
-  assert.equal(result.meta.fromModel, "text-only-combo");
-  assert.equal(hasImagePart(asModifiedBody(result).messages), true);
-  // Describe never ran — no extra vision call.
-  assert.equal(visionCallCount, 0);
+  // Never escape the named combo to an unrelated vision provider.
+  assert.equal(asModifiedBody(result).model, "text-only-combo");
+  assert.equal(result.meta.rerouted, undefined);
+  assert.equal(hasImagePart(asModifiedBody(result).messages), false);
+  assert.equal(visionCallCount, 1);
 });
 
 test("preCall: zero-vision combo falls back to describe when reroute target is unusable", async () => {
