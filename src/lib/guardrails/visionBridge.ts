@@ -353,6 +353,17 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
       return { block: false };
     }
 
+    // Only the active/latest user turn may trigger a whole-request model reroute.
+    // Historical images can remain in long chat transcripts for many turns; using
+    // them as a reroute trigger makes later text-only turns look "stuck" on the
+    // configured vision provider/model even after the user explicitly selects a
+    // different model. Historical media may still be handled by the describe path
+    // below, but it must not hijack the model selected for the current turn.
+    const latestUserMessage = [...messages].reverse().find((message: any) => message?.role === "user");
+    const currentTurnHasImages = latestUserMessage
+      ? extractImageParts([latestUserMessage] as Parameters<typeof extractImageParts>[0]).length > 0
+      : false;
+
     // 9. Individual non-combo model with images → optionally REROUTE to best vision-capable model
     // instead of describing images through an intermediate vision call.
     //
@@ -385,6 +396,7 @@ export class VisionBridgeGuardrail extends BaseGuardrail {
       context.apiKeyInfo?.catalogScope ?? context.apiKeyInfo?.catalog_scope ?? null;
     const isComboOnlyKey = catalogScope === "combos";
     const rerouteEligible =
+      currentTurnHasImages &&
       !isNamedCombo &&
       !isComboOnlyKey &&
       (rerouteTextOnly ||

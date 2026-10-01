@@ -910,6 +910,26 @@ test("VB-CRED-01A: reroutes a credentialed text-only model when configured to pr
   assert.strictEqual(visionCallCount, 0, "the bridge must not replace the image with text");
 });
 
+test("VB-CRED-01B: historical images never reroute a later text-only turn", async () => {
+  mockSettings.visionBridgeRerouteTextOnly = true;
+  const guardrail = createGuardrail({
+    deps: { hasUsableCredentials: async () => true },
+  });
+  const payload = createPayload({
+    model: "zai/glm-5.2",
+    messages: [
+      { role: "user", content: [{ type: "image_url", image_url: { url: "https://example.com/old.png" } }] },
+      { role: "assistant", content: "I saw it." },
+      { role: "user", content: "Now answer this text-only follow-up." },
+    ],
+  });
+  const result = await guardrail.preCall(payload, createContext({ model: "zai/glm-5.2" }));
+  assert.strictEqual(result.block, false);
+  const modified = result.modifiedPayload as { model?: string } | undefined;
+  assert.notStrictEqual(modified?.model, "openai/gpt-4o-mini");
+  assert.notStrictEqual((result.meta as Record<string, unknown> | undefined)?.rerouted, true);
+});
+
 test("VB-CRED-02: does NOT reroute to a vision model known to lack credentials", async () => {
   mockSettings.visionBridgeModel = "opencode-zen/gpt-5.4";
   const guardrail = createGuardrail({
