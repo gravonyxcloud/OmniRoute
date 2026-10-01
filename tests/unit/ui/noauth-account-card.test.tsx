@@ -43,7 +43,7 @@ function setupFetch(fingerprints: string[]) {
 
 const containers: Array<{ root: ReturnType<typeof createRoot>; el: HTMLDivElement }> = [];
 
-function renderCard(enableBulkAccountAdd = false) {
+function renderCard(enableBulkAccountAdd = false, providerId = PROVIDER_ID) {
   const el = document.createElement("div");
   document.body.appendChild(el);
   const root = createRoot(el);
@@ -51,7 +51,7 @@ function renderCard(enableBulkAccountAdd = false) {
   act(() => {
     root.render(
       <NoAuthAccountCard
-        providerId={PROVIDER_ID}
+        providerId={providerId}
         providerName="MiMoCode"
         generateAccountId={() => `gen-${counter++}`}
         enableBulkAccountAdd={enableBulkAccountAdd}
@@ -151,15 +151,20 @@ const SAVED_PROXIES = [
   { id: "pool-2", name: "EU West", type: "http", host: "9.9.9.9", port: 8080, status: "active" },
 ];
 
-function setupFetchWithProxies(fingerprints: string[], accountProxies: unknown[] = []) {
+function setupFetchWithProxies(
+  fingerprints: string[],
+  accountProxies: unknown[] = [],
+  providerId = PROVIDER_ID
+) {
   const connections = [
     {
       id: "conn-1",
-      provider: PROVIDER_ID,
+      provider: providerId,
       providerSpecificData: { fingerprints, accountProxies },
     },
   ];
   const putBodies: unknown[] = [];
+  const bulkBodies: unknown[] = [];
   const mockFetch = vi.fn((url: string, init?: RequestInit) => {
     const u = String(url);
     if (u.includes("/api/settings/proxies")) {
@@ -167,6 +172,21 @@ function setupFetchWithProxies(fingerprints: string[], accountProxies: unknown[]
         ok: true,
         json: () => Promise.resolve({ items: SAVED_PROXIES }),
       } as Response);
+    }
+    if (u.includes("/api/providers/noauth-bulk")) {
+      if (init?.method === "POST" && typeof init.body === "string") {
+        const parsed = JSON.parse(init.body);
+        bulkBodies.push(parsed);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: parsed.accountIds?.length ?? 0,
+              failed: 0,
+              total: parsed.accountIds?.length ?? 0,
+            }),
+        } as Response);
+      }
     }
     if (u.includes("/api/providers")) {
       if (init?.method === "PUT" && typeof init.body === "string") {
@@ -180,14 +200,14 @@ function setupFetchWithProxies(fingerprints: string[], accountProxies: unknown[]
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
   });
   vi.stubGlobal("fetch", mockFetch);
-  return { mockFetch, putBodies };
+  return { mockFetch, putBodies, bulkBodies };
 }
 
 describe("NoAuthAccountCard bulk account add", () => {
-  it("adds 100 generated accounts with a single provider update", async () => {
+  it("adds 100 generated accounts through one bulk connection request", async () => {
     const fps = makeFingerprints(2);
-    const { putBodies } = setupFetchWithProxies(fps);
-    const el = renderCard(true);
+    const { putBodies, bulkBodies } = setupFetchWithProxies(fps, [], "opencode");
+    const el = renderCard(true, "opencode");
     await waitForCondition(() => grid(el)?.querySelectorAll("[data-account-id]").length === 2);
 
     const countInput = el.querySelector<HTMLInputElement>("[data-testid='bulk-account-count']")!;
@@ -207,21 +227,21 @@ describe("NoAuthAccountCard bulk account add", () => {
     )!;
     act(() => addBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
-    await waitForCondition(() => putBodies.length > 0);
-    expect(putBodies).toHaveLength(1);
-    const body = putBodies[0] as { providerSpecificData?: { fingerprints?: string[] } };
-    const stored = body.providerSpecificData?.fingerprints ?? [];
-    expect(stored).toHaveLength(102);
-    expect(stored.slice(0, 2)).toEqual(fps);
-    expect(stored.slice(2)).toEqual(
+    await waitForCondition(() => bulkBodies.length > 0);
+    expect(putBodies).toHaveLength(0);
+    expect(bulkBodies).toHaveLength(1);
+    const body = bulkBodies[0] as { provider?: string; accountIds?: string[] };
+    expect(body.provider).toBe("opencode");
+    expect(body.accountIds).toHaveLength(100);
+    expect(body.accountIds).toEqual(
       Array.from({ length: 100 }, (_, index) => `gen-${index}`)
     );
   });
 
   it("clamps a bulk add operation to 1000 accounts", async () => {
     const fps = makeFingerprints(1);
-    const { putBodies } = setupFetchWithProxies(fps);
-    const el = renderCard(true);
+    const { bulkBodies } = setupFetchWithProxies(fps, [], "opencode");
+    const el = renderCard(true, "opencode");
     await waitForCondition(() => grid(el)?.querySelectorAll("[data-account-id]").length === 1);
 
     const countInput = el.querySelector<HTMLInputElement>("[data-testid='bulk-account-count']")!;
@@ -240,9 +260,9 @@ describe("NoAuthAccountCard bulk account add", () => {
     )!;
     act(() => addBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
-    await waitForCondition(() => putBodies.length > 0);
-    const body = putBodies[0] as { providerSpecificData?: { fingerprints?: string[] } };
-    expect(body.providerSpecificData?.fingerprints).toHaveLength(1001);
+    await waitForCondition(() => bulkBodies.length > 0);
+    const body = bulkBodies[0] as { accountIds?: string[] };
+    expect(body.accountIds).toHaveLength(1000);
   });
 });
 

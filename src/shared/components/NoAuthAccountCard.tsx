@@ -22,6 +22,7 @@ interface NoAuthAccountCardProps {
   providerProxyControl?: ReactNode;
   showManualKeyInput?: boolean;
   onManualApiKeyAdd?: (apiKey: string) => Promise<void>;
+  onConnectionsChanged?: () => void | Promise<void>;
 }
 
 interface Connection {
@@ -106,6 +107,7 @@ export default function NoAuthAccountCard({
   onEnabledChange,
   providerProxyControl,
   onManualApiKeyAdd,
+  onConnectionsChanged,
 }: NoAuthAccountCardProps) {
   const t = useTranslations("noAuthProvider");
   const resolvedDescription = description || t("accountDescription");
@@ -179,10 +181,18 @@ export default function NoAuthAccountCard({
     }
   }, [proxyAccountId]);
 
-  const allAccountIds = connections.flatMap((c) => c.providerSpecificData?.[dataKey] || []);
+  const accountEntries = connections.flatMap((connection) =>
+    ((connection.providerSpecificData?.[dataKey] || []) as string[]).map((id) => ({
+      id,
+      connection,
+    }))
+  );
+  const allAccountIds = accountEntries.map((entry) => entry.id);
 
   const conn = connections[0];
   const accountProxies = getAccountProxies(conn);
+  const findAccountConnection = (accountId: string) =>
+    accountEntries.find((entry) => entry.id === accountId)?.connection ?? conn;
 
   const handleAddAccount = async () => {
     setAdding(true);
@@ -191,34 +201,53 @@ export default function NoAuthAccountCard({
         ? Math.min(MAX_BULK_ACCOUNT_ADD, Math.max(1, Math.trunc(accountAddCount) || 1))
         : 1;
       const accountIds = Array.from({ length: count }, () => generateAccountId());
-      const apiKey = generateApiKey ? await generateApiKey() : undefined;
-      if (connections.length === 0) {
-        const res = await fetch("/api/providers", {
+
+      if (providerId === "opencode") {
+        const res = await fetch("/api/providers/noauth-bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            provider: providerId,
-            name: t("accountName", { provider: providerName, number: 1 }),
-            ...(apiKey ? { apiKey } : {}),
-            providerSpecificData: { [dataKey]: accountIds },
-          }),
+          body: JSON.stringify({ provider: providerId, accountIds }),
         });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData?.error || t("createConnectionFailed"));
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || Number(data.failed || 0) > 0) {
+          throw new Error(
+            data?.error ||
+              (Array.isArray(data?.errors) && data.errors[0]?.message) ||
+              t("createConnectionFailed")
+          );
         }
       } else {
-        const updated = [...allAccountIds, ...accountIds];
-        const res = await fetch(`/api/providers/${conn.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            providerSpecificData: { [dataKey]: updated },
-          }),
-        });
-        if (!res.ok) throw new Error(t("updateConnectionFailed"));
+        const apiKey = generateApiKey ? await generateApiKey() : undefined;
+        if (connections.length === 0) {
+          const res = await fetch("/api/providers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              provider: providerId,
+              name: t("accountName", { provider: providerName, number: 1 }),
+              ...(apiKey ? { apiKey } : {}),
+              providerSpecificData: { [dataKey]: accountIds },
+            }),
+          });
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData?.error || t("createConnectionFailed"));
+          }
+        } else {
+          const updated = [...allAccountIds, ...accountIds];
+          const res = await fetch(`/api/providers/${conn.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              providerSpecificData: { [dataKey]: updated },
+            }),
+          });
+          if (!res.ok) throw new Error(t("updateConnectionFailed"));
+        }
       }
+
       await fetchConnections();
+      await onConnectionsChanged?.();
     } catch (err) {
       console.error("Failed to add account:", err);
     } finally {
@@ -244,28 +273,39 @@ export default function NoAuthAccountCard({
   };
 
   const handleRemoveAccount = async (accountId: string) => {
-    if (!conn) return;
-    const updated = allAccountIds.filter((id) => id !== accountId);
-    const updatedProxies = accountProxies.filter((p) => p.fingerprint !== accountId);
+    const targetConnection = findAccountConnection(accountId);
+    if (!targetConnection) return;
+    const targetIds = (targetConnection.providerSpecificData?.[dataKey] || []) as string[];
+    const updated = targetIds.filter((id) => id !== accountId);
+    const updatedProxies = getAccountProxies(targetConnection).filter(
+      (p) => p.fingerprint !== accountId
+    );
     try {
-      const res = await fetch(`/api/providers/${conn.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          providerSpecificData: {
-            [dataKey]: updated,
-            accountProxies: updatedProxies,
-          },
-        }),
-      });
-      if (res.ok) await fetchConnections();
+      const res =
+        providerId === "opencode" && targetIds.length === 1
+          ? await fetch(`/api/providers/${targetConnection.id}`, { method: "DELETE" })
+          : await fetch(`/api/providers/${targetConnection.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                providerSpecificData: {
+                  [dataKey]: updated,
+                  accountProxies: updatedProxies,
+                },
+              }),
+            });
+      if (res.ok) {
+        await fetchConnections();
+        await onConnectionsChanged?.();
+      }
     } catch (err) {
       console.error("Failed to remove account:", err);
     }
   };
 
   const openProxyConfig = (accountId: string) => {
-    const existing = getEntryForFingerprint(accountProxies, accountId);
+    const targetConnection = findAccountConnection(accountId);
+    const existing = getEntryForFingerprint(getAccountProxies(targetConnection), accountId);
     // Reset custom-form fields, then prefill from whichever shape was stored.
     setProxyType("socks5");
     setProxyHost("");
@@ -291,10 +331,14 @@ export default function NoAuthAccountCard({
   };
 
   const handleSaveProxy = async () => {
-    if (!conn || !proxyAccountId) return;
+    if (!proxyAccountId) return;
+    const targetConnection = findAccountConnection(proxyAccountId);
+    if (!targetConnection) return;
     setSavingProxy(true);
     try {
-      const others = accountProxies.filter((p) => p.fingerprint !== proxyAccountId);
+      const others = getAccountProxies(targetConnection).filter(
+        (p) => p.fingerprint !== proxyAccountId
+      );
       let newEntry: AccountProxyConfig | null = null;
       if (proxyMode === "saved") {
         // Store a REFERENCE (by id); server resolves it to a live proxy record.
@@ -319,7 +363,7 @@ export default function NoAuthAccountCard({
 
       const updatedProxies = newEntry ? [...others, newEntry] : others;
 
-      const res = await fetch(`/api/providers/${conn.id}`, {
+      const res = await fetch(`/api/providers/${targetConnection.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -328,6 +372,7 @@ export default function NoAuthAccountCard({
       });
       if (res.ok) {
         await fetchConnections();
+        await onConnectionsChanged?.();
         setProxyAccountId(null);
       }
     } catch (err) {
@@ -338,33 +383,57 @@ export default function NoAuthAccountCard({
   };
 
   const handleDistributeProxies = async () => {
-    if (!conn || allAccountIds.length === 0) return;
+    if (connections.length === 0 || allAccountIds.length === 0) return;
 
     const proxiesRes = await fetch("/api/settings/proxies");
     if (!proxiesRes.ok) throw new Error(t("fetchProxiesFailed"));
     const proxiesData = await proxiesRes.json();
-    const savedProxies = (proxiesData?.items || []).filter((p: any) => p.status === "active");
-    if (savedProxies.length === 0) {
+    const activeProxies = (proxiesData?.items || []).filter((p: any) => p.status === "active");
+    if (activeProxies.length === 0) {
       throw new Error(t("noSavedProxiesError"));
     }
 
-    // #5217 (Gap 1): distribute stores by-id references too, so editing a pool
-    // proxy later propagates to every account it was distributed to.
-    const updatedProxies: AccountProxyConfig[] = allAccountIds.map((fp, i) => ({
-      fingerprint: fp,
-      proxyId: savedProxies[i % savedProxies.length].id,
-    }));
+    const globalIndex = new Map(allAccountIds.map((id, index) => [id, index]));
+    const updates = connections
+      .map((connection) => {
+        const ids = (connection.providerSpecificData?.[dataKey] || []) as string[];
+        if (ids.length === 0) return null;
+        const accountProxiesForConnection: AccountProxyConfig[] = ids.map((fingerprint) => {
+          const index = globalIndex.get(fingerprint) ?? 0;
+          return {
+            fingerprint,
+            proxyId: activeProxies[index % activeProxies.length].id,
+          };
+        });
+        return { connection, accountProxies: accountProxiesForConnection };
+      })
+      .filter(
+        (
+          value
+        ): value is { connection: Connection; accountProxies: AccountProxyConfig[] } => !!value
+      );
 
-    const res = await fetch(`/api/providers/${conn.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        providerSpecificData: { accountProxies: updatedProxies },
-      }),
-    });
-    if (!res.ok) throw new Error(t("updateConnectionFailed"));
+    const concurrency = 20;
+    for (let i = 0; i < updates.length; i += concurrency) {
+      const batch = updates.slice(i, i + concurrency);
+      const responses = await Promise.all(
+        batch.map(({ connection, accountProxies }) =>
+          fetch(`/api/providers/${connection.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              providerSpecificData: { accountProxies },
+            }),
+          })
+        )
+      );
+      if (responses.some((response) => !response.ok)) {
+        throw new Error(t("updateConnectionFailed"));
+      }
+    }
 
     await fetchConnections();
+    await onConnectionsChanged?.();
   };
 
   return (
@@ -486,8 +555,9 @@ export default function NoAuthAccountCard({
             className="grid max-h-72 grid-cols-1 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3"
           >
             {allAccountIds.map((id, i) => {
+              const accountConnection = findAccountConnection(id);
               const proxy = getDisplayProxy(
-                getEntryForFingerprint(accountProxies, id),
+                getEntryForFingerprint(getAccountProxies(accountConnection), id),
                 savedProxies
               );
               return (

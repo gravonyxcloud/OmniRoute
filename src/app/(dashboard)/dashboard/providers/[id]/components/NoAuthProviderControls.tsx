@@ -17,6 +17,7 @@ interface NoAuthProviderControlsProps {
   providerName: string;
   providerProxy?: { host?: string | null } | null;
   onConfigureProviderProxy: () => void;
+  onConnectionsChanged?: () => void | Promise<void>;
 }
 
 export default function NoAuthProviderControls({
@@ -24,6 +25,7 @@ export default function NoAuthProviderControls({
   providerName,
   providerProxy,
   onConfigureProviderProxy,
+  onConnectionsChanged,
 }: NoAuthProviderControlsProps) {
   const noAuthT = useTranslations("noAuthProvider");
   const notify = useNotificationStore();
@@ -165,6 +167,7 @@ export default function NoAuthProviderControls({
         }
         showManualKeyInput={providerId === "dahl"}
         onManualApiKeyAdd={providerId === "dahl" ? handleManualApiKeyAdd : undefined}
+        onConnectionsChanged={onConnectionsChanged}
         enabled={enabled}
         savingEnabled={savingEnabled}
         onEnabledChange={handleEnabledChange}

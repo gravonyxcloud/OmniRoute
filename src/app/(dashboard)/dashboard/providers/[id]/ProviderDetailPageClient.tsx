@@ -590,6 +590,7 @@ export default function ProviderDetailPageClient() {
               label: providerInfo?.name || providerId,
             })
           }
+          onConnectionsChanged={fetchConnections}
         />
       )}
       {!isUpstreamProxyProvider && !isFreeNoAuth && (
@@ -598,7 +599,8 @@ export default function ProviderDetailPageClient() {
           providerName={providerInfo?.name || providerId}
         />
       )}
-      {!isUpstreamProxyProvider && (!isFreeNoAuth || providerSupportsPat) && (
+      {!isUpstreamProxyProvider &&
+        (!isFreeNoAuth || providerSupportsPat || providerId === "opencode") && (
         <Card>
           <ProviderAccountRoutingCard
             providerKey={providerId}
