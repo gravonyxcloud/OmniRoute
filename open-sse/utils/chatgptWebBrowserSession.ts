@@ -260,6 +260,13 @@ async function selectDomMode(page: Page, selection: ChatGptWebUiSelection): Prom
   await selectPickerMode(page, selection);
 }
 
+const CHATGPT_DOM_ASSISTANT_SELECTOR = [
+  CHATGPT_ASSISTANT_TURN_SELECTOR,
+  '[data-message-author-role="assistant"]',
+  '[data-conversation-role="assistant"]',
+  '[data-turn="assistant"]',
+].join(", ");
+
 async function readDomAssistantText(assistant: Locator): Promise<string> {
   return assistant.evaluate((element) => {
     const root = element as HTMLElement;
@@ -284,8 +291,12 @@ async function executeChatGptWebDomFallback(
   if (request.signal?.aborted) throw new Error("ChatGPT Web browser turn aborted");
   await selectDomMode(page, selection);
 
-  const assistants = page.locator(CHATGPT_ASSISTANT_TURN_SELECTOR);
-  const baseline = await assistants.count();
+  const assistants = page.locator(CHATGPT_DOM_ASSISTANT_SELECTOR).filter({ visible: true });
+  const baselineCount = await assistants.count();
+  const baselineText =
+    baselineCount > 0
+      ? await readDomAssistantText(assistants.last()).catch(() => "")
+      : "";
   const composer = await visibleComposer(page);
   const form = composer.locator("xpath=ancestor::form[1]");
   await composer.fill(request.prompt);
@@ -299,15 +310,27 @@ async function executeChatGptWebDomFallback(
   await send.click();
 
   const responseDeadline = Date.now() + DEFAULT_TURN_TIMEOUT_MS;
-  while ((await assistants.count()) <= baseline) {
+  let assistant: Locator | null = null;
+  while (!assistant) {
     if (request.signal?.aborted) throw new Error("ChatGPT Web browser turn aborted");
     if (Date.now() >= responseDeadline) throw new Error("ChatGPT Web DOM fallback timed out");
+    const count = await assistants.count();
+    if (count > 0) {
+      const candidate = assistants.last();
+      const candidateText = await readDomAssistantText(candidate).catch(() => "");
+      if (
+        count > baselineCount ||
+        (candidateText.length > 0 && candidateText !== baselineText)
+      ) {
+        assistant = candidate;
+        break;
+      }
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  const assistant = assistants.nth(baseline);
   const completion = assistant.locator(CHATGPT_COMPLETION_ACTION_SELECTOR).last();
   const stop = page.locator(CHATGPT_STOP_BUTTON_SELECTOR).filter({ visible: true }).last();
-  let lastText = "";
+  let lastText = await readDomAssistantText(assistant).catch(() => "");
   let stableSince = Date.now();
 
   while (Date.now() < responseDeadline) {
