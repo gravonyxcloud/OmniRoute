@@ -239,6 +239,15 @@ export async function resolvePlaywrightProxy(
     const p = await resolver(providerKey);
     if (!p?.host) return undefined;
     const scheme = p.type === "socks5" ? "socks5" : "http";
+    // Chromium/Playwright does not support username/password authentication on
+    // SOCKS5 proxies at BrowserContext creation time. Falling back to direct is
+    // preferable to making the entire browser-backed provider unavailable.
+    if (scheme === "socks5" && p.username) {
+      console.warn(
+        `[BrowserPool] Ignoring authenticated SOCKS5 proxy for ${providerKey}; Playwright does not support SOCKS5 auth`
+      );
+      return undefined;
+    }
     // Build explicitly instead of a conditional object spread: the spread form
     // widens username/password to `{}` under the LaunchOptions["proxy"] type,
     // tripping typecheck once browserPool.ts is pulled into typecheck-core scope.

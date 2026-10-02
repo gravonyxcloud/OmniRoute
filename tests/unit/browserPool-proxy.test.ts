@@ -52,6 +52,19 @@ describe("resolvePlaywrightProxy", () => {
     assert.deepStrictEqual(proxy, { server: "socks5://socks.example.com:1080" });
   });
 
+  it("falls back to direct when a SOCKS5 proxy requires authentication", async () => {
+    const proxy = await resolvePlaywrightProxy("chatgpt-web", {
+      resolveProxy: async () => ({
+        type: "socks5",
+        host: "socks.example.com",
+        port: 1080,
+        username: "user",
+        password: "pass",
+      }),
+    });
+    assert.strictEqual(proxy, undefined);
+  });
+
   it("defaults to http scheme when type is absent", async () => {
     const proxy = await resolvePlaywrightProxy("claude-web", {
       resolveProxy: async () => ({ host: "proxy.example.com", port: 3128 }),
