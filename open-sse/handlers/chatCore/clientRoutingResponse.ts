@@ -133,9 +133,11 @@ export async function projectCommercialComboSuccessResponse(
   }
 
   if (contentType.includes("json")) {
+    const raw = await response.text();
+    if (!raw) {
+      return new Response(raw, { status: response.status, statusText: response.statusText, headers });
+    }
     try {
-      const raw = await response.text();
-      if (!raw) return new Response(raw, { status: response.status, statusText: response.statusText, headers });
       const projected = projectPayload(JSON.parse(raw), combo);
       return new Response(JSON.stringify(projected), {
         status: response.status,
@@ -143,7 +145,11 @@ export async function projectCommercialComboSuccessResponse(
         headers,
       });
     } catch {
-      // Preserve a successful non-standard body while still masking routing headers.
+      return new Response(raw, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
     }
   }
 

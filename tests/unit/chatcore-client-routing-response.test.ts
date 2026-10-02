@@ -83,6 +83,15 @@ test("Responses API event identity is rewritten without touching output content"
   assert.doesNotMatch(text, /private-model|private-provider/);
 });
 
+test("successful malformed JSON bodies are preserved without reusing a consumed stream", async () => {
+  const response = await projectCommercialComboSuccessResponse(
+    new Response("{not-json", { headers: { "content-type": "application/json" } }),
+    comboArgs
+  );
+  assert.equal(await response.text(), "{not-json");
+  assert.equal(response.headers.get("x-omniroute-model"), "cliente-premium");
+});
+
 test("ordinary keys are untouched", async () => {
   const input = new Response('{"model":"real-model"}', {
     headers: { "content-type": "application/json" },
