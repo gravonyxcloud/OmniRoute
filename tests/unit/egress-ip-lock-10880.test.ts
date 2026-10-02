@@ -25,6 +25,10 @@ import path from "node:path";
 // core.ts captures resolveWritableDataDir at module-load time.
 const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-egress-lock-"));
 process.env.DATA_DIR = TEST_DATA_DIR;
+// This file primarily covers the opt-in shared-egress behavior. Production now
+// defaults this OFF for OpenCode so one throttled connection cannot disable
+// healthy siblings.
+process.env.OPENCODE_SHARED_EGRESS_LOCKOUT = "1";
 
 const core = await import("../../src/lib/db/core.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
@@ -276,6 +280,45 @@ test("combo path: one upstream call too — the pool is cooled, the combo advanc
     );
     assert.equal(conn!.testStatus, "unavailable");
     assert.notEqual(conn!.testStatus, "banned", "never terminal, combo path included");
+  }
+});
+
+test("OpenCode shared-egress cooldown propagation is disabled by default", async () => {
+  const previous = process.env.OPENCODE_SHARED_EGRESS_LOCKOUT;
+  delete process.env.OPENCODE_SHARED_EGRESS_LOCKOUT;
+  try {
+    await resetStorage();
+    const connA = await seedConnection("opencode");
+    const connB = await seedConnection("opencode");
+    const connC = await seedConnection("opencode");
+    seedProxyLog(connA, SHARED_EGRESS_IP);
+    seedProxyLog(connB, SHARED_EGRESS_IP);
+    seedProxyLog(connC, SHARED_EGRESS_IP);
+
+    const result = await auth.markAccountUnavailable(
+      connA,
+      429,
+      REAL_OPENCODE_429,
+      "opencode",
+      "model-x",
+      null,
+      {}
+    );
+    assert.equal(result.shouldFallback, true);
+
+    const [a, b, c] = await Promise.all([
+      providersDb.getProviderConnectionById(connA),
+      providersDb.getProviderConnectionById(connB),
+      providersDb.getProviderConnectionById(connC),
+    ]);
+    assert.equal(a!.testStatus, "unavailable", "only the failing connection is cooled");
+    assert.ok(new Date(String(a!.rateLimitedUntil)).getTime() > Date.now());
+    assert.equal(b!.testStatus, "active", "healthy sibling B stays active");
+    assert.equal(c!.testStatus, "active", "healthy sibling C stays active");
+    assert.ok(!b!.rateLimitedUntil && !c!.rateLimitedUntil);
+  } finally {
+    if (previous === undefined) process.env.OPENCODE_SHARED_EGRESS_LOCKOUT = "1";
+    else process.env.OPENCODE_SHARED_EGRESS_LOCKOUT = previous;
   }
 });
 

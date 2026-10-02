@@ -2582,12 +2582,31 @@ async function resolveDailyResetForProvider(
  */
 const EGRESS_IP_LOCK_RECENCY_MS = 5 * 60 * 1000;
 
+function isOpenCodeSharedEgressLockoutEnabled(): boolean {
+  const raw = process.env.OPENCODE_SHARED_EGRESS_LOCKOUT?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 async function applyEgressIpLockout(
   connectionId: string,
   provider: string,
   cooldownMs: number,
   reason: string
 ): Promise<void> {
+  const normalizedProvider = provider.trim().toLowerCase();
+  if (
+    (normalizedProvider === "opencode" ||
+      normalizedProvider === "opencode-go" ||
+      normalizedProvider === "opencode-cli") &&
+    !isOpenCodeSharedEgressLockoutEnabled()
+  ) {
+    log.info(
+      "AUTH",
+      `OpenCode shared-egress cooldown propagation disabled; keeping 429 scoped to ${connectionId.slice(0, 8)}`
+    );
+    return;
+  }
+
   try {
     // Routing decisions must use a short recency window. The 24h proxy-log
     // observation window is useful for dashboards, but it is too stale for

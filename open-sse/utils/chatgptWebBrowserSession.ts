@@ -219,9 +219,12 @@ async function selectPickerMode(page: Page, selection: Extract<ChatGptWebUiSelec
       await slider.getAttribute("aria-valuenow")
     );
     if (!state) throw new Error("ChatGPT effort slider exposed an invalid state");
-    const target = state.min + selection.effortIndex;
-    if (target > state.max) {
-      throw new Error(`ChatGPT effort index ${selection.effortIndex} is unavailable`);
+    const requestedTarget = state.min + selection.effortIndex;
+    const target = Math.min(requestedTarget, state.max);
+    if (requestedTarget > state.max) {
+      console.warn(
+        `[chatgpt-web] requested effort index ${selection.effortIndex} is unavailable; clamping to the highest available level`
+      );
     }
     const owner = slider.locator("xpath=ancestor::*[@role='menuitem'][1]");
     while (state.value !== target) {
@@ -269,6 +272,11 @@ const CHATGPT_DOM_ASSISTANT_SELECTOR = [
   '[data-turn="assistant"]',
 ].join(", ");
 
+const CHATGPT_DOM_GENERIC_TURN_SELECTOR = [
+  '[data-testid^="conversation-turn-"]',
+  '[data-turn-key]',
+].join(", ");
+
 async function readDomAssistantText(assistant: Locator): Promise<string> {
   return assistant.evaluate((element) => {
     const root = element as HTMLElement;
@@ -294,10 +302,16 @@ async function executeChatGptWebDomFallback(
   await selectDomMode(page, selection);
 
   const assistants = page.locator(CHATGPT_DOM_ASSISTANT_SELECTOR).filter({ visible: true });
+  const genericTurns = page.locator(CHATGPT_DOM_GENERIC_TURN_SELECTOR).filter({ visible: true });
   const baselineCount = await assistants.count();
+  const baselineGenericCount = await genericTurns.count();
   const baselineText =
     baselineCount > 0
       ? await readDomAssistantText(assistants.last()).catch(() => "")
+      : "";
+  const baselineGenericText =
+    baselineGenericCount > 0
+      ? await readDomAssistantText(genericTurns.last()).catch(() => "")
       : "";
   const composer = await visibleComposer(page);
   const form = composer.locator("xpath=ancestor::form[1]");
@@ -316,6 +330,7 @@ async function executeChatGptWebDomFallback(
   while (!assistant) {
     if (request.signal?.aborted) throw new Error("ChatGPT Web browser turn aborted");
     if (Date.now() >= responseDeadline) throw new Error("ChatGPT Web DOM fallback timed out");
+
     const count = await assistants.count();
     if (count > 0) {
       const candidate = assistants.last();
@@ -328,6 +343,24 @@ async function executeChatGptWebDomFallback(
         break;
       }
     }
+
+    // Current ChatGPT builds do not always retain an explicit assistant role
+    // attribute on the outer turn node. Fall back to a genuinely new visible
+    // conversation turn, while rejecting the user's own freshly-added turn.
+    const genericCount = await genericTurns.count();
+    if (genericCount > 0) {
+      const candidate = genericTurns.last();
+      const candidateText = (await readDomAssistantText(candidate).catch(() => "")).trim();
+      const promptText = request.prompt.trim();
+      const isNewTurn =
+        genericCount > baselineGenericCount ||
+        (candidateText.length > 0 && candidateText !== baselineGenericText);
+      if (isNewTurn && candidateText && candidateText !== promptText) {
+        assistant = candidate;
+        break;
+      }
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   const completion = assistant.locator(CHATGPT_COMPLETION_ACTION_SELECTOR).last();
