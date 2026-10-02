@@ -841,6 +841,19 @@ export class OpencodeExecutor extends BaseExecutor {
             );
             return result;
           }
+
+          const key = proxyKeyOf(account.proxy);
+          if (key === null) {
+            directTransientAttempts++;
+            const rotate = directTransientAttempts < maxDirectTransientAttempts;
+            log?.warn?.(
+              "OPENCODE",
+              `${cid}Rate limited (429) on account ${masked} (proxy direct), ${rotate ? "rotating to one alternate fingerprint…" : "stopping direct fingerprint wave"}`
+            );
+            if (!rotate) return result;
+            continue;
+          }
+
           log?.warn?.(
             "OPENCODE",
             `${cid}Rate limited (429) on account ${masked}` +
