@@ -44,6 +44,7 @@ import { resolveRequestAutoControls } from "@omniroute/open-sse/services/autoCom
 import { isVerifiedNativeCodexRequest } from "@omniroute/open-sse/config/codexIdentity.ts";
 import { resolveCompressionSettings } from "@omniroute/open-sse/handlers/chatCore/compressionSettings.ts";
 import { projectClientRoutingErrorMessage } from "@omniroute/open-sse/handlers/chatCore/clientRoutingError.ts";
+import { projectCommercialComboSuccessResponse } from "@omniroute/open-sse/handlers/chatCore/clientRoutingResponse.ts";
 import type { CompressionExclusions } from "@omniroute/open-sse/services/compression/exclusions.ts";
 import { resolveComboConfig } from "@omniroute/open-sse/services/comboConfig.ts";
 import { comboPinAllowlist } from "@/lib/combos/steps.ts";
@@ -511,8 +512,8 @@ async function maskCommercialComboFailureResponse(
     : {
         error: {
           message: publicMessage,
-          type: "upstream_error",
-          code: errorCode || undefined,
+          type: "combo_error",
+          code: "combo_error",
         },
       };
 
@@ -1404,9 +1405,13 @@ async function handleChatImplementation(
         );
         if (fallbackResponse.ok) {
           log.info("GLOBAL_FALLBACK", `Global fallback ${fallbackModel} succeeded`);
+          const projectedFallback = await projectCommercialComboSuccessResponse(fallbackResponse, {
+            catalogScope: apiKeyInfo?.catalogScope,
+            comboName: combo.name,
+          });
           recordTelemetry(telemetry);
           return withModalityBridgeHeader(
-            withConversationId(withSessionHeader(fallbackResponse, sessionId), conversationId),
+            withConversationId(withSessionHeader(projectedFallback, sessionId), conversationId),
             modalityBridgeHeader
           );
         }
@@ -1423,10 +1428,14 @@ async function handleChatImplementation(
     // Project the final failure onto the commercial combo identity only after
     // all internal fallback/classification work has finished. This keeps backend
     // diagnostics intact while preventing provider/model leakage to combos-only clients.
-    const clientResponse = await maskCommercialComboFailureResponse(response, {
+    const failureMaskedResponse = await maskCommercialComboFailureResponse(response, {
       apiKeyInfo,
       comboName: combo.name,
       request,
+    });
+    const clientResponse = await projectCommercialComboSuccessResponse(failureMaskedResponse, {
+      catalogScope: apiKeyInfo?.catalogScope,
+      comboName: combo.name,
     });
 
     // Record telemetry
@@ -1505,10 +1514,14 @@ async function handleChatImplementation(
     null,
     false
   );
-  const clientResponse = await maskCommercialComboFailureResponse(response, {
+  const failureMaskedResponse = await maskCommercialComboFailureResponse(response, {
     apiKeyInfo,
     comboName: apiKeyInfo?.catalogScope === "combos" ? resolvedModelStr : null,
     request,
+  });
+  const clientResponse = await projectCommercialComboSuccessResponse(failureMaskedResponse, {
+    catalogScope: apiKeyInfo?.catalogScope,
+    comboName: apiKeyInfo?.catalogScope === "combos" ? resolvedModelStr : null,
   });
   recordTelemetry(telemetry);
   return withModalityBridgeHeader(
