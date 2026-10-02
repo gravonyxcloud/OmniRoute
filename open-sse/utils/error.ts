@@ -532,25 +532,29 @@ export function sanitizeRecoveryHint(
  * containment boundary for the diagnostic trace.
  */
 export function sanitizeComboDiagnostics(d: ComboDiagnostics): ComboDiagnostics {
-  const recovery = sanitizeRecoveryHint(d?.recovery);
+  // Recovery suggestions can expose internal routing concepts (for example
+  // auto-combos), so commercial/public diagnostics intentionally omit them.
+  const recovery: ComboRecoveryHint | undefined = undefined;
+  // Public combo diagnostics must never disclose the routed upstream provider
+  // or model. Operators already have the full attempt trace in internal logs;
+  // clients only need counts and stable failure classifications.
   const out: ComboDiagnostics = {
     poolSize: Number.isFinite(d?.poolSize) ? d.poolSize : 0,
     attempted: Number.isFinite(d?.attempted) ? d.attempted : 0,
     excluded: (d?.excluded ?? []).slice(0, 64).map((e) => ({
-      provider: clampDiagStr(e?.provider, 64),
-      ...(e?.model ? { model: clampDiagStr(e.model, 96) } : {}),
-      reason: clampDiagStr(e?.reason, 64),
+      provider: "upstream",
+      reason: projectPublicErrorIdentifier(e?.reason, "upstream_error"),
     })),
     attemptOrder: (d?.attemptOrder ?? [])
       .slice(0, 64)
-      .map((a) => ({ provider: clampDiagStr(a?.provider, 64), model: clampDiagStr(a?.model, 96) })),
-    terminalReason: clampDiagStr(d?.terminalReason, 200),
+      .map(() => ({ provider: "upstream", model: "hidden" })),
+    terminalReason: projectPublicErrorIdentifier(d?.terminalReason, "upstream_error"),
   };
   if (recovery) out.recovery = recovery;
   if (Array.isArray(d?.skippedTargets) && d.skippedTargets.length > 0) {
     out.skippedTargets = d.skippedTargets.slice(0, 32).map((g) => ({
-      reason: clampDiagStr(g?.reason, 64),
-      targets: (g?.targets ?? []).slice(0, 32).map((t) => clampDiagStr(t, 96)),
+      reason: projectPublicErrorIdentifier(g?.reason, "upstream_error"),
+      targets: (g?.targets ?? []).slice(0, 32).map(() => "hidden"),
     }));
   }
   return out;
@@ -574,7 +578,15 @@ export function errorResponseWithComboDiagnostics(
   opts: { code?: string; type?: string } = {}
 ): Response {
   const safe = sanitizeComboDiagnostics(diagnostics);
-  const body = buildErrorBody(statusCode, message, undefined, opts) as ErrorResponseBody & {
+  // The original combo failure message is retained in internal logs by callers.
+  // Public responses use the status-derived gateway message so upstream/model
+  // names embedded in raw failure text cannot escape.
+  const body = buildErrorBody(
+    statusCode,
+    getDefaultErrorMessage(statusCode),
+    undefined,
+    opts
+  ) as ErrorResponseBody & {
     diagnostics?: ComboDiagnostics;
     recovery_hint?: ComboRecoveryHint;
   };

@@ -109,6 +109,26 @@ export function injectIdentityMask(
   const mask = text.trim();
   if (!mask) return body;
 
+  // Idempotency: combo middleware may already have injected this exact mask
+  // before translation. Commercial-key enforcement runs again post-translation
+  // so a per-combo/global opt-out cannot bypass it; do not duplicate the text.
+  const serializedCarrier = (() => {
+    const carrier =
+      targetFormat === "claude"
+        ? body.system
+        : targetFormat === "gemini"
+          ? body.systemInstruction
+          : targetFormat === "openai-responses"
+            ? body.instructions
+            : body.messages;
+    try {
+      return typeof carrier === "string" ? carrier : JSON.stringify(carrier ?? "");
+    } catch {
+      return "";
+    }
+  })();
+  if (serializedCarrier.includes(mask)) return body;
+
   const result: Record<string, unknown> = { ...body };
 
   // Claude-format system carrier (string or block array).
