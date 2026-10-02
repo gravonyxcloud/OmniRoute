@@ -30,6 +30,7 @@ type Locator = import("playwright").Locator;
 
 const CHATGPT_WEB_ORIGIN = "https://chatgpt.com";
 const DEFAULT_TURN_TIMEOUT_MS = 180_000;
+const DOM_FALLBACK_TIMEOUT_MS = 45_000;
 const MAX_BUFFERED_FRAMES = 2_048;
 const MAX_BUFFERED_FRAME_BYTES = 16 * 1024 * 1024;
 
@@ -192,9 +193,10 @@ async function selectPickerMode(page: Page, selection: Extract<ChatGptWebUiSelec
         (await slider.isVisible().catch(() => false));
       if (!canUseSlider) {
         await page.keyboard.press("Escape").catch(() => {});
-        throw new Error(
-          `ChatGPT Web mode is not available in the current account: ${targetLabel}`
+        console.warn(
+          `[chatgpt-web] requested mode "${targetLabel}" is unavailable; using the account's current ChatGPT model`
         );
+        return;
       }
     } else {
       await exact.first().click();
@@ -309,7 +311,7 @@ async function executeChatGptWebDomFallback(
   }
   await send.click();
 
-  const responseDeadline = Date.now() + DEFAULT_TURN_TIMEOUT_MS;
+  const responseDeadline = Date.now() + DOM_FALLBACK_TIMEOUT_MS;
   let assistant: Locator | null = null;
   while (!assistant) {
     if (request.signal?.aborted) throw new Error("ChatGPT Web browser turn aborted");
