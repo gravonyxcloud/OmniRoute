@@ -4,6 +4,7 @@ import {
   resolveBrowserContextProxy,
   resolvePlainBrowserLaunchOptions,
   resolvePlaywrightProxy,
+  shutdownPool,
 } from "../../open-sse/services/browserPool.ts";
 
 describe("resolvePlainBrowserLaunchOptions", () => {
@@ -52,7 +53,7 @@ describe("resolvePlaywrightProxy", () => {
     assert.deepStrictEqual(proxy, { server: "socks5://socks.example.com:1080" });
   });
 
-  it("falls back to direct when a SOCKS5 proxy requires authentication", async () => {
+  it("bridges an authenticated SOCKS5 proxy through loopback HTTP for Playwright", async () => {
     const proxy = await resolvePlaywrightProxy("chatgpt-web", {
       resolveProxy: async () => ({
         type: "socks5",
@@ -62,7 +63,11 @@ describe("resolvePlaywrightProxy", () => {
         password: "pass",
       }),
     });
-    assert.strictEqual(proxy, undefined);
+
+    assert.match(proxy?.server ?? "", /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.equal(proxy?.username, undefined);
+    assert.equal(proxy?.password, undefined);
+    await shutdownPool("test");
   });
 
   it("defaults to http scheme when type is absent", async () => {
