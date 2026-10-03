@@ -16,6 +16,18 @@ type JsonRecord = Record<string, unknown>;
 type Page = import("playwright").Page;
 
 const CHATGPT_WEB_ORIGIN = "https://chatgpt.com";
+const CHATGPT_COMPOSER_SELECTOR = [
+  "#prompt-textarea",
+  '[data-testid="prompt-textarea"]',
+  '[data-testid="composer-input"]',
+  "#mobile-composer-prompt",
+  'textarea[name="prompt"]',
+  "[data-mobile-composer-prompt]",
+  'form [contenteditable="true"]',
+  '[contenteditable="true"][data-lexical-editor="true"]',
+  '[role="textbox"][contenteditable="true"]',
+  'div.ProseMirror[contenteditable="true"]',
+].join(", ");
 const DEFAULT_TURN_TIMEOUT_MS = 180_000;
 const MAX_BUFFERED_FRAMES = 2_048;
 const MAX_BUFFERED_FRAME_BYTES = 16 * 1024 * 1024;
@@ -851,12 +863,46 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
     await this.page.goto(this.pageUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
     requireFirstPartyUrl(this.page.url());
 
-    const composer = this.page
-      .locator(
-        '#prompt-textarea, [data-testid="prompt-textarea"], #mobile-composer-prompt, textarea[name="prompt"], [data-mobile-composer-prompt], form [contenteditable="true"], [contenteditable="true"][data-lexical-editor="true"]'
-      )
-      .first();
-    await composer.waitFor({ state: "visible", timeout: 20_000 });
+    let composer = this.page.locator(CHATGPT_COMPOSER_SELECTOR).filter({ visible: true }).first();
+    try {
+      await composer.waitFor({ state: "visible", timeout: 8_000 });
+    } catch {
+      // The temporary-chat route occasionally lands on a shell/redirect where the
+      // composer is never mounted. Retry once on the canonical chat root before
+      // treating the session as unavailable.
+      await this.page.goto(CHATGPT_WEB_ORIGIN, {
+        waitUntil: "domcontentloaded",
+        timeout: 20_000,
+      });
+      requireFirstPartyUrl(this.page.url());
+      composer = this.page.locator(CHATGPT_COMPOSER_SELECTOR).filter({ visible: true }).first();
+      try {
+        await composer.waitFor({ state: "visible", timeout: 12_000 });
+      } catch {
+        const diagnostics = await this.page
+          .evaluate(() => {
+            const body = (document.body?.innerText ?? "").slice(0, 4_000).toLowerCase();
+            return {
+              pathname: location.pathname,
+              title: document.title,
+              login:
+                body.includes("log in") ||
+                body.includes("sign in") ||
+                body.includes("entrar") ||
+                body.includes("fazer login"),
+              challenge:
+                body.includes("verify you are human") ||
+                body.includes("checking your browser") ||
+                body.includes("cloudflare") ||
+                body.includes("turnstile"),
+            };
+          })
+          .catch(() => ({ pathname: "unknown", title: "", login: false, challenge: false }));
+        throw new Error(
+          `ChatGPT Web composer unavailable (path=${diagnostics.pathname}, login=${diagnostics.login}, challenge=${diagnostics.challenge}, title=${diagnostics.title.slice(0, 120)})`
+        );
+      }
+    }
     const initialAssistantCount = await this.page
       .locator('[data-message-role="assistant"], [data-message-author-role="assistant"]')
       .count();
@@ -864,7 +910,7 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
 
     await this.page.evaluate((values) => {
       const composerElement = document.querySelector<HTMLElement>(
-        '#prompt-textarea, [data-testid="prompt-textarea"], #mobile-composer-prompt, textarea[name="prompt"], [data-mobile-composer-prompt], form [contenteditable="true"], [contenteditable="true"][data-lexical-editor="true"]'
+        '#prompt-textarea, [data-testid="prompt-textarea"], [data-testid="composer-input"], #mobile-composer-prompt, textarea[name="prompt"], [data-mobile-composer-prompt], form [contenteditable="true"], [contenteditable="true"][data-lexical-editor="true"], [role="textbox"][contenteditable="true"], div.ProseMirror[contenteditable="true"]'
       );
       const form =
         composerElement?.closest("form") ??
