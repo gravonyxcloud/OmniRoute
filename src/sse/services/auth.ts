@@ -183,7 +183,10 @@ import {
   getNextFromDeckSync,
   planNextFromDeckSync,
 } from "@/shared/utils/shuffleDeck";
-import { shouldIsolateProbeFailures } from "@/shared/utils/probeOrigin";
+import {
+  isModelTestDeadlineFailure,
+  shouldIsolateProbeFailures,
+} from "@/shared/utils/probeOrigin";
 import {
   applyExclusiveConnectionLeasePolicy,
   invalidateManagedConnectionLease,
@@ -2842,6 +2845,9 @@ export async function markAccountUnavailable(
     // auto-disable. Only a real request-path failure deactivates (#9817);
     // the opt-in setting probeCanDisable restores the historical behavior.
     if (await shouldIsolateProbeFailures()) {
+      const safeProbeError = sanitizeErrorMessage(errorText) || "Provider request failed";
+      const probeDeadlineExceeded = isModelTestDeadlineFailure(status, safeProbeError);
+
       await updateProviderConnection(connectionId, {
         // Persist safe wording only after classification has consumed the raw provider text.
         // backoffLevel is deliberately NOT written: a positive backoff
@@ -2849,16 +2855,18 @@ export async function markAccountUnavailable(
         // auth.ts getProviderCredentials) which wipes lastError back to
         // NULL on the next attempt — silently destroying the probe record.
         // The backoff is also routing state a probe must not touch (#9817).
-        lastError: sanitizeErrorMessage(errorText) || "Provider request failed",
+        lastError: safeProbeError,
         lastErrorType: fallbackResult.reason || null,
         errorCode: status,
         lastErrorAt: new Date().toISOString(),
       });
       log.warn(
         "AUTH",
-        `[T-PROBE] ${connectionId.slice(0, 8)} ${provider ?? ""} failure ${status} recorded — connection stays in the pool`
+        probeDeadlineExceeded
+          ? `[T-PROBE] ${connectionId.slice(0, 8)} ${provider ?? ""} model-test deadline reached — stopping account rotation`
+          : `[T-PROBE] ${connectionId.slice(0, 8)} ${provider ?? ""} failure ${status} recorded — connection stays in the pool`
       );
-      return { shouldFallback: true, cooldownMs: 0 };
+      return { shouldFallback: !probeDeadlineExceeded, cooldownMs: 0 };
     }
 
     // Read passthroughModels from connection config (user-configured per-model quota)

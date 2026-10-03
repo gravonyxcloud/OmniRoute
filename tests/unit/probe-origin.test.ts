@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import Bottleneck from "bottleneck";
 
-const { runAsProbe, isProbeContext } = await import("../../src/shared/utils/probeOrigin.ts");
+const { runAsProbe, isProbeContext, isModelTestDeadlineFailure } =
+  await import("../../src/shared/utils/probeOrigin.ts");
 
 test("runAsProbe propagates through nested async/await; false outside", async () => {
   assert.equal(isProbeContext(), false);
@@ -18,6 +19,16 @@ test("runAsProbe propagates through nested async/await; false outside", async ()
     assert.equal(isProbeContext(), true);
   });
   assert.equal(isProbeContext(), false);
+});
+
+test("model-test deadline detection stops probe account rotation only for deadline 504s", () => {
+  assert.equal(
+    isModelTestDeadlineFailure(504, "[504]: Model test deadline exceeded after 30000ms"),
+    true
+  );
+  assert.equal(isModelTestDeadlineFailure(504, "No model output within 30s"), true);
+  assert.equal(isModelTestDeadlineFailure(503, "Model test deadline exceeded after 30000ms"), false);
+  assert.equal(isModelTestDeadlineFailure(504, "Gateway Timeout"), false);
 });
 
 test("queued scheduler job wrapped in runAsProbe keeps the probe context", async () => {

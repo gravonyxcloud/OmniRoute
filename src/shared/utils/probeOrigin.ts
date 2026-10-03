@@ -30,6 +30,13 @@ export function isProbeContext(): boolean {
   return probeContext.getStore() !== undefined;
 }
 
+export function isModelTestDeadlineFailure(status: number, message: string): boolean {
+  return (
+    status === 504 &&
+    /(?:Model test deadline exceeded|No model output within\s+\d+s)/i.test(message)
+  );
+}
+
 /**
  * Central probe-isolation decision used by every deactivation site.
  *
