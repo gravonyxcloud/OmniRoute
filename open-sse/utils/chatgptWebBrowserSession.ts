@@ -507,7 +507,7 @@ class ChatGptWebBrowserTurnRunner {
 
 function shouldUseComposerFallback(error: unknown): boolean {
   const message = turnError(error, "ChatGPT Web first-party request failed").message;
-  return /first-party request module|first-party module contract|first-party asset|challenge bridge|request client is unavailable|RequestError:\s*Something went wrong|help\.openai\.com/i.test(
+  return /first-party request module|first-party module contract|first-party asset|challenge bridge|request client is unavailable|RequestError:\s*Something went wrong|help\.openai\.com|execution context was destroyed|most likely because of a navigation|frame was detached|target closed|locator\.waitFor: Timeout|browser turn timed out/i.test(
     message
   );
 }
