@@ -410,17 +410,17 @@ export function resolveChatGptWebChromeExecutable(
 }
 
 /**
- * The desktop flow deliberately uses a headed browser because it most closely
- * matches an interactive ChatGPT session. Docker hosts such as EasyPanel do
- * not provide an X display, however, so Chromium exits immediately when asked
- * to create a window. BrowserPool already supplies the Docker-safe sandbox and
- * shared-memory flags; selecting headless here keeps that same browser path
- * usable in a container.
+ * ChatGPT Web is more reliable when Chromium runs headed. The runner-web image
+ * provides a virtual X display via Xvfb, so containers with DISPLAY available
+ * should use headed Chromium too. Fall back to headless only when no display is
+ * available (for example, custom/minimal container images).
  */
 export function shouldUseHeadlessChatGptWebBrowser(
-  runningInContainer = isRunningInContainer()
+  runningInContainer = isRunningInContainer(),
+  display = process.env.DISPLAY
 ): boolean {
-  return runningInContainer;
+  if (!runningInContainer) return false;
+  return !display?.trim();
 }
 
 async function createDefaultSession(

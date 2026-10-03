@@ -321,22 +321,34 @@ export async function resolvePlaywrightProxy(
       });
     const p = await resolver(providerKey);
     if (!p?.host) return undefined;
-    const scheme = p.type === "socks5" ? "socks5" : "http";
+
+    const normalized: ProxyRecord = {
+      type: typeof p.type === "string" ? p.type : undefined,
+      host: String(p.host),
+      port: Number(p.port),
+      username: p.username == null ? null : String(p.username),
+      password: p.password == null ? null : String(p.password),
+    };
+    if (!normalized.host || !Number.isInteger(normalized.port) || normalized.port < 1) {
+      return undefined;
+    }
+
+    const scheme = normalized.type === "socks5" ? "socks5" : "http";
     // Chromium/Playwright does not accept username/password on a SOCKS5 proxy
     // directly. Bridge it through a loopback HTTP CONNECT proxy so browser-backed
     // providers still use the configured authenticated SOCKS5 egress.
-    if (scheme === "socks5" && p.username) {
-      return { server: await resolveAuthenticatedSocksBridge(p) };
+    if (scheme === "socks5" && normalized.username) {
+      return { server: await resolveAuthenticatedSocksBridge(normalized) };
     }
     // Build explicitly instead of a conditional object spread: the spread form
     // widens username/password to `{}` under the LaunchOptions["proxy"] type,
     // tripping typecheck once browserPool.ts is pulled into typecheck-core scope.
     const proxy: NonNullable<import("playwright").LaunchOptions["proxy"]> = {
-      server: `${scheme}://${p.host}:${p.port}`,
+      server: `${scheme}://${normalized.host}:${normalized.port}`,
     };
-    if (p.username) {
-      proxy.username = String(p.username);
-      proxy.password = p.password == null ? "" : String(p.password);
+    if (normalized.username) {
+      proxy.username = normalized.username;
+      proxy.password = normalized.password ?? "";
     }
     return proxy;
   } catch (err) {

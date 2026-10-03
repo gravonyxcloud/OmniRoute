@@ -322,7 +322,14 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-apt-cache,targe
   && chown -R node:node /home/node/.cache \
   && rm -rf /var/lib/apt/lists/*
 
+COPY --chown=node:node --chmod=755 scripts/web-entrypoint.sh /app/web-entrypoint.sh
+
 USER node
+
+# The web flavor starts a virtual X display before the regular OmniRoute
+# permission/bootstrap entrypoint. This lets ChatGPT Web run headed Chromium in
+# containers while keeping runner-base unchanged.
+ENTRYPOINT ["/app/web-entrypoint.sh"]
 
 FROM runner-base AS runner-cli
 
