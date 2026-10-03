@@ -25,6 +25,9 @@
  */
 
 import { Buffer } from "node:buffer";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { SocksClient } from "socks";
 
 import { connectObscuraBrowser } from "./obscura.ts";
 
@@ -224,6 +227,86 @@ interface ResolvePlaywrightProxyDeps {
   resolveProxy?: (providerId: string) => Promise<ProxyRecord | null | undefined>;
 }
 
+interface AuthenticatedSocksBridge {
+  server: HttpServer;
+  url: string;
+}
+
+const authenticatedSocksBridges = new Map<string, AuthenticatedSocksBridge>();
+
+function parseConnectTarget(value: string): { host: string; port: number } | null {
+  const separator = value.lastIndexOf(":");
+  if (separator <= 0) return null;
+  const host = value.slice(0, separator).replace(/^\[|\]$/g, "");
+  const port = Number(value.slice(separator + 1));
+  if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return { host, port };
+}
+
+async function resolveAuthenticatedSocksBridge(proxy: ProxyRecord): Promise<string> {
+  const username = String(proxy.username ?? "");
+  const password = String(proxy.password ?? "");
+  const key = JSON.stringify([proxy.host, proxy.port, username, password]);
+  const cached = authenticatedSocksBridges.get(key);
+  if (cached?.server.listening) return cached.url;
+
+  const server = createHttpServer((_req, res) => {
+    res.writeHead(405, { Connection: "close" });
+    res.end();
+  });
+
+  server.on("connect", (req, clientSocket, head) => {
+    const target = parseConnectTarget(req.url ?? "");
+    if (!target) {
+      clientSocket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
+      return;
+    }
+
+    void SocksClient.createConnection({
+      command: "connect",
+      proxy: {
+        host: proxy.host,
+        port: proxy.port,
+        type: 5,
+        userId: username,
+        password,
+      },
+      destination: target,
+    })
+      .then(({ socket }) => {
+        clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        if (head.length > 0) socket.write(head);
+        clientSocket.on("error", () => socket.destroy());
+        socket.on("error", () => clientSocket.destroy());
+        clientSocket.pipe(socket);
+        socket.pipe(clientSocket);
+      })
+      .catch(() => {
+        clientSocket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+      });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(0, "127.0.0.1");
+  });
+
+  const address = server.address() as AddressInfo;
+  const bridge = { server, url: `http://127.0.0.1:${address.port}` };
+  authenticatedSocksBridges.set(key, bridge);
+  console.log("[BrowserPool] Authenticated SOCKS5 proxy bridged locally for Playwright");
+  return bridge.url;
+}
+
 // Exported for tests (deps injection avoids mock.module()).
 export async function resolvePlaywrightProxy(
   providerKey: string,
@@ -239,14 +322,11 @@ export async function resolvePlaywrightProxy(
     const p = await resolver(providerKey);
     if (!p?.host) return undefined;
     const scheme = p.type === "socks5" ? "socks5" : "http";
-    // Chromium/Playwright does not support username/password authentication on
-    // SOCKS5 proxies at BrowserContext creation time. Falling back to direct is
-    // preferable to making the entire browser-backed provider unavailable.
+    // Chromium/Playwright does not accept username/password on a SOCKS5 proxy
+    // directly. Bridge it through a loopback HTTP CONNECT proxy so browser-backed
+    // providers still use the configured authenticated SOCKS5 egress.
     if (scheme === "socks5" && p.username) {
-      console.warn(
-        `[BrowserPool] Ignoring authenticated SOCKS5 proxy for ${providerKey}; Playwright does not support SOCKS5 auth`
-      );
-      return undefined;
+      return { server: await resolveAuthenticatedSocksBridge(p) };
     }
     // Build explicitly instead of a conditional object spread: the spread form
     // widens username/password to `{}` under the LaunchOptions["proxy"] type,
@@ -624,6 +704,10 @@ export async function shutdownPool(reason: string): Promise<void> {
   }
   state.launching = null;
   state.headedLaunching = null;
+  for (const bridge of authenticatedSocksBridges.values()) {
+    await new Promise<void>((resolve) => bridge.server.close(() => resolve())).catch(() => {});
+  }
+  authenticatedSocksBridges.clear();
   // #12274: the shared Obscura server is owned by ./obscura.ts and reused by
   // executors (cloudflare-playground), so closing the pool's CDP connection is
   // enough — never kill the server here.
