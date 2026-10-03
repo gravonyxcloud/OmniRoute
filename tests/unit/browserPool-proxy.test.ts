@@ -147,4 +147,21 @@ describe("resolvePlaywrightProxy", () => {
     assert.equal(capturedKey, "claude-web");
     assert.deepEqual(proxy, { server: "http://proxy.example.com:8080" });
   });
+
+  it("bypasses provider and global proxy resolution when the context disables proxy", async () => {
+    let calls = 0;
+    const proxy = await resolveBrowserContextProxy(
+      "chatgpt-web:account-scope",
+      { proxyProviderKey: "chatgpt-web", disableProxy: true },
+      {
+        resolveProxy: async () => {
+          calls++;
+          return { type: "socks5", host: "proxy.example.com", port: 1080 };
+        },
+      }
+    );
+
+    assert.equal(calls, 0);
+    assert.equal(proxy, undefined);
+  });
 });

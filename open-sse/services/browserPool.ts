@@ -47,6 +47,8 @@ export interface BrowserPoolContextOptions {
   timezone?: string;
   preferCloakbrowser?: boolean;
   proxyProviderKey?: string;
+  /** Force this browser context to use direct egress even when provider/global proxy config exists. */
+  disableProxy?: boolean;
   /** Some first-party anti-bot flows reject Chromium's headless mode even with valid cookies. */
   headless?: boolean;
   /** Optional system Chrome/Chromium path, primarily for headed contexts. */
@@ -359,9 +361,10 @@ export async function resolvePlaywrightProxy(
 
 export async function resolveBrowserContextProxy(
   contextKey: string,
-  options: Pick<BrowserPoolContextOptions, "proxyProviderKey">,
+  options: Pick<BrowserPoolContextOptions, "proxyProviderKey" | "disableProxy">,
   deps?: ResolvePlaywrightProxyDeps
 ): Promise<import("playwright").LaunchOptions["proxy"] | undefined> {
+  if (options.disableProxy) return undefined;
   return resolvePlaywrightProxy(options.proxyProviderKey ?? contextKey, deps);
 }
 

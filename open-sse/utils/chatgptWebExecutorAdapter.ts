@@ -438,6 +438,11 @@ async function createDefaultSession(
     locale: input.locale,
     timezone: input.timezone,
     proxyProviderKey: "chatgpt-web",
+    // ChatGPT Web/Cloudflare ties browser challenges to egress reputation.
+    // A configured SOCKS/HTTP proxy can strand the browser on "Just a moment..."
+    // and make every model time out. Keep this browser-backed provider on direct
+    // egress; other providers continue to honor their normal proxy settings.
+    disableProxy: true,
     warmupUrl: CHATGPT_WEB_PAGE_URL,
     headless: shouldUseHeadlessChatGptWebBrowser(),
     executablePath: input.chromeExecutablePath,
