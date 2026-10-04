@@ -330,6 +330,7 @@ USER node
 # permission/bootstrap entrypoint. This lets ChatGPT Web run headed Chromium in
 # containers while keeping runner-base unchanged.
 ENTRYPOINT ["/app/web-entrypoint.sh"]
+CMD ["node", "dev/run-standalone.mjs"]
 
 FROM runner-base AS runner-cli
 

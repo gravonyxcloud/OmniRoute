@@ -39,4 +39,11 @@ if [ ! -S "$socket" ]; then
   echo "[runner-web] Xvfb ready on $DISPLAY"
 fi
 
+# Defining a new ENTRYPOINT in the runner-web stage clears the CMD inherited
+# from runner-base. Keep a safe default here as well so the web image cannot
+# exit immediately when launched without an explicit command.
+if [ "$#" -eq 0 ]; then
+  set -- node dev/run-standalone.mjs
+fi
+
 exec /app/check-permissions.sh "$@"
