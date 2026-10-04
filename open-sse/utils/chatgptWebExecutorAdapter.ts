@@ -24,6 +24,10 @@ type JsonRecord = Record<string, unknown>;
 
 const CHATGPT_WEB_PAGE_URL = "https://chatgpt.com/?temporary-chat=true";
 const MAX_PROMPT_BYTES = 4 * 1024 * 1024;
+const CHATGPT_WEB_SAFE_PROMPT_BYTES = 320 * 1024;
+const CHATGPT_WEB_PROMPT_HEAD_BYTES = 48 * 1024;
+const CHATGPT_WEB_COMPACTION_MARKER =
+  "\n\n[Earlier conversation context was compacted by OmniRoute to fit the ChatGPT Web context window.]\n\n";
 const FIRST_PARTY_COOKIE_HOSTS = ["chatgpt.com", "openai.com"] as const;
 
 export interface ChatGptWebStorageCookie extends JsonRecord {
@@ -208,6 +212,46 @@ export function normalizeChatGptWebStorageState(value: unknown): ChatGptWebStora
   return { cookies, origins };
 }
 
+function utf8Prefix(value: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(value).byteLength <= maxBytes) return value;
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (encoder.encode(value.slice(0, mid)).byteLength <= maxBytes) low = mid;
+    else high = mid - 1;
+  }
+  return value.slice(0, low);
+}
+
+function utf8Suffix(value: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(value).byteLength <= maxBytes) return value;
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (encoder.encode(value.slice(value.length - mid)).byteLength <= maxBytes) low = mid;
+    else high = mid - 1;
+  }
+  return value.slice(value.length - low);
+}
+
+export function compactChatGptWebPrompt(prompt: string): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(prompt).byteLength <= CHATGPT_WEB_SAFE_PROMPT_BYTES) return prompt;
+
+  const head = utf8Prefix(prompt, CHATGPT_WEB_PROMPT_HEAD_BYTES);
+  const markerBytes = encoder.encode(CHATGPT_WEB_COMPACTION_MARKER).byteLength;
+  const tailBudget = Math.max(
+    0,
+    CHATGPT_WEB_SAFE_PROMPT_BYTES - encoder.encode(head).byteLength - markerBytes
+  );
+  const tail = utf8Suffix(prompt, tailBudget);
+  return head + CHATGPT_WEB_COMPACTION_MARKER + tail;
+}
+
 function contentText(value: unknown): string {
   if (typeof value === "string") return value;
   if (!Array.isArray(value)) {
@@ -298,9 +342,11 @@ function buildPrompt(body: JsonRecord): string {
   const prompt = toolContext ? `${basePrompt}\n\n${toolContext}` : basePrompt;
   if (!prompt.trim()) throw new Error("ChatGPT Web clean-room adapter requires non-empty text");
   if (new TextEncoder().encode(prompt).byteLength > MAX_PROMPT_BYTES) {
-    throw new Error("ChatGPT Web clean-room adapter prompt is too large");
+    // Do not reject large agent sessions outright. The browser transport has a
+    // smaller practical context ceiling than OmniRoute combos, so compact the
+    // serialized conversation while preserving the system head and recent tail.
   }
-  return prompt;
+  return compactChatGptWebPrompt(prompt);
 }
 
 function reasoningEffort(body: JsonRecord): string | null {

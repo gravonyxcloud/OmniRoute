@@ -54,6 +54,23 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     );
   });
 
+  test("compacts oversized agent sessions while preserving instructions and recent context", () => {
+    const request = prepareChatGptWebBrowserRequest("gpt-6-sol", {
+      messages: [
+        { role: "system", content: "SYSTEM_HEAD:" + "A".repeat(80_000) },
+        { role: "assistant", content: "OLD_CONTEXT:" + "B".repeat(700_000) },
+        { role: "user", content: "RECENT_USER_CONTEXT: keep this request and use the available tools" },
+      ],
+      reasoning_effort: "medium",
+    });
+
+    const promptBytes = new TextEncoder().encode(request.prompt).byteLength;
+    assert.ok(promptBytes <= 320 * 1024, `prompt stayed too large: ${promptBytes}`);
+    assert.match(request.prompt, /SYSTEM_HEAD:/);
+    assert.match(request.prompt, /Earlier conversation context was compacted by OmniRoute/);
+    assert.match(request.prompt, /RECENT_USER_CONTEXT: keep this request and use the available tools/);
+  });
+
   test("maps observed 5.6 modes without treating Pro as max effort", () => {
     assert.deepEqual(
       prepareChatGptWebBrowserRequest("gpt-5-6-thinking", {
