@@ -106,10 +106,9 @@ test("combos-only key rejects a direct provider model that is not a stored combo
 
   const result = await policy.enforceApiKeyPolicy(makePolicyRequest(key.key), "openai/gpt-4o-mini");
   assert.equal(result.rejection?.status, 403);
-  assert.match(
-    await readErrorMessage(result.rejection as Response),
-    /not a stored OmniRoute combo/
-  );
+  const message = await readErrorMessage(result.rejection as Response);
+  assert.equal(message, "Requested route is not available for this API key");
+  assert.doesNotMatch(message, /openai|gpt-4o-mini/i);
 });
 
 test("combos-only key dispatches to an explicit stored combo", async () => {
@@ -122,14 +121,17 @@ test("combos-only key dispatches to an explicit stored combo", async () => {
   assert.equal(result.rejection, null);
 });
 
-test("combos-only key dispatches a provider model that maps to a stored combo", async () => {
+test("combos-only key rejects a provider model even when it maps to a stored combo", async () => {
   const key = await apiKeysDb.createApiKey("combos-only", "machine-combos", [], {
     catalogScope: "combos",
   });
   const policy = await loadPolicy("combos-only-mapped");
 
   const result = await policy.enforceApiKeyPolicy(makePolicyRequest(key.key), "mapped-model-1");
-  assert.equal(result.rejection, null);
+  assert.equal(result.rejection?.status, 403);
+  const message = await readErrorMessage(result.rejection as Response);
+  assert.equal(message, "Requested route is not available for this API key");
+  assert.doesNotMatch(message, /mapped-model-1/i);
 });
 
 test("combos-only key rejects virtual auto combos", async () => {
@@ -143,10 +145,9 @@ test("combos-only key rejects virtual auto combos", async () => {
     "auto/openai/gpt-4o-mini"
   );
   assert.equal(result.rejection?.status, 403);
-  assert.match(
-    await readErrorMessage(result.rejection as Response),
-    /not a stored OmniRoute combo/
-  );
+  const message = await readErrorMessage(result.rejection as Response);
+  assert.equal(message, "Requested route is not available for this API key");
+  assert.doesNotMatch(message, /auto|openai|gpt-4o-mini/i);
 });
 
 test("control: all-scope keys keep dispatching direct provider models and auto combos", async () => {
@@ -174,8 +175,7 @@ test("plan keys are forced combos-only and reject direct provider models", async
 
   const direct = await policy.enforceApiKeyPolicy(makePolicyRequest(key.key), "openai/gpt-4o-mini");
   assert.equal(direct.rejection?.status, 403);
-  assert.match(
-    await readErrorMessage(direct.rejection as Response),
-    /not a stored OmniRoute combo/
-  );
+  const message = await readErrorMessage(direct.rejection as Response);
+  assert.equal(message, "Requested route is not available for this API key");
+  assert.doesNotMatch(message, /openai|gpt-4o-mini/i);
 });
