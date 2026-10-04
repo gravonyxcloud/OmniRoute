@@ -26,6 +26,8 @@ export const MCP_SCOPE_LIST = [
   "read:compression",
   "write:compression",
   "read:proxies",
+  "read:workspace",
+  "write:workspace",
 ] as const;
 
 export type McpScope = (typeof MCP_SCOPE_LIST)[number];
@@ -84,4 +86,13 @@ export const MCP_TOOL_SCOPES: Record<string, readonly McpScope[]> = {
   omniroute_pool_warm: ["write:resilience"],
   // Stealth browser pool observability (#3368 PR7)
   omniroute_browser_pool_status: ["read:health"],
+
+  // Workspace MCP
+  workspace_status: ["read:workspace"],
+  workspace_list: ["read:workspace"],
+  workspace_read: ["read:workspace"],
+  workspace_search: ["read:workspace"],
+  workspace_stat: ["read:workspace"],
+  workspace_write: ["write:workspace"],
+  workspace_mkdir: ["write:workspace"],
 } as const;

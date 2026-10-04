@@ -20,6 +20,7 @@ import { pluginTools } from "../tools/pluginTools.ts";
 import { notionTools } from "../tools/notionTools.ts";
 import { obsidianTools } from "../tools/obsidianTools.ts";
 import { localCorpusTools } from "../tools/localCorpusTools.ts";
+import { workspaceTools } from "../tools/workspaceTools.ts";
 import { compressionTools } from "../tools/compressionTools.ts";
 
 import type { ToolCatalogEntry } from "./search.ts";
@@ -81,6 +82,7 @@ export function getAllToolDefinitions(): ToolCatalogEntry[] {
     notionTools,
     obsidianTools,
     localCorpusTools,
+    workspaceTools,
     // Keep the concrete handler collection in the catalog as a parity guard. Canonical CCR
     // definitions now live in MCP_TOOLS too; deduplication below keeps each name visible once.
     compressionTools,
