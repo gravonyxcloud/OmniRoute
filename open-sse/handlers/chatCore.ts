@@ -134,6 +134,7 @@ import {
 } from "../services/systemPrompt.ts";
 import { injectResponseLanguageDirective } from "./chatCore/responseLanguage.ts";
 import { resolveClientRoutingIdentity } from "./chatCore/clientRoutingIdentity.ts";
+import { projectClientRoutingErrorMessage } from "./chatCore/clientRoutingError.ts";
 import {
   resolveEmergencyComboCompactionTarget,
   shouldApplyEmergencyComboCompaction,
@@ -1068,6 +1069,80 @@ export async function handleChatCore({
   if (clientRoutingIdentity.masked && clientRoutingIdentity.model) {
     echoModel = clientRoutingIdentity.model;
   }
+
+  const projectMaskedErrorHeaders = (response: Response): Headers => {
+    const headers = new Headers(response.headers);
+    if (!clientRoutingIdentity.masked) return headers;
+    headers.delete("content-length");
+    headers.delete("x-omniroute-connection");
+    headers.delete("x-omniroute-connection-id");
+    headers.delete("x-omniroute-selected-connection-id");
+    headers.delete("x-omniroute-decision");
+    headers.set("x-omniroute-provider", "omniroute");
+    headers.set("x-omniroute-model", clientRoutingIdentity.model || "combo");
+    headers.set("x-omniroute-strategy", "combo");
+    return headers;
+  };
+
+  const createClientErrorResult = (
+    ...args: Parameters<typeof createErrorResult>
+  ): ReturnType<typeof createErrorResult> => {
+    const result = createErrorResult(...args);
+    if (!clientRoutingIdentity.masked) return result;
+
+    const [statusCode, message, , errorCode, errorType] = args;
+    const publicMessage = projectClientRoutingErrorMessage({
+      identity: clientRoutingIdentity,
+      statusCode,
+      message,
+      errorCode,
+      errorType,
+    });
+    const publicBody = buildErrorBody(statusCode, publicMessage, undefined, {
+      code: errorCode,
+      type: errorType,
+    });
+
+    return {
+      ...result,
+      error: publicBody.error.message,
+      response: new Response(JSON.stringify(publicBody), {
+        status: statusCode,
+        headers: projectMaskedErrorHeaders(result.response),
+      }),
+    };
+  };
+
+  const createClientStreamingErrorResult = (
+    ...args: Parameters<typeof createStreamingErrorResult>
+  ): ReturnType<typeof createStreamingErrorResult> => {
+    const result = createStreamingErrorResult(...args);
+    if (!clientRoutingIdentity.masked) return result;
+
+    const [statusCode, message, errorCode, errorType] = args;
+    const publicMessage = projectClientRoutingErrorMessage({
+      identity: clientRoutingIdentity,
+      statusCode,
+      message,
+      errorCode,
+      errorType,
+    });
+    const publicBody = buildErrorBody(statusCode, publicMessage, undefined, {
+      code: errorCode,
+      type: errorType,
+    });
+    const bodyText = `data: ${JSON.stringify(publicBody)}\n\ndata: [DONE]\n\n`;
+
+    return {
+      ...result,
+      error: publicMessage,
+      response: new Response(bodyText, {
+        status: statusCode,
+        headers: projectMaskedErrorHeaders(result.response),
+      }),
+    };
+  };
+
   const detailedLoggingEnabled =
     !noLogEnabled &&
     (settings.call_log_pipeline_enabled === true ||
@@ -1355,7 +1430,7 @@ export async function handleChatCore({
     );
     if (policy.incompatibleReasoning) {
       trackPendingRequest(model, provider, connectionId, false);
-      return createErrorResult(
+      return createClientErrorResult(
         HTTP_STATUS.BAD_REQUEST,
         "Reasoning continuation is not compatible with the selected target"
       );
@@ -2278,7 +2353,7 @@ export async function handleChatCore({
       `Reduce the prompt or route to a model with a larger ${exceededInputCap ? "input limit" : "context window"}.`;
     log?.warn?.("CONTEXT", message);
     trackPendingRequest(model, provider, connectionId, false);
-    return createErrorResult(
+    return createClientErrorResult(
       HTTP_STATUS.BAD_REQUEST,
       message,
       null,
@@ -2891,7 +2966,7 @@ export async function handleChatCore({
   );
   if (toolCallingCheck.blocked) {
     trackPendingRequest(model, provider, connectionId, false);
-    return createErrorResult(400, toolCallingCheck.message!, null, "tool_calling_not_supported");
+    return createClientErrorResult(400, toolCallingCheck.message!, null, "tool_calling_not_supported");
   }
 
   // Rename max_tokens to max_completion_tokens if not supported (#1961)
@@ -3046,7 +3121,7 @@ export async function handleChatCore({
       const msg = buildCapabilityMismatchMessage(fit.terminalReason!, provider, effectiveModel);
       log?.warn?.("CAPABILITY", msg);
       trackPendingRequest(model, provider, connectionId, false);
-      return createErrorResult(400, msg, null, fit.terminalReason, "invalid_request_error");
+      return createClientErrorResult(400, msg, null, fit.terminalReason, "invalid_request_error");
     }
   }
   // Get executor for this provider (with optional upstream proxy routing)
@@ -3674,7 +3749,7 @@ export async function handleChatCore({
         // FIX 5: tag this as a per-API-key token-limit breach (errorCode
         // TOKEN_LIMIT_EXCEEDED) so the combo loop can distinguish it from an
         // upstream 429 and NOT cool shared accounts / retry it transiently.
-        return createErrorResult(
+        return createClientErrorResult(
           HTTP_STATUS.RATE_LIMITED,
           `Token limit exceeded for ${scopeLabel}: ${tokenBreach.tokensUsed}/${tokenBreach.limitValue} tokens used in the current window. Please try again later.`,
           null,
@@ -3695,7 +3770,7 @@ export async function handleChatCore({
     try {
       if (isTpmExhausted(effectiveModel)) {
         trackPendingRequest(model, provider, connectionId, false);
-        return createErrorResult(
+        return createClientErrorResult(
           HTTP_STATUS.RATE_LIMITED,
           `Gemini TPM rate limit reached for ${effectiveModel}. Please try again later.`,
           null,
@@ -4318,8 +4393,8 @@ export async function handleChatCore({
         });
         persistFailureUsage(HTTP_STATUS.RATE_LIMITED, semaphoreCode);
         const result = stream
-          ? createStreamingErrorResult(HTTP_STATUS.RATE_LIMITED, failureMessage, semaphoreCode)
-          : createErrorResult(HTTP_STATUS.RATE_LIMITED, failureMessage);
+          ? createClientStreamingErrorResult(HTTP_STATUS.RATE_LIMITED, failureMessage, semaphoreCode)
+          : createClientErrorResult(HTTP_STATUS.RATE_LIMITED, failureMessage);
         return {
           ...result,
           errorType: "account_semaphore_capacity",
@@ -4410,7 +4485,7 @@ export async function handleChatCore({
       });
       if (isRequestAborted) {
         streamController.handleError(createSafeAbortError());
-        return createErrorResult(499, "Request aborted");
+        return createClientErrorResult(499, "Request aborted");
       }
       const persistentErrorCode = projectFailureUsageErrorCode({
         statusCode: failureStatus,
@@ -4424,7 +4499,7 @@ export async function handleChatCore({
       persistFailureUsage(failureStatus, persistentErrorCode);
       console.log(`${COLORS.red}[ERROR] ${safeFailureMessage}${COLORS.reset}`);
       if (stream && upstreamErrorCode) {
-        const result = createStreamingErrorResult(
+        const result = createClientStreamingErrorResult(
           failureStatus,
           failureMessage,
           upstreamErrorCode,
@@ -4437,7 +4512,7 @@ export async function handleChatCore({
           errorCode: upstreamErrorCode,
         };
       }
-      const result = createErrorResult(
+      const result = createClientErrorResult(
         failureStatus,
         failureMessage,
         null,
@@ -4841,7 +4916,7 @@ export async function handleChatCore({
                 cacheSource: "upstream",
               });
               persistFailureUsage(statusCode, "model_unavailable");
-              return createErrorResult(
+              return createClientErrorResult(
                 statusCode,
                 errMsg,
                 retryAfterMs,
@@ -4861,7 +4936,7 @@ export async function handleChatCore({
               cacheSource: "upstream",
             });
             persistFailureUsage(statusCode, "model_unavailable");
-            return createErrorResult(
+            return createClientErrorResult(
               statusCode,
               errMsg,
               retryAfterMs,
@@ -4881,7 +4956,7 @@ export async function handleChatCore({
             cacheSource: "upstream",
           });
           persistFailureUsage(statusCode, "model_unavailable");
-          return createErrorResult(
+          return createClientErrorResult(
             statusCode,
             errMsg,
             retryAfterMs,
@@ -4933,7 +5008,7 @@ export async function handleChatCore({
                 cacheSource: "upstream",
               });
               persistFailureUsage(statusCode, "context_overflow");
-              return createErrorResult(
+              return createClientErrorResult(
                 statusCode,
                 errMsg,
                 retryAfterMs,
@@ -4953,7 +5028,7 @@ export async function handleChatCore({
               cacheSource: "upstream",
             });
             persistFailureUsage(statusCode, "context_overflow");
-            return createErrorResult(
+            return createClientErrorResult(
               statusCode,
               errMsg,
               retryAfterMs,
@@ -4973,7 +5048,7 @@ export async function handleChatCore({
             cacheSource: "upstream",
           });
           persistFailureUsage(statusCode, "context_overflow");
-          return createErrorResult(
+          return createClientErrorResult(
             statusCode,
             errMsg,
             retryAfterMs,
@@ -5000,7 +5075,7 @@ export async function handleChatCore({
         // live here re-sent the FAILING provider's credentials to the emergency
         // provider's endpoint (e.g. the OpenAI API key to integrate.api.nvidia.com)
         // — a cross-provider credential leak that also never succeeded upstream.
-        return createErrorResult(
+        return createClientErrorResult(
           statusCode,
           errMsg,
           retryAfterMs,
@@ -5549,7 +5624,7 @@ export async function handleChatCore({
           providerResponse: responseBody,
           clientResponse: translatedResponse,
         });
-        return createErrorResult(HTTP_STATUS.BAD_REQUEST, guardrailMessage);
+        return createClientErrorResult(HTTP_STATUS.BAD_REQUEST, guardrailMessage);
       }
 
       // Validate the *translated* response actually carries client-usable output.
@@ -5632,7 +5707,7 @@ export async function handleChatCore({
             connectionId: credentials?.connectionId ?? null,
           })
         );
-        return createErrorResult(
+        return createClientErrorResult(
           HTTP_STATUS.BAD_GATEWAY,
           malformedMessage,
           null,
@@ -5809,7 +5884,7 @@ export async function handleChatCore({
           cacheSource: "upstream",
         });
         persistFailureUsage(HTTP_STATUS.RATE_LIMITED, semaphoreCode);
-        const result = createErrorResult(HTTP_STATUS.RATE_LIMITED, failureMessage);
+        const result = createClientErrorResult(HTTP_STATUS.RATE_LIMITED, failureMessage);
         return {
           ...result,
           errorType: "account_semaphore_capacity",
