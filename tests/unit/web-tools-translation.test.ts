@@ -77,6 +77,50 @@ describe("webTools — parseToolCallsFromText", () => {
     assert.equal(content, "just a normal answer");
   });
 
+  test("promotes a bare shell command only when a compatible client shell tool is declared", () => {
+    const bashTool = [
+      {
+        type: "function",
+        function: {
+          name: "bash",
+          description: "Run a shell command",
+          parameters: {
+            type: "object",
+            properties: { command: { type: "string" } },
+            required: ["command"],
+          },
+        },
+      },
+    ];
+
+    const result = parseToolCallsFromText('mkdir "teste a pasta"', "cgpt-test", bashTool);
+    assert.equal(result.content, "");
+    assert.ok(result.toolCalls && result.toolCalls.length === 1);
+    assert.equal(result.toolCalls[0].function.name, "bash");
+    assert.deepEqual(JSON.parse(result.toolCalls[0].function.arguments), {
+      command: 'mkdir "teste a pasta"',
+    });
+  });
+
+  test("does not promote explanatory prose containing a shell command", () => {
+    const bashTool = [
+      {
+        type: "function",
+        function: {
+          name: "bash",
+          parameters: {
+            type: "object",
+            properties: { command: { type: "string" } },
+          },
+        },
+      },
+    ];
+    const text = 'Para criar a pasta, execute: mkdir "teste a pasta"';
+    const result = parseToolCallsFromText(text, "cgpt-test", bashTool);
+    assert.equal(result.toolCalls, null);
+    assert.equal(result.content, text);
+  });
+
   // ── SECURITY HARDENING (#9343) ──────────────────────────────────────────────
 
   test("does NOT promote bare JSON to tool_calls even when tools are requested", () => {

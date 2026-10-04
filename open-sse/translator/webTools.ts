@@ -54,6 +54,63 @@ export interface RequestedToolName {
   normalized: string;
 }
 
+interface ShellToolTarget {
+  name: string;
+  argumentKey: string;
+}
+
+const SHELL_TOOL_NAME_RE =
+  /^(?:bash|shell|terminal|exec|executecommand|runcommand|shellcommandtool|command)$/;
+
+function resolveShellToolTarget(tools: unknown): ShellToolTarget | null {
+  if (!Array.isArray(tools)) return null;
+  for (const tool of tools) {
+    const record = toRecord(tool);
+    const fn = toRecord(record?.function);
+    const name = typeof fn?.name === "string" ? fn.name.trim() : "";
+    if (!name || !SHELL_TOOL_NAME_RE.test(normalizeToolName(name))) continue;
+
+    const parameters = toRecord(fn?.parameters);
+    const properties = toRecord(parameters?.properties);
+    const candidates = ["command", "cmd", "script", "input"];
+    const argumentKey = candidates.find((key) => properties && key in properties) ?? "command";
+    return { name, argumentKey };
+  }
+  return null;
+}
+
+function parseBareShellCommand(
+  text: string,
+  requestedTools: unknown,
+  idSeed: string
+): OpenAIToolCall | null {
+  const target = resolveShellToolTarget(requestedTools);
+  if (!target) return null;
+
+  let command = text.trim();
+  const fenced = command.match(/^\`\`\`(?:bash|sh|shell|powershell|pwsh|cmd)?\s*\n([\s\S]*?)\n?\`\`\`$/i);
+  if (fenced) command = fenced[1].trim();
+
+  // Only promote a response that is essentially a command. Any surrounding prose
+  // remains ordinary assistant text, avoiding accidental execution of examples.
+  if (!command || command.includes("\n\n") || command.length > 8_192) return null;
+  if (/^(?:here(?:'s| is)|use |run |execute |you can |i would |to create|para criar|rode |execute )/i.test(command)) {
+    return null;
+  }
+  if (!/^(?:mkdir|md\s|new-item\b|touch\b|cd\b|ls\b|dir\b|pwd\b|echo\b|cat\b|type\b|cp\b|copy\b|mv\b|move\b|rm\b|del\b|rmdir\b|remove-item\b|set-content\b|add-content\b|bash\b|sh\b|pwsh\b|powershell\b|cmd\b|python\b|node\b|npm\b|npx\b|git\b|docker\b)/i.test(command)) {
+    return null;
+  }
+
+  return {
+    id: `${idSeed}_0`,
+    type: "function",
+    function: {
+      name: target.name,
+      arguments: JSON.stringify({ [target.argumentKey]: command }),
+    },
+  };
+}
+
 function toRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -430,8 +487,14 @@ export function parseToolCallsFromText(
   requestedTools?: unknown
 ): { content: string; toolCalls: OpenAIToolCall[] | null } {
   const requestedToolNames = getRequestedToolNames(requestedTools);
-  if (typeof text !== "string" || (!text.includes("<tool>") && !text.includes("<tool_call"))) {
+  if (typeof text !== "string") {
     return { content: text ?? "", toolCalls: null };
+  }
+  if (!text.includes("<tool>") && !text.includes("<tool_call")) {
+    const shellCall = parseBareShellCommand(text, requestedTools, idSeed);
+    return shellCall
+      ? { content: "", toolCalls: [shellCall] }
+      : { content: text, toolCalls: null };
   }
 
   const nonce = getToolNonce(requestedTools);

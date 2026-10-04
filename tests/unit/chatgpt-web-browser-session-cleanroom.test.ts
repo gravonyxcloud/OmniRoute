@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import {
   PlaywrightChatGptWebBrowserSession,
   runChatGptWebBrowserTurn,
+  stripChatGptWebUiChrome,
   type ChatGptWebBrowserSession,
   type ChatGptWebBrowserSessionHandlers,
 } from "../../open-sse/utils/chatgptWebBrowserSession.ts";
@@ -82,6 +83,20 @@ class FakeBrowserSession implements ChatGptWebBrowserSession {
 }
 
 describe("ChatGPT Web clean-room browser-owned session", () => {
+  test("collapses an exact duplicated DOM assistant response", () => {
+    assert.equal(
+      stripChatGptWebUiChrome("Vai bem 😄 E com você? O que manda?Vai bem 😄 E com você? O que manda?"),
+      "Vai bem 😄 E com você? O que manda?"
+    );
+  });
+
+  test("strips ChatGPT feedback UI from DOM fallback output", () => {
+    assert.equal(
+      stripChatGptWebUiChrome("Resposta real do modelo\nEsta resposta foi útil?\nÚtil\nNão foi útil"),
+      "Resposta real do modelo"
+    );
+  });
+
   test("decodes a direct first-party conversation response without DOM or WebSocket handoff", async () => {
     const directSse =
       'event: delta_encoding\ndata: "v1"\n\n' +

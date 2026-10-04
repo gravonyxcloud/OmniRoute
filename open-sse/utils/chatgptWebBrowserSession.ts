@@ -47,11 +47,25 @@ const CHATGPT_WEB_UI_ONLY_LINES = [
   /^share$/i,
   /^branch in new chat$/i,
   /^was this response better or worse\??$/i,
+  /^was this response helpful\??$/i,
+  /^was this helpful\??$/i,
+  /^helpful$/i,
+  /^not helpful$/i,
   /^você gosta desta personalidade\??$/i,
   /^voce gosta desta personalidade\??$/i,
   /^gosta desta personalidade\??$/i,
   /^esta personalidade foi útil\??$/i,
   /^esta personalidade foi util\??$/i,
+  /^esta resposta foi útil\??$/i,
+  /^esta resposta foi util\??$/i,
+  /^essa resposta foi útil\??$/i,
+  /^essa resposta foi util\??$/i,
+  /^foi útil\??$/i,
+  /^foi util\??$/i,
+  /^útil$/i,
+  /^util$/i,
+  /^não foi útil$/i,
+  /^nao foi util$/i,
   /^conte mais$/i,
   /^boa resposta$/i,
   /^resposta ruim$/i,
@@ -67,6 +81,20 @@ const CHATGPT_WEB_UI_ONLY_LINES = [
  * DOM fallback text can contain ChatGPT product UI (feedback/personality cards)
  * after the assistant message. Never surface that chrome as model output.
  */
+function collapseExactDuplicateResponse(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) return normalized;
+
+  // DOM snapshots occasionally contain the same assistant message twice when
+  // ChatGPT renders a transient and a finalized copy. Collapse only exact halves.
+  for (let split = Math.floor(normalized.length / 2); split <= Math.ceil(normalized.length / 2); split += 1) {
+    const left = normalized.slice(0, split).trim();
+    const right = normalized.slice(split).trim();
+    if (left && left === right) return left;
+  }
+  return normalized;
+}
+
 export function stripChatGptWebUiChrome(value: string): string {
   const lines = value
     .replace(/\r\n/g, "\n")
@@ -83,7 +111,7 @@ export function stripChatGptWebUiChrome(value: string): string {
     }
   }
 
-  return lines.slice(0, cutAt).join("\n").trim();
+  return collapseExactDuplicateResponse(lines.slice(0, cutAt).join("\n"));
 }
 
 export interface ChatGptWebBrowserSessionHandlers {
