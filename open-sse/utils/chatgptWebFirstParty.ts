@@ -21,7 +21,7 @@ export interface ChatGptWebFirstPartyRequest {
 export type ChatGptWebUiSelection =
   | {
       kind: "picker";
-      modelLabel: "GPT-6 Pro" | "GPT-5.6 Sol" | "GPT-5.5";
+      modelLabel: "GPT-6 Pro" | "GPT-6.1 Sol" | "GPT-6 Sol" | "GPT-6 Luna" | "GPT-5.6 Sol" | "GPT-5.5";
       effortIndex: 0 | 1 | 2 | 3 | 4;
       fixedModel?: boolean;
       uiLabel?: "GPT-6 Pro" | "Instant" | "Medium" | "High" | "Extra High" | "Pro";
@@ -363,13 +363,23 @@ async function ensureFirstPartyBridge(page: Page): Promise<void> {
 function directModel(selection: ChatGptWebUiSelection): { model: string; reason: boolean } {
   if (selection.kind === "free") return { model: "auto", reason: selection.thinkEnabled };
 
+  if (selection.modelLabel === "GPT-6 Pro") {
+    return { model: "gpt-6-astra", reason: false };
+  }
+  if (selection.modelLabel === "GPT-6.1 Sol") {
+    return { model: "gpt-6.1-sol", reason: selection.effortIndex > 0 };
+  }
+  if (selection.modelLabel === "GPT-6 Sol") {
+    return { model: "gpt-6-sol", reason: selection.effortIndex > 0 };
+  }
+  if (selection.modelLabel === "GPT-6 Luna") {
+    return { model: "gpt-6-luna", reason: selection.effortIndex > 0 };
+  }
+
   // Public legacy routes remain available for compatibility, but ChatGPT's
   // current first-party endpoint is backed by GPT-6 Astra. Never send retired
   // GPT-5.5/5.6 ids upstream; preserve only the reasoning intent.
-  const reason =
-    selection.modelLabel !== "GPT-6 Pro" &&
-    selection.effortIndex > 0 &&
-    selection.effortIndex < 4;
+  const reason = selection.effortIndex > 0 && selection.effortIndex < 4;
   return { model: "gpt-6-astra", reason };
 }
 

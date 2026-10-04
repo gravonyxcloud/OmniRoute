@@ -30,6 +30,30 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     }
   });
 
+  test("maps the new GPT-6 Sol/Luna family", () => {
+    assert.deepEqual(
+      prepareChatGptWebBrowserRequest("gpt-6.1-sol", {
+        messages: [{ role: "user", content: "hello" }],
+        reasoning_effort: "high",
+      }).selection,
+      { kind: "picker", modelLabel: "GPT-6.1 Sol", effortIndex: 2, fixedModel: true }
+    );
+    assert.deepEqual(
+      prepareChatGptWebBrowserRequest("gpt-6-sol", {
+        messages: [{ role: "user", content: "hello" }],
+        reasoning_effort: "medium",
+      }).selection,
+      { kind: "picker", modelLabel: "GPT-6 Sol", effortIndex: 1, fixedModel: true }
+    );
+    assert.deepEqual(
+      prepareChatGptWebBrowserRequest("gpt-6-luna", {
+        messages: [{ role: "user", content: "hello" }],
+        reasoning_effort: "low",
+      }).selection,
+      { kind: "picker", modelLabel: "GPT-6 Luna", effortIndex: 0, fixedModel: true }
+    );
+  });
+
   test("maps observed 5.6 modes without treating Pro as max effort", () => {
     assert.deepEqual(
       prepareChatGptWebBrowserRequest("gpt-5-6-thinking", {
@@ -271,21 +295,48 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     );
   });
 
-  test("rejects unknown models, tool turns, and unsupported content", () => {
+  test("accepts client tool context without claiming native tool execution", () => {
+    const prepared = prepareChatGptWebBrowserRequest("gpt-6-pro", {
+      tools: [
+        {
+          type: "function",
+          function: { name: "read_file", description: "Read a file from the workspace" },
+        },
+        {
+          type: "function",
+          function: { name: "write_file", description: "Write a file" },
+        },
+      ],
+      messages: [
+        { role: "user", content: "inspect the project" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              type: "function",
+              function: { name: "read_file", arguments: '{"path":"src/app.ts"}' },
+            },
+          ],
+        },
+        { role: "tool", name: "read_file", content: "console.log('ok')" },
+      ],
+    });
+
+    assert.match(prepared.prompt, /Client tools available in the calling application/);
+    assert.match(prepared.prompt, /read_file: Read a file from the workspace/);
+    assert.match(prepared.prompt, /Requested tools: read_file/);
+    assert.match(prepared.prompt, /Tool result read_file:/);
+    assert.match(prepared.prompt, /Do not claim a tool was executed/);
+  });
+
+  test("rejects unknown models and unsupported content", () => {
     assert.throws(
       () =>
         prepareChatGptWebBrowserRequest("unknown", {
           messages: [{ role: "user", content: "hello" }],
         }),
       /unsupported model/
-    );
-    assert.throws(
-      () =>
-        prepareChatGptWebBrowserRequest("gpt-5.5", {
-          tools: [{ type: "function", function: { name: "tool" } }],
-          messages: [{ role: "user", content: "hello" }],
-        }),
-      /Tools are not supported by the selected model/
     );
     assert.throws(
       () =>

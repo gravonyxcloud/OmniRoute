@@ -29,6 +29,22 @@ export const chatgpt_webProvider: RegistryEntry = {
       ...FIXED_TEXT,
       supportsReasoning: true,
     },
+    {
+      id: "gpt-6.1-sol",
+      name: "GPT-6.1 Sol",
+      aliases: ["gpt-6-1-sol"],
+      ...ADJUSTABLE_REASONING,
+    },
+    {
+      id: "gpt-6-sol",
+      name: "GPT-6 Sol",
+      ...ADJUSTABLE_REASONING,
+    },
+    {
+      id: "gpt-6-luna",
+      name: "GPT-6 Luna",
+      ...ADJUSTABLE_REASONING,
+    },
     { id: "gpt-5-6", name: "GPT-5.6 Sol — Instant", ...FIXED_TEXT },
     {
       id: "gpt-5-6-thinking",

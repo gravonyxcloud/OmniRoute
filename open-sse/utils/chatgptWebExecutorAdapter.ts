@@ -229,10 +229,46 @@ function contentText(value: unknown): string {
   return parts.join("");
 }
 
-function buildPrompt(body: JsonRecord): string {
-  if (Array.isArray(body.tools) && body.tools.length > 0) {
-    throw new Error("Tools are not supported by the selected model.");
+function toolDefinitionsText(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return "";
+  const lines: string[] = [];
+  for (const tool of value) {
+    if (!isRecord(tool)) continue;
+    const fn = isRecord(tool.function) ? tool.function : tool;
+    const name = typeof fn.name === "string" ? fn.name.trim() : "";
+    if (!name) continue;
+    const description =
+      typeof fn.description === "string" ? fn.description.replace(/\s+/g, " ").trim() : "";
+    lines.push(description ? `- ${name}: ${description}` : `- ${name}`);
   }
+  if (lines.length === 0) return "";
+  return [
+    "Client tools available in the calling application (reference-only for this web transport):",
+    ...lines,
+    "Do not claim a tool was executed unless its result is present in the conversation.",
+  ].join("\n");
+}
+
+function assistantToolCallsText(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return "";
+  const calls: string[] = [];
+  for (const call of value) {
+    if (!isRecord(call)) continue;
+    const fn = isRecord(call.function) ? call.function : call;
+    const name = typeof fn.name === "string" ? fn.name.trim() : "";
+    if (!name) continue;
+    const args =
+      typeof fn.arguments === "string"
+        ? fn.arguments
+        : fn.arguments === undefined
+          ? ""
+          : JSON.stringify(fn.arguments);
+    calls.push(args ? `${name}(${args})` : name);
+  }
+  return calls.length ? `\nRequested tools: ${calls.join(", ")}` : "";
+}
+
+function buildPrompt(body: JsonRecord): string {
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     throw new Error("ChatGPT Web clean-room adapter requires messages");
   }
@@ -240,21 +276,26 @@ function buildPrompt(body: JsonRecord): string {
     if (!isRecord(value) || typeof value.role !== "string") {
       throw new Error("ChatGPT Web clean-room adapter received an invalid message");
     }
-    if (!["system", "developer", "user", "assistant"].includes(value.role)) {
-      throw new Error("ChatGPT Web clean-room adapter does not support tool messages yet");
+    if (!["system", "developer", "user", "assistant", "tool"].includes(value.role)) {
+      throw new Error("ChatGPT Web clean-room adapter received an unsupported message role");
     }
-    if (Array.isArray(value.tool_calls) && value.tool_calls.length > 0) {
-      throw new Error("Tools are not supported by the selected model.");
+    let text = contentText(value.content);
+    if (value.role === "assistant") text += assistantToolCallsText(value.tool_calls);
+    if (value.role === "tool") {
+      const toolName = typeof value.name === "string" && value.name.trim() ? ` ${value.name.trim()}` : "";
+      text = `Tool result${toolName}: ${text}`;
     }
-    return { role: value.role, text: contentText(value.content) };
+    return { role: value.role, text };
   });
 
-  const prompt =
+  const basePrompt =
     messages.length === 1 && messages[0].role === "user"
       ? messages[0].text
       : messages
           .map(({ role, text }) => `${role[0].toUpperCase()}${role.slice(1)}:\n${text}`)
           .join("\n\n");
+  const toolContext = toolDefinitionsText(body.tools);
+  const prompt = toolContext ? `${basePrompt}\n\n${toolContext}` : basePrompt;
   if (!prompt.trim()) throw new Error("ChatGPT Web clean-room adapter requires non-empty text");
   if (new TextEncoder().encode(prompt).byteLength > MAX_PROMPT_BYTES) {
     throw new Error("ChatGPT Web clean-room adapter prompt is too large");
@@ -311,6 +352,30 @@ function resolveSelection(model: string, body: JsonRecord): ChatGptWebUiSelectio
       effortIndex: 0,
       fixedModel: true,
       uiLabel: "GPT-6 Pro",
+    };
+  }
+  if (normalized === "gpt-6-1-sol") {
+    return {
+      kind: "picker",
+      modelLabel: "GPT-6.1 Sol",
+      effortIndex: effortIndex(reasoningEffort(body)),
+      fixedModel: true,
+    };
+  }
+  if (normalized === "gpt-6-sol") {
+    return {
+      kind: "picker",
+      modelLabel: "GPT-6 Sol",
+      effortIndex: effortIndex(reasoningEffort(body)),
+      fixedModel: true,
+    };
+  }
+  if (normalized === "gpt-6-luna") {
+    return {
+      kind: "picker",
+      modelLabel: "GPT-6 Luna",
+      effortIndex: effortIndex(reasoningEffort(body)),
+      fixedModel: true,
     };
   }
   if (normalized === "gpt-5-6-luna-free") {

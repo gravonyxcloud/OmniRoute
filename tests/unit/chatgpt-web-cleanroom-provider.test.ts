@@ -15,6 +15,9 @@ import {
 
 const MODEL_IDS = [
   "gpt-6-pro",
+  "gpt-6.1-sol",
+  "gpt-6-sol",
+  "gpt-6-luna",
   "gpt-5-6",
   "gpt-5-6-thinking",
   "gpt-5-6-pro",
@@ -151,12 +154,31 @@ test("surfaces an exhausted Free image quota as 429 for sibling-account fallback
   assert.match(await response.response.text(), /image upload limit/);
 });
 
-test("returns a generic tool capability error without adapter details", async () => {
-  const executor = new ChatGptWebExecutor();
-  const result = await executor.execute({
+test("accepts tool-bearing requests through the text-context fallback", async () => {
+  const executor = new ChatGptWebExecutor({
+    createSession: async () => ({
+      url: () => "https://chatgpt.com/?temporary-chat=true",
+      start: async () => async () => {},
+      submitPrompt: async () => {},
+    }),
+    runTurn: async (_session, request) => ({
+      conversationId: "private-conversation",
+      turnExchangeId: "private-turn",
+      text: request.prompt.includes("example") ? "TOOLS_CONTEXT_OK" : "MISSING_TOOL_CONTEXT",
+      status: "finished_successfully",
+      endTurn: true,
+    }),
+  });
+
+  const response = await executor.execute({
     model: "gpt-5-6",
     body: {
-      tools: [{ type: "function", function: { name: "example" } }],
+      tools: [
+        {
+          type: "function",
+          function: { name: "example", description: "Example client-side tool" },
+        },
+      ],
       messages: [{ role: "user", content: "hello" }],
     },
     stream: false,
@@ -166,12 +188,9 @@ test("returns a generic tool capability error without adapter details", async ()
     },
   });
 
-  assert.equal(result.response.status, 400);
-  const body = await result.response.json();
-  assert.deepEqual(body.error, {
-    message: "Tools are not supported by the selected model.",
-    type: "invalid_request_error",
-    code: "tools_not_supported",
-  });
-  assert.equal(JSON.stringify(body).includes("ChatGPT Web"), false);
+  assert.ok(response instanceof Response);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.choices[0].message.content, "TOOLS_CONTEXT_OK");
+  assert.equal(JSON.stringify(body).includes("chatgpt-web"), false);
 });
