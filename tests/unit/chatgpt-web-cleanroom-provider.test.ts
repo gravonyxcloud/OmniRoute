@@ -36,7 +36,7 @@ test("registers only the clean-room ChatGPT Web routes observed in the first-par
   );
   assert.equal(REGISTRY["chatgpt-web"], chatgpt_webProvider);
   assert.equal(getRegistryEntry("chatgpt-web"), chatgpt_webProvider);
-  assert.equal(WEB_COOKIE_PROVIDERS["chatgpt-web"].toolCalling, "none");
+  assert.equal(WEB_COOKIE_PROVIDERS["chatgpt-web"].toolCalling, "emulated");
   assert.equal(AI_PROVIDERS["chatgpt-web"].id, "chatgpt-web");
   assert.equal(hasSpecializedExecutor("chatgpt-web"), true);
 });
@@ -193,4 +193,61 @@ test("accepts tool-bearing requests through the text-context fallback", async ()
   const body = await response.json();
   assert.equal(body.choices[0].message.content, "TOOLS_CONTEXT_OK");
   assert.equal(JSON.stringify(body).includes("chatgpt-web"), false);
+});
+
+test("returns emulated OpenAI tool_calls for agent clients", async () => {
+  const executor = new ChatGptWebExecutor({
+    createSession: async () => ({
+      url: () => "https://chatgpt.com/?temporary-chat=true",
+      start: async () => async () => {},
+      submitPrompt: async () => {},
+    }),
+    runTurn: async () => ({
+      conversationId: "private-conversation",
+      turnExchangeId: "private-turn",
+      text: '<tool>{"name":"write_file","arguments":{"path":"notes.txt","content":"hello"}}</tool>',
+      status: "finished_successfully",
+      endTurn: true,
+    }),
+  });
+
+  const response = await executor.execute({
+    model: "gpt-5-6-thinking",
+    body: {
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "write_file",
+            description: "Write a local file",
+            parameters: {
+              type: "object",
+              properties: {
+                path: { type: "string" },
+                content: { type: "string" },
+              },
+              required: ["path", "content"],
+            },
+          },
+        },
+      ],
+      messages: [{ role: "user", content: "create notes.txt" }],
+    },
+    stream: false,
+    credentials: {
+      connectionId: "connection",
+      apiKey: JSON.stringify({ cookies: [], origins: [] }),
+    },
+  });
+
+  assert.ok(response instanceof Response);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.choices[0].finish_reason, "tool_calls");
+  assert.equal(body.choices[0].message.content, null);
+  assert.equal(body.choices[0].message.tool_calls[0].function.name, "write_file");
+  assert.deepEqual(
+    JSON.parse(body.choices[0].message.tool_calls[0].function.arguments),
+    { path: "notes.txt", content: "hello" }
+  );
 });

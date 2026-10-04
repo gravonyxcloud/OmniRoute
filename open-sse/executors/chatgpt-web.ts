@@ -1,8 +1,12 @@
+import { randomUUID } from "node:crypto";
+
 import { chatgpt_webProvider } from "../config/providers/registry/chatgpt-web/index.ts";
+import { prepareToolMessages } from "../translator/webTools.ts";
 import {
   executeChatGptWebCleanRoom,
   type ChatGptWebExecutorAdapterDeps,
 } from "../utils/chatgptWebExecutorAdapter.ts";
+import { buildToolModeResponse } from "./chatgptWebTools.ts";
 import { makeExecutorErrorResult, sanitizeErrorMessage } from "../utils/error.ts";
 import { BaseExecutor, type ExecuteInput } from "./base.ts";
 
@@ -35,6 +39,42 @@ export class ChatGptWebExecutor extends BaseExecutor {
 
   async execute(input: ExecuteInput) {
     try {
+      const body =
+        input.body && typeof input.body === "object" && !Array.isArray(input.body)
+          ? (input.body as Record<string, unknown>)
+          : null;
+      const messages =
+        body && Array.isArray(body.messages)
+          ? (body.messages as Array<{ role: string; content: unknown }>)
+          : [];
+      const toolPrep = body ? prepareToolMessages(body, messages) : null;
+
+      if (toolPrep?.hasTools) {
+        const {
+          tools: _tools,
+          tool_choice: _toolChoice,
+          parallel_tool_calls: _parallelToolCalls,
+          ...bodyWithoutNativeTools
+        } = body!;
+        const buffered = await executeChatGptWebCleanRoom(
+          {
+            ...input,
+            stream: false,
+            body: {
+              ...bodyWithoutNativeTools,
+              messages: toolPrep.effectiveMessages,
+            },
+          },
+          this.deps
+        );
+        return await buildToolModeResponse(buffered, toolPrep.requestedTools, input.stream, {
+          cid: `chatcmpl-${randomUUID()}`,
+          created: Math.floor(Date.now() / 1000),
+          model: input.model,
+          idSeed: "cgpt",
+        });
+      }
+
       return await executeChatGptWebCleanRoom(input, this.deps);
     } catch (error) {
       const message = sanitizeErrorMessage(error);
