@@ -891,6 +891,7 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
                 body.includes("entrar") ||
                 body.includes("fazer login"),
               challenge:
+                document.title.toLowerCase().includes("just a moment") ||
                 body.includes("verify you are human") ||
                 body.includes("checking your browser") ||
                 body.includes("cloudflare") ||

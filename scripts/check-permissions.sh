@@ -30,4 +30,25 @@ if [ -d "$DATA_PATH" ] && [ ! -w "$DATA_PATH" ]; then
   fi
 fi
 
+# Self-heal the web runtime if a published -web image keeps runner-base ENTRYPOINT.
+# When Chromium + Xvfb are present, start a virtual display before OmniRoute so
+# ChatGPT Web can use headed Chromium instead of getting stranded on Cloudflare.
+if [ -z "${DISPLAY:-}" ] \
+  && command -v Xvfb >/dev/null 2>&1 \
+  && [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ] \
+  && [ -d "${PLAYWRIGHT_BROWSERS_PATH}" ] \
+  && find "${PLAYWRIGHT_BROWSERS_PATH}" -type f -path '*/chrome-linux*/chrome' -print -quit 2>/dev/null | grep -q .; then
+  export DISPLAY="${OMNIROUTE_WEB_DISPLAY:-:99}"
+  Xvfb "$DISPLAY" -screen 0 "${OMNIROUTE_WEB_SCREEN:-1280x720x24}" -nolisten tcp \
+    >/tmp/omniroute-xvfb.log 2>&1 &
+  xvfb_pid=$!
+  sleep 0.5
+  if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+    echo "ERROR: Xvfb failed to start on $DISPLAY" >&2
+    cat /tmp/omniroute-xvfb.log >&2 2>/dev/null || true
+    exit 1
+  fi
+  echo "[runner-web] Auto-started Xvfb on $DISPLAY"
+fi
+
 exec "$@"

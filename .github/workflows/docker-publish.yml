@@ -487,7 +487,7 @@ jobs:
           for attempt in $(seq 1 30); do
             status="$(docker inspect --format '{{.State.Health.Status}}' "$container")"
             if [ "$status" = "healthy" ]; then
-              exit 0
+              break
             fi
             if [ "$status" = "unhealthy" ] || [ "$(docker inspect --format '{{.State.Status}}' "$container")" = "exited" ]; then
               docker logs "$container"
@@ -495,8 +495,32 @@ jobs:
             fi
             sleep 2
           done
-          docker logs "$container"
-          exit 1
+          status="$(docker inspect --format '{{.State.Health.Status}}' "$container")"
+          if [ "$status" != "healthy" ]; then
+            docker logs "$container"
+            exit 1
+          fi
+
+      - name: Smoke-test published WEB Docker image
+        if: needs.prepare.outputs.version != 'main'
+        run: |
+          set -euo pipefail
+          container="omniroute-web-smoke-${VERSION//[^a-zA-Z0-9_.-]/-}"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name "$container" "${IMAGE_NAME}:${VERSION}-web"
+          for attempt in $(seq 1 30); do
+            if docker exec "$container" sh -lc 'tr "\0" "\n" </proc/1/environ | grep -q "^DISPLAY="'; then
+              break
+            fi
+            if [ "$(docker inspect --format '{{.State.Status}}' "$container")" = "exited" ]; then
+              docker logs "$container"
+              exit 1
+            fi
+            sleep 1
+          done
+          docker exec "$container" sh -lc 'tr "\0" "\n" </proc/1/environ | grep "^DISPLAY="'
+          docker exec "$container" sh -lc 'test -n "$PLAYWRIGHT_BROWSERS_PATH" && find "$PLAYWRIGHT_BROWSERS_PATH" -type f -path "*/chrome-linux*/chrome" -print -quit | grep -q .'
+          docker exec "$container" sh -lc 'node -e "const { chromium } = require(\"playwright\"); const fs = require(\"fs\"); if (!fs.existsSync(chromium.executablePath())) process.exit(1); console.log(chromium.executablePath())"'
 
       - name: Promote Docker Hub latest tags
         if: needs.prepare.outputs.promote_latest == 'true'
