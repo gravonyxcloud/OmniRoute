@@ -46,6 +46,14 @@ describe("webTools — serializeToolsToPrompt", () => {
     assert.ok(prompt.includes("- get_weather: Get the weather for a city"));
     assert.ok(prompt.includes("<tool>"), "must teach the <tool> wrapper contract");
     assert.ok(prompt.includes("_nonce"), "must include nonce binding instructions");
+    assert.ok(
+      prompt.includes("MUST call that tool before answering"),
+      "must force agentic use when local/external state requires a client tool"
+    );
+    assert.ok(
+      prompt.includes("Do NOT tell the user to run a command themselves"),
+      "must forbid command-instruction prose when a matching tool is available"
+    );
   });
 });
 
@@ -272,7 +280,8 @@ describe("webTools — prepareToolMessages", () => {
     const latestContent = String(result.effectiveMessages[2].content);
     assert.ok(latestContent.startsWith("weather in Paris?\n\n[Client protocol reminder"));
     assert.ok(latestContent.includes("client-tool contract in the system instructions"));
-    assert.ok(latestContent.endsWith("block protocol: get_weather.]"));
+    assert.ok(latestContent.includes("block protocol: get_weather."));
+    assert.ok(latestContent.includes("call the appropriate client tool now"));
     // the original array and its objects must not be mutated
     assert.equal(messages[2].content, "weather in Paris?");
   });

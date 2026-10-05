@@ -568,6 +568,19 @@ async function createDefaultSession(
   });
 }
 
+function chatGptWebReasoningNotice(model: string): string {
+  const normalized = normalizedModel(model);
+  const reasoningMode =
+    normalized.includes("thinking") ||
+    normalized.includes("pro") ||
+    normalized.includes("astra") ||
+    normalized.includes("sol") ||
+    normalized.includes("gpt-6");
+  return reasoningMode
+    ? "Reasoning enabled via ChatGPT Web. The upstream private reasoning trace is not exposed."
+    : "ChatGPT Web reasoning trace is not exposed for this mode.";
+}
+
 export function buildChatGptWebOpenAiResponse(
   model: string,
   result: ChatGptWebBrowserTurnResult,
@@ -587,6 +600,7 @@ export function buildChatGptWebOpenAiResponse(
     total_tokens: promptTokens + completionTokens,
     estimated: true,
   };
+  const reasoningContent = chatGptWebReasoningNotice(model);
   if (!stream) {
     return Response.json({
       id,
@@ -596,7 +610,11 @@ export function buildChatGptWebOpenAiResponse(
       choices: [
         {
           index: 0,
-          message: { role: "assistant", content: result.text },
+          message: {
+            role: "assistant",
+            content: result.text,
+            reasoning_content: reasoningContent,
+          },
           finish_reason: "stop",
         },
       ],
@@ -611,6 +629,13 @@ export function buildChatGptWebOpenAiResponse(
       created,
       model,
       choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+    },
+    {
+      id,
+      object: "chat.completion.chunk",
+      created,
+      model,
+      choices: [{ index: 0, delta: { reasoning_content: reasoningContent }, finish_reason: null }],
     },
     {
       id,

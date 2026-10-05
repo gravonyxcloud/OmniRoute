@@ -457,6 +457,12 @@ export function serializeToolsToPrompt(tools: unknown): string {
     `<tool>{"name": "<tool_name>", "arguments": { ... }, "_nonce": "${nonce}"}</tool>`,
     "These client tools ARE available to you in this conversation. Only emit the <tool> " +
       "block when you actually want to call a tool; otherwise answer normally.",
+    "IMPORTANT AGENT RULE: if the user's request requires inspecting, listing, reading, searching, " +
+      "editing, creating, deleting, or executing anything in the local filesystem, terminal, shell, " +
+      "Git repository, project, connected app, or other external state, and a matching client tool " +
+      "exists below, you MUST call that tool before answering. Do NOT tell the user to run a command " +
+      "themselves, do NOT claim that you cannot access the local environment, and do NOT repeat a " +
+      "previous prose answer instead of using an available client tool.",
     "",
     "Available tools:",
     ...lines,
@@ -583,7 +589,8 @@ function buildToolReminder(toolPrompt: string): string {
     "is active in this conversation. These client tools ARE available via the <tool> " +
     "block protocol" +
     (names ? ": " + names : "") +
-    ".]"
+    ". If this request needs local/external state, call the appropriate client tool now; " +
+      "do not merely explain which command the user should run.]"
   );
 }
 

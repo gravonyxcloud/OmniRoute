@@ -577,6 +577,11 @@ describe("ChatGPT Web clean-room executor response adapter", () => {
     assert.equal(json.object, "chat.completion");
     assert.equal(JSON.stringify(json).includes("conversation"), false);
     assert.equal(JSON.stringify(json).includes("turn"), false);
+    const jsonChoice = (json.choices as Array<{ message?: Record<string, unknown> }>)[0];
+    assert.match(
+      String(jsonChoice?.message?.reasoning_content ?? ""),
+      /Reasoning enabled via ChatGPT Web/
+    );
     assert.deepEqual(json.usage, {
       prompt_tokens: 0,
       completion_tokens: 2,
@@ -590,6 +595,7 @@ describe("ChatGPT Web clean-room executor response adapter", () => {
     });
     const stream = await streamResponse.text();
     assert.match(stream, /"role":"assistant"/);
+    assert.match(stream, /"reasoning_content":"Reasoning enabled via ChatGPT Web/);
     assert.match(stream, /"content":"answer"/);
     assert.match(stream, /"finish_reason":"stop"/);
     assert.match(stream, /"estimated":true/);
