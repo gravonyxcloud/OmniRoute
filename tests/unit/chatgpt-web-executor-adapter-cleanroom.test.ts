@@ -347,6 +347,37 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     assert.match(prepared.prompt, /Do not claim a tool was executed/);
   });
 
+  test("accepts Claude thinking/tool_use/tool_result history for agent loops", () => {
+    const prepared = prepareChatGptWebBrowserRequest("gpt-5.6-luna-free-thinking", {
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "private reasoning", signature: "sig" },
+            { type: "tool_use", id: "toolu_1", name: "Glob", input: { pattern: "*" } },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              content: [{ type: "text", text: "a.txt\\nb.txt" }],
+            },
+            { type: "text", text: "continue" },
+          ],
+        },
+      ],
+    });
+
+    assert.doesNotMatch(prepared.prompt, /private reasoning/);
+    assert.match(prepared.prompt, /Requested tool Glob: {"pattern":"\*"}/);
+    assert.match(prepared.prompt, /Tool result toolu_1: a\.txt/);
+    assert.match(prepared.prompt, /b\.txt/);
+    assert.match(prepared.prompt, /continue/);
+  });
+
   test("rejects unknown models and unsupported content", () => {
     assert.throws(
       () =>
