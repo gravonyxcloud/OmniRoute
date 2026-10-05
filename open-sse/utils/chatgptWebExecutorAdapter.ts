@@ -356,7 +356,10 @@ function buildPrompt(body: JsonRecord): string {
     if (!["system", "developer", "user", "assistant", "tool"].includes(value.role)) {
       throw new Error("ChatGPT Web clean-room adapter received an unsupported message role");
     }
-    let text = contentText(value.content);
+    const assistantHasToolCalls =
+      value.role === "assistant" && Array.isArray(value.tool_calls) && value.tool_calls.length > 0;
+    let text =
+      value.content == null && assistantHasToolCalls ? "" : contentText(value.content);
     if (value.role === "assistant") text += assistantToolCallsText(value.tool_calls);
     if (value.role === "tool") {
       const toolName = typeof value.name === "string" && value.name.trim() ? ` ${value.name.trim()}` : "";
