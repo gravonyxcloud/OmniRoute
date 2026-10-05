@@ -24,6 +24,11 @@ import {
 type JsonRecord = Record<string, unknown>;
 
 const CHATGPT_WEB_PAGE_URL = "https://chatgpt.com/?temporary-chat=true";
+const CHATGPT_WEB_ACCOUNT_PLUGINS_PAGE_URL = "https://chatgpt.com/";
+const CHATGPT_WEB_ACCOUNT_PLUGINS_HINT =
+  "[Account plugin mode: use installed ChatGPT plugins/apps for real external actions. " +
+  "For filesystem or terminal work, prefer the connected Remote Desktop Commander app. " +
+  "Do not merely describe commands and do not claim success unless the plugin result confirms it.]";
 const MAX_PROMPT_BYTES = 4 * 1024 * 1024;
 const CHATGPT_WEB_SAFE_PROMPT_BYTES = 320 * 1024;
 const CHATGPT_WEB_PROMPT_HEAD_BYTES = 48 * 1024;
@@ -66,6 +71,8 @@ export interface ChatGptWebSessionFactoryInput {
   locale?: string;
   timezone?: string;
   chromeExecutablePath?: string;
+  pageUrl?: string;
+  forceComposer?: boolean;
 }
 
 export interface ChatGptWebExecutorAdapterDeps {
@@ -590,7 +597,7 @@ async function createDefaultSession(
     // and make every model time out. Keep this browser-backed provider on direct
     // egress; other providers continue to honor their normal proxy settings.
     disableProxy: true,
-    warmupUrl: CHATGPT_WEB_PAGE_URL,
+    warmupUrl: input.pageUrl ?? CHATGPT_WEB_PAGE_URL,
     headless: shouldUseHeadlessChatGptWebBrowser(),
     executablePath: input.chromeExecutablePath,
   });
@@ -598,9 +605,10 @@ async function createDefaultSession(
     pooled.warmupPage && !pooled.warmupPage.isClosed() ? pooled.warmupPage : await openPage(pooled);
   if (pooled.warmupPage !== page) pooled.warmupPage = page;
   return new PlaywrightChatGptWebBrowserSession(page, {
-    pageUrl: CHATGPT_WEB_PAGE_URL,
+    pageUrl: input.pageUrl ?? CHATGPT_WEB_PAGE_URL,
     selection: input.selection,
     closePageOnCleanup: false,
+    forceComposer: input.forceComposer === true,
   });
 }
 
@@ -714,6 +722,11 @@ export async function executeChatGptWebCleanRoom(
   deps: ChatGptWebExecutorAdapterDeps = {}
 ): Promise<Response> {
   const prepared = prepareChatGptWebBrowserRequest(input.model, input.body);
+  const bodyRecord = isRecord(input.body) ? input.body : {};
+  const accountPluginMode = bodyRecord.__omniroute_chatgpt_web_account_plugins === true;
+  const prompt = accountPluginMode
+    ? `${prepared.prompt}\n\n${CHATGPT_WEB_ACCOUNT_PLUGINS_HINT}`
+    : prepared.prompt;
   const attachments = await resolveChatGptWebAttachments(prepared.attachments);
   const storageState = readStorageState(input.credentials);
   const connectionId = optionalString(input.credentials.connectionId);
@@ -729,15 +742,17 @@ export async function executeChatGptWebCleanRoom(
     chromeExecutablePath: resolveChatGptWebChromeExecutable(
       optionalString(providerData?.chromeExecutablePath)
     ),
+    pageUrl: accountPluginMode ? CHATGPT_WEB_ACCOUNT_PLUGINS_PAGE_URL : CHATGPT_WEB_PAGE_URL,
+    forceComposer: accountPluginMode,
   });
   const result = await (deps.runTurn ?? runChatGptWebBrowserTurn)(session, {
-    prompt: prepared.prompt,
+    prompt,
     attachments,
     signal: input.signal,
   });
   return buildChatGptWebOpenAiResponse(input.model, result, input.stream, {
     id: deps.id?.(),
     created: deps.now ? Math.floor(deps.now() / 1000) : undefined,
-    prompt: prepared.prompt,
+    prompt,
   });
 }
