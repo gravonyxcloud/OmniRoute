@@ -347,6 +347,30 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
     assert.match(prepared.prompt, /Do not claim a tool was executed/);
   });
 
+  test("accepts assistant tool-call turns with null content", () => {
+    const prepared = prepareChatGptWebBrowserRequest("gpt-5.6-luna-free-thinking", {
+      messages: [
+        { role: "user", content: "list files" },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            {
+              type: "function",
+              function: { name: "Glob", arguments: '{"pattern":"*"}' },
+            },
+          ],
+        },
+        { role: "tool", name: "Glob", content: "a.txt\nb.txt" },
+      ],
+    });
+
+    assert.match(prepared.prompt, /Requested tools: Glob/);
+    assert.match(prepared.prompt, /Tool result Glob:/);
+    assert.match(prepared.prompt, /a\.txt/);
+    assert.match(prepared.prompt, /b\.txt/);
+  });
+
   test("accepts Claude thinking/tool_use/tool_result history for agent loops", () => {
     const prepared = prepareChatGptWebBrowserRequest("gpt-5.6-luna-free-thinking", {
       messages: [
