@@ -255,6 +255,24 @@ function policyErrorResponse(
   );
 }
 
+function comboOnlyPolicyErrorResponse(
+  request: Request,
+  comboName?: string | null
+): Response {
+  const normalized = normalizeComboAccessName(comboName);
+  const message = normalized
+    ? `Combo "${normalized}" is not available for this API key.`
+    : "Requested combo is not available for this API key.";
+  return policyErrorResponse(
+    request,
+    HTTP_STATUS.FORBIDDEN,
+    message,
+    message,
+    "invalid_request_error",
+    HTTP_STATUS.BAD_REQUEST
+  );
+}
+
 async function resolveRequestedComboName(modelStr: string): Promise<string | null> {
   const exact = await getComboByName(modelStr);
   if (exact && typeof exact.name === "string") return exact.name;
@@ -573,6 +591,9 @@ async function validateModelAccess(context: PolicyContext): Promise<Response | n
   const { request, apiKey, apiKeyInfo, modelStr } = context;
   if (!modelStr || apiKeyInfo.allowedQuotas?.length) return null;
   if (isAutoComboDeniedForKey(apiKeyInfo, modelStr)) {
+    if (apiKeyInfo.catalogScope === "combos") {
+      return comboOnlyPolicyErrorResponse(request);
+    }
     return policyErrorResponse(
       request,
       HTTP_STATUS.FORBIDDEN,
@@ -583,7 +604,12 @@ async function validateModelAccess(context: PolicyContext): Promise<Response | n
     );
   }
   const comboAccess = await validateComboAccess(apiKeyInfo.allowedCombos, modelStr);
-  if (comboAccess.rejection) return comboAccess.rejection;
+  if (comboAccess.rejection) {
+    if (apiKeyInfo.catalogScope === "combos") {
+      return comboOnlyPolicyErrorResponse(request, comboAccess.comboName);
+    }
+    return comboAccess.rejection;
+  }
   let requestedComboName = comboAccess.comboName;
 
   const hasModelRestrictions =
@@ -603,18 +629,13 @@ async function validateModelAccess(context: PolicyContext): Promise<Response | n
     }
   }
   if (apiKeyInfo.catalogScope === "combos") {
-    // Combos-only keys may dispatch exclusively to stored OmniRoute combos.
-    // `auto/*` ids are virtual (never a stored combo) and direct provider
-    // models pass through only when they resolve to an existing combo name.
+    // Commercial keys expose only stored combo identities. Never echo the
+    // underlying provider/model (or product branding) in client-visible errors.
     const isVirtualAuto = modelStr.startsWith("auto/");
     if (isVirtualAuto || !requestedComboName) {
-      return policyErrorResponse(
+      return comboOnlyPolicyErrorResponse(
         request,
-        HTTP_STATUS.FORBIDDEN,
-        `Model "${modelStr}" is not a stored OmniRoute combo for this API key`,
-        `This API key may only use combos created in OmniRoute. Choose a combo name or combo/<name>.`,
-        "invalid_request_error",
-        HTTP_STATUS.BAD_REQUEST
+        isVirtualAuto ? null : requestedComboName
       );
     }
   }

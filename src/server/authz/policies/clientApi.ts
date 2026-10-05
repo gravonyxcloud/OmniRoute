@@ -77,18 +77,24 @@ export const clientApiPolicy: RoutePolicy = {
       return reject(401, "AUTH_002", "Authentication required");
     }
 
-    const { validateApiKey } = await import("../../../lib/db/apiKeys");
+    const { validateApiKey, getApiKeyMetadata } = await import("../../../lib/db/apiKeys");
     const ok = await validateApiKey(bearer);
     if (!ok) {
-      // Issue #2257: when REQUIRE_API_KEY is off, a stale CLI config (Codex
-      // Desktop auto-config, Hermes, etc.) carrying an invalid Bearer
-      // shouldn't 401 the whole request — REQUIRE_API_KEY=false means
-      // "anonymous traffic is allowed", so an invalid key should degrade to
-      // anonymous instead of rejecting. We log a warning so the bad key is
-      // still observable in the request log.
+      // A persisted key that fails validation is known-but-unusable
+      // (expired, revoked, banned or inactive). Never downgrade such a key to
+      // anonymous traffic, even when REQUIRE_API_KEY=false: doing so would
+      // silently bypass the key's lifecycle controls.
+      const persistedKey = await getApiKeyMetadata(bearer).catch(() => null);
+      if (persistedKey) {
+        return reject(401, "AUTH_002", "Invalid or expired API key");
+      }
+
+      // Issue #2257: preserve local-mode compatibility only for a completely
+      // unknown/stale token. Unknown bearer + REQUIRE_API_KEY=false may degrade
+      // to anonymous, but a real DB key can never bypass its expiry/revocation.
       if (!isRequireApiKeyEnabled()) {
         console.warn(
-          `[clientApiPolicy] invalid bearer presented to ${ctx.classification.normalizedPath} ` +
+          `[clientApiPolicy] unknown bearer presented to ${ctx.classification.normalizedPath} ` +
             `but REQUIRE_API_KEY=false — falling through to anonymous (key_id=${maskKeyId(bearer)})`
         );
         return allow({ kind: "anonymous", id: "local" });

@@ -95,8 +95,8 @@ test("combos-only streaming headers mask backend routing identity", () => {
   );
 
   const meta = calls[0].meta;
-  assert.equal(meta.provider, "omniroute");
-  assert.equal(meta.model, "combo/customer-chat");
+  assert.equal(meta.provider, null);
+  assert.equal(meta.model, "customer-chat");
   assert.equal(meta.strategy, "combo");
   assert.notEqual(meta.provider, "nvidia");
   assert.notEqual(meta.model, "private/nemotron-backend");

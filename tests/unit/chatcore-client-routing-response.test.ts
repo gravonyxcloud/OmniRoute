@@ -28,8 +28,8 @@ test("commercial JSON responses expose only the public combo identity", async ()
   const body = await response.json();
 
   assert.equal(body.model, "cliente-premium");
-  assert.equal(body.provider, "omniroute");
-  assert.equal(response.headers.get("x-omniroute-provider"), "omniroute");
+  assert.equal(body.provider, undefined);
+  assert.equal(response.headers.get("x-omniroute-provider"), null);
   assert.equal(response.headers.get("x-omniroute-model"), "cliente-premium");
   assert.equal(
     body.choices[0].message.tool_calls[0].function.arguments,
@@ -79,8 +79,8 @@ test("Responses API event identity is rewritten without touching output content"
   const text = await response.text();
 
   assert.match(text, /"model":"cliente-premium"/);
-  assert.match(text, /"provider":"omniroute"/);
-  assert.doesNotMatch(text, /private-model|private-provider/);
+  assert.doesNotMatch(text, /"provider":/);
+  assert.doesNotMatch(text, /private-model|private-provider|omniroute/i);
 });
 
 test("successful malformed JSON bodies are preserved without reusing a consumed stream", async () => {

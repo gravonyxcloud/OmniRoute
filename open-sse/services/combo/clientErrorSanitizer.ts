@@ -48,6 +48,8 @@ function sanitizeString(value: string, comboName: string, identifiers: Set<strin
   let output = value;
   const publicName = publicComboName(comboName);
 
+  output = output.replace(/\bOmniRoute\b/gi, publicName);
+
   for (const identifier of [...identifiers].sort((a, b) => b.length - a.length)) {
     if (!identifier || identifier === comboName || identifier === publicName) continue;
     output = output.replace(new RegExp(escapeRegExp(identifier), "gi"), publicName);
@@ -64,7 +66,7 @@ function sanitizeString(value: string, comboName: string, identifiers: Set<strin
 function sanitizeValue(value: unknown, comboName: string, identifiers: Set<string>, key = ""): unknown {
   const normalizedKey = key.toLowerCase();
   if (normalizedKey === "provider" || normalizedKey === "provider_id" || normalizedKey === "providerid") {
-    return "omniroute";
+    return undefined;
   }
   if (normalizedKey === "model" || normalizedKey === "model_id" || normalizedKey === "modelid" || normalizedKey === "modelstr") {
     return publicComboName(comboName);
@@ -96,7 +98,7 @@ export async function sanitizeComboClientErrorResponse(
   const headers = new Headers(response.headers);
   headers.delete("x-omniroute-selected-connection-id");
   headers.delete("x-omniroute-decision");
-  headers.set("x-omniroute-provider", "omniroute");
+  headers.delete("x-omniroute-provider");
   headers.set("x-omniroute-model", publicComboName(combo.name));
   headers.set("x-omniroute-strategy", "combo");
 

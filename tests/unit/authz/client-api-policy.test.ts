@@ -209,6 +209,28 @@ test("clientApiPolicy: revoked bearer is rejected", async () => {
   assert.equal(out.allow, false);
 });
 
+test("clientApiPolicy: expired persisted bearer never degrades to anonymous when REQUIRE_API_KEY=false", async () => {
+  process.env.REQUIRE_API_KEY = "false";
+  const created = await apiKeysDb.createApiKey("policy-expired-key", "machine-expired");
+  assert.ok(
+    await apiKeysDb.setApiKeyExpiry(
+      created.id,
+      new Date(Date.now() - 60_000).toISOString()
+    )
+  );
+
+  const policy = await loadPolicy();
+  const headers = new Headers({ authorization: `Bearer ${created.key}` });
+  const out = await policy.evaluate(ctx(headers));
+
+  assert.equal(out.allow, false);
+  if (!out.allow) {
+    assert.equal(out.status, 401);
+    assert.equal(out.code, "AUTH_002");
+    assert.equal(out.message, "Invalid or expired API key");
+  }
+});
+
 test("clientApiPolicy: environment API key remains accepted for client API routes", async () => {
   process.env.OMNIROUTE_API_KEY = "sk-env-policy-test";
 

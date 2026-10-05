@@ -34,16 +34,16 @@ test("combo client errors hide provider/model/connection identity", async () => 
   const text = await sanitized.text();
   const body = JSON.parse(text);
   assert.equal(sanitized.status, 400);
-  assert.equal(sanitized.headers.get("x-omniroute-provider"), "omniroute");
+  assert.equal(sanitized.headers.get("x-omniroute-provider"), null);
   assert.equal(sanitized.headers.get("x-omniroute-model"), "combo/agent-pro");
   assert.equal(sanitized.headers.get("x-omniroute-strategy"), "combo");
   assert.equal(sanitized.headers.get("x-omniroute-selected-connection-id"), null);
   assert.equal(sanitized.headers.get("x-omniroute-decision"), null);
-  assert.equal(body.error.provider, "omniroute");
+  assert.equal(body.error.provider, undefined);
   assert.equal(body.error.model, "combo/agent-pro");
   assert.equal(body.error.connectionId, undefined);
   assert.match(body.error.message, /combo\/agent-pro/);
-  assert.doesNotMatch(text, /opencode|mimo-v2\.6-flash-free|nvidia|nemotron-free|secret-connection-id/i);
+  assert.doesNotMatch(text, /opencode|mimo-v2\.6-flash-free|nvidia|nemotron-free|secret-connection-id|omniroute/i);
 });
 
 test("combo client sanitizer also covers plain-text dynamic provider/model routes", async () => {

@@ -17,7 +17,9 @@ import { cleanupTempDataDir } from "../../_setup/tempDataDir.ts";
 // the policy module returns our stub instead of hitting the real DB module) ─
 
 type ValidateFn = (key: string) => boolean | Promise<boolean>;
+type MetadataFn = (key: string) => unknown | Promise<unknown>;
 let mockValidateApiKey: ValidateFn = () => false;
+let mockGetApiKeyMetadata: MetadataFn = () => null;
 
 const originalResolve = (Module as unknown as { _resolveFilename: typeof Module._resolveFilename })
   ._resolveFilename;
@@ -25,7 +27,7 @@ const originalResolve = (Module as unknown as { _resolveFilename: typeof Module.
 // Intercept require() / import() resolution for the apiKeys DB module and
 // substitute it for our stub. This runs only for the exact path the policy
 // imports — production code paths are unaffected.
-const POLICY_IMPORT_TARGET = "src/lib/db/apiKeys";
+const POLICY_IMPORT_TARGET = "lib/db/apiKeys";
 
 (Module as unknown as { _resolveFilename: typeof Module._resolveFilename })._resolveFilename =
   function patched(this: unknown, request: string, ...rest: unknown[]) {
@@ -53,12 +55,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STUB_PATH = path.join(__dirname, "__stub_apiKeys.mjs");
 fs.writeFileSync(
   STUB_PATH,
-  `export const validateApiKey = (key) => globalThis.__mockValidateApiKey(key);\n`
+  `export const validateApiKey = (key) => globalThis.__mockValidateApiKey(key);\n` +
+    `export const getApiKeyMetadata = (key) => globalThis.__mockGetApiKeyMetadata(key);\n`
 );
 
-// Wire the stub to our local variable
+// Wire the stub to our local variables
 (globalThis as unknown as { __mockValidateApiKey: ValidateFn }).__mockValidateApiKey = (key) =>
   mockValidateApiKey(key);
+(globalThis as unknown as { __mockGetApiKeyMetadata: MetadataFn }).__mockGetApiKeyMetadata = (key) =>
+  mockGetApiKeyMetadata(key);
 
 test.after(async () => {
   try {
@@ -93,8 +98,9 @@ function ctx(headers: Headers, normalizedPath = "/api/v1/chat/completions") {
 // ─── Tests ────────────────────────────────────────────────────────────────
 
 test.beforeEach(() => {
-  // Default to "every key fails" — individual tests override as needed.
+  // Default to "every key fails" and is unknown — individual tests override as needed.
   mockValidateApiKey = () => false;
+  mockGetApiKeyMetadata = () => null;
   delete process.env.REQUIRE_API_KEY;
 });
 

@@ -117,8 +117,8 @@ test("combos-only responses mask backend provider/model/strategy metadata", () =
   );
 
   const meta = metaCalls[0].meta;
-  assert.equal(meta.provider, "omniroute");
-  assert.equal(meta.model, "combo/fast-chat");
+  assert.equal(meta.provider, null);
+  assert.equal(meta.model, "fast-chat");
   assert.equal(meta.strategy, "combo");
   assert.notEqual(meta.provider, "anthropic");
   assert.notEqual(meta.model, "claude-private-backend");

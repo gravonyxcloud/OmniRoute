@@ -103,6 +103,7 @@ interface CreateApiKeyOptions {
   allowedCombos?: string[];
   allowedConnections?: string[];
   expiresAt?: string | null;
+  disableNonPublicModels?: boolean;
   catalogScope?: "all" | "combos" | "models";
   customerEmail?: string | null;
   planId?: string | null;
@@ -277,7 +278,10 @@ interface ApiKeyView extends JsonRecord {
 }
 
 // LRU cache for API key validation (valid keys only)
-const _keyValidationCache = new Map<string, { valid: boolean; timestamp: number }>();
+const _keyValidationCache = new Map<
+  string,
+  { valid: boolean; timestamp: number; expiresAtMs: number | null }
+>();
 const _keyMetadataCache = new Map<string, CacheEntry<ApiKeyMetadata>>();
 const _lastUsedUpdateCache = new Map<string, number>();
 const CACHE_TTL = 60 * 1000; // 1 minute TTL
@@ -503,7 +507,7 @@ function getPreparedStatements(db: ApiKeysDbLike): ApiKeysStatements {
       "SELECT id, name, machine_id, model_access_mode, allowed_models, blocked_models, allowed_combos, allowed_connections, allowed_quotas, no_log, auto_resolve, is_active, access_schedule, max_requests_per_day, max_requests_per_minute, throttle_delay_ms, max_sessions, revoked_at, expires_at, ip_allowlist, scopes, rate_limits, is_banned, key_hash, allowed_endpoints, stream_default_mode, cache_default_mode, disable_non_public_models, allow_usage_command, usage_limit_enabled, daily_usage_limit_usd, weekly_usage_limit_usd, chaos_mode_enabled, compression_enabled, allow_auto_combos, catalog_scope, proxy_id, customer_email, plan_id, plan_days, plan_started_at, renewals_count FROM api_keys WHERE key = ? OR key_hash = ?"
     );
     _stmtInsertKey = db.prepare(
-      "INSERT INTO api_keys (id, name, key, machine_id, model_access_mode, allowed_models, allowed_combos, allowed_connections, no_log, created_at, key_prefix, key_hash, scopes, expires_at, catalog_scope, customer_email, plan_id, plan_days, plan_started_at, renewals_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO api_keys (id, name, key, machine_id, model_access_mode, allowed_models, allowed_combos, allowed_connections, no_log, created_at, key_prefix, key_hash, scopes, expires_at, disable_non_public_models, catalog_scope, customer_email, plan_id, plan_days, plan_started_at, renewals_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     _stmtDeleteKey = db.prepare("DELETE FROM api_keys WHERE id = ?");
   }
@@ -785,6 +789,7 @@ export async function createApiKey(
     createdAt: now,
     expiresAt,
     scopes,
+    disableNonPublicModels: options.disableNonPublicModels ?? true,
     catalogScope,
     customerEmail,
     planId,
@@ -809,6 +814,7 @@ export async function createApiKey(
     await hashKey(apiKey.key),
     JSON.stringify(scopes),
     apiKey.expiresAt,
+    apiKey.disableNonPublicModels ? 1 : 0,
     apiKey.catalogScope,
     apiKey.customerEmail,
     apiKey.planId,
@@ -1433,6 +1439,10 @@ export async function validateApiKey(key: string | null | undefined) {
 
   const cached = _keyValidationCache.get(cacheKey);
   if (cached && now - cached.timestamp < CACHE_TTL) {
+    if (cached.expiresAtMs !== null && cached.expiresAtMs <= now) {
+      _keyValidationCache.delete(cacheKey);
+      return false;
+    }
     return cached.valid;
   }
 
@@ -1481,13 +1491,17 @@ export async function validateApiKey(key: string | null | undefined) {
   if (typeof revokedAt === "string" && revokedAt.trim() !== "") return false;
 
   const expiresAt = row.expires_at ?? row.expiresAt;
+  let expiresAtMs: number | null = null;
   if (typeof expiresAt === "string" && expiresAt.trim() !== "") {
     const expiresMs = Date.parse(expiresAt);
-    if (Number.isFinite(expiresMs) && expiresMs <= now) return false;
+    if (Number.isFinite(expiresMs)) {
+      expiresAtMs = expiresMs;
+      if (expiresMs <= now) return false;
+    }
   }
 
   evictIfNeeded(_keyValidationCache);
-  _keyValidationCache.set(cacheKey, { valid: true, timestamp: now });
+  _keyValidationCache.set(cacheKey, { valid: true, timestamp: now, expiresAtMs });
 
   if (isRedisAuthCacheEnabled()) {
     // Update Redis cache for fast validation

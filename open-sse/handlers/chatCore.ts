@@ -1078,7 +1078,7 @@ export async function handleChatCore({
     headers.delete("x-omniroute-connection-id");
     headers.delete("x-omniroute-selected-connection-id");
     headers.delete("x-omniroute-decision");
-    headers.set("x-omniroute-provider", "omniroute");
+    headers.delete("x-omniroute-provider");
     headers.set("x-omniroute-model", clientRoutingIdentity.model || "combo");
     headers.set("x-omniroute-strategy", "combo");
     return headers;

@@ -106,10 +106,9 @@ test("combos-only key rejects a direct provider model that is not a stored combo
 
   const result = await policy.enforceApiKeyPolicy(makePolicyRequest(key.key), "openai/gpt-4o-mini");
   assert.equal(result.rejection?.status, 403);
-  assert.match(
-    await readErrorMessage(result.rejection as Response),
-    /not a stored OmniRoute combo/
-  );
+  const message = await readErrorMessage(result.rejection as Response);
+  assert.equal(message, "Requested combo is not available for this API key.");
+  assert.doesNotMatch(message, /OmniRoute|openai|gpt-4o-mini/i);
 });
 
 test("combos-only key dispatches to an explicit stored combo", async () => {
@@ -143,15 +142,15 @@ test("combos-only key rejects virtual auto combos", async () => {
     "auto/openai/gpt-4o-mini"
   );
   assert.equal(result.rejection?.status, 403);
-  assert.match(
-    await readErrorMessage(result.rejection as Response),
-    /not a stored OmniRoute combo/
-  );
+  const message = await readErrorMessage(result.rejection as Response);
+  assert.equal(message, "Requested combo is not available for this API key.");
+  assert.doesNotMatch(message, /OmniRoute|auto\/|openai|gpt-4o-mini/i);
 });
 
 test("control: all-scope keys keep dispatching direct provider models and auto combos", async () => {
   const key = await apiKeysDb.createApiKey("all-scope", "machine-combos", [], {
     catalogScope: "all",
+    disableNonPublicModels: false,
   });
   const policy = await loadPolicy("all-scope-control");
 
@@ -174,8 +173,7 @@ test("plan keys are forced combos-only and reject direct provider models", async
 
   const direct = await policy.enforceApiKeyPolicy(makePolicyRequest(key.key), "openai/gpt-4o-mini");
   assert.equal(direct.rejection?.status, 403);
-  assert.match(
-    await readErrorMessage(direct.rejection as Response),
-    /not a stored OmniRoute combo/
-  );
+  const message = await readErrorMessage(direct.rejection as Response);
+  assert.equal(message, "Requested combo is not available for this API key.");
+  assert.doesNotMatch(message, /OmniRoute|openai|gpt-4o-mini/i);
 });

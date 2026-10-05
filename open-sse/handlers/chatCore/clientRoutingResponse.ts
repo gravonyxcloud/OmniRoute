@@ -17,7 +17,7 @@ function projectErrorObject(value: unknown, combo: string): unknown {
     type: "api_error",
     code: "combo_error",
     message: projectClientRoutingErrorMessage({
-      identity: { provider: "omniroute", model: combo, strategy: "combo", masked: true },
+      identity: { provider: null, model: combo, strategy: "combo", masked: true },
       statusCode: 502,
       message: rawMessage,
     }),
@@ -28,19 +28,19 @@ function projectPayload(payload: unknown, combo: string, eventName?: string): un
   const out = { ...(payload as Record<string, unknown>) };
 
   if ("model" in out) out.model = combo;
-  if ("provider" in out) out.provider = "omniroute";
+  if ("provider" in out) delete out.provider;
 
   if (out.message && typeof out.message === "object" && !Array.isArray(out.message)) {
     const message = { ...(out.message as Record<string, unknown>) };
     if ("model" in message) message.model = combo;
-    if ("provider" in message) message.provider = "omniroute";
+    if ("provider" in message) delete message.provider;
     out.message = message;
   }
 
   if (out.response && typeof out.response === "object" && !Array.isArray(out.response)) {
     const response = { ...(out.response as Record<string, unknown>) };
     if ("model" in response) response.model = combo;
-    if ("provider" in response) response.provider = "omniroute";
+    if ("provider" in response) delete response.provider;
     if ("error" in response) response.error = projectErrorObject(response.error, combo);
     out.response = response;
   }
@@ -50,7 +50,7 @@ function projectPayload(payload: unknown, combo: string, eventName?: string): un
     if ("error" in out) out.error = projectErrorObject(out.error, combo);
     if (typeof out.message === "string") {
       out.message = projectClientRoutingErrorMessage({
-        identity: { provider: "omniroute", model: combo, strategy: "combo", masked: true },
+        identity: { provider: null, model: combo, strategy: "combo", masked: true },
         statusCode: 502,
         message: out.message,
       });
@@ -65,7 +65,7 @@ function projectedHeaders(response: Response, combo: string): Headers {
   headers.delete("content-length");
   headers.delete("x-omniroute-connection");
   headers.delete("x-omniroute-connection-id");
-  headers.set("X-OmniRoute-Provider", "omniroute");
+  headers.delete("x-omniroute-provider");
   headers.set("X-OmniRoute-Model", combo);
   headers.set("X-OmniRoute-Strategy", "combo");
   return headers;

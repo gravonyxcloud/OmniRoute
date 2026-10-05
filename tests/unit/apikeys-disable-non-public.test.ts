@@ -58,7 +58,7 @@ test("disableNonPublicModels: set to true via updateApiKeyPermissions, read back
   assert.equal(metadata.disableNonPublicModels, true, "disableNonPublicModels should be true");
 });
 
-test("disableNonPublicModels: defaults to false when not set on a new key", async () => {
+test("disableNonPublicModels: defaults to true on a new key", async () => {
   const created = await apiKeysDb.createApiKey("Default NonPublic Key", "machine-np-02");
 
   const metadata = await apiKeysDb.getApiKeyMetadata(created.key);
@@ -66,9 +66,19 @@ test("disableNonPublicModels: defaults to false when not set on a new key", asyn
   assert.ok(metadata, "metadata should not be null");
   assert.equal(
     metadata.disableNonPublicModels,
-    false,
-    "disableNonPublicModels should default to false"
+    true,
+    "disableNonPublicModels should default to true"
   );
+});
+
+test("disableNonPublicModels: createApiKey can explicitly opt out", async () => {
+  const created = await apiKeysDb.createApiKey("Opt-out NonPublic Key", "machine-np-optout", [], {
+    disableNonPublicModels: false,
+  });
+
+  const metadata = await apiKeysDb.getApiKeyMetadata(created.key);
+  assert.ok(metadata, "metadata should not be null");
+  assert.equal(metadata.disableNonPublicModels, false);
 });
 
 test("3 columns coexist: disableNonPublicModels, allowedQuotas, streamDefaultMode all present", async () => {

@@ -14,7 +14,7 @@ function nonEmpty(value: unknown): string | null {
  *
  * Combos-only keys are commercial/public gateway keys. They may route through
  * any configured backend internally, but the client must only see the public
- * OmniRoute surface it requested.
+ * combo identity it requested. Provider identity is intentionally omitted.
  */
 export function resolveClientRoutingIdentity({
   provider,
@@ -41,7 +41,7 @@ export function resolveClientRoutingIdentity({
   }
 
   return {
-    provider: "omniroute",
+    provider: null,
     model: nonEmpty(comboName) ?? nonEmpty(requestedModel) ?? "combo",
     strategy: "combo",
     masked: true,

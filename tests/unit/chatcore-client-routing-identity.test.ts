@@ -24,7 +24,7 @@ test("normal keys keep the resolved backend routing identity", () => {
   });
 });
 
-test("combos-only keys expose only the public OmniRoute identity", () => {
+test("combos-only keys expose only the public combo identity", () => {
   const identity = resolveClientRoutingIdentity({
     provider: "anthropic",
     model: "claude-backend-private",
@@ -35,7 +35,7 @@ test("combos-only keys expose only the public OmniRoute identity", () => {
   });
 
   assert.deepEqual(identity, {
-    provider: "omniroute",
+    provider: null,
     model: "fast-chat",
     strategy: "combo",
     masked: true,
@@ -53,7 +53,7 @@ test("combos-only identity always prefers the stored combo over a client hardcod
     comboName: "customer-combo",
   });
 
-  assert.equal(identity.provider, "omniroute");
+  assert.equal(identity.provider, null);
   assert.equal(identity.model, "customer-combo");
   assert.equal(identity.masked, true);
 });
@@ -67,7 +67,7 @@ test("combos-only identity falls back to combo name without leaking backend mode
     comboName: "customer-combo",
   });
 
-  assert.equal(identity.provider, "omniroute");
+  assert.equal(identity.provider, null);
   assert.equal(identity.model, "customer-combo");
   assert.equal(identity.strategy, "combo");
 });

@@ -73,6 +73,21 @@ test("validateApiKey accepts keys with future expires_at", async () => {
   assert.equal(await apiKeysDb.validateApiKey(created.key), true);
 });
 
+test("validateApiKey stops accepting a cached key as soon as expires_at passes", async () => {
+  const created = await makeKey("cache-expiry", "machine-cache-expiry");
+  const expiresAt = new Date(Date.now() + 150).toISOString();
+  assert.equal(await apiKeysDb.setApiKeyExpiry(created.id, expiresAt), true);
+  assert.equal(await apiKeysDb.validateApiKey(created.key), true);
+
+  await new Promise((resolve) => setTimeout(resolve, 220));
+
+  assert.equal(
+    await apiKeysDb.validateApiKey(created.key),
+    false,
+    "in-memory validation cache must never extend the key lifetime past expires_at"
+  );
+});
+
 test("validateApiKey rejects deactivated keys (is_active=false)", async () => {
   const created = await makeKey();
   const ok = await apiKeysDb.updateApiKeyPermissions(created.id, { isActive: false });

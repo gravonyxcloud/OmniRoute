@@ -2031,7 +2031,7 @@ const PermissionsModal = memo(function PermissionsModal({
   const [selectedEndpoints, setSelectedEndpoints] = useState<string[]>(initialEndpoints);
   const [allowAllEndpoints, setAllowAllEndpoints] = useState(initialEndpoints.length === 0);
   const [disableNonPublicModels, setDisableNonPublicModels] = useState(
-    apiKey?.disableNonPublicModels === true
+    apiKey?.disableNonPublicModels !== false
   );
   const [usageCommandEnabled, setUsageCommandEnabled] = useState(
     apiKey?.allowUsageCommand === true
