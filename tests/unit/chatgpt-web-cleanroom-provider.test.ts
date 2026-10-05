@@ -195,6 +195,73 @@ test("accepts tool-bearing requests through the text-context fallback", async ()
   assert.equal(JSON.stringify(body).includes("chatgpt-web"), false);
 });
 
+test("routes local actions through connected ChatGPT account plugins when enabled", async () => {
+  const previous = process.env.CHATGPT_WEB_ACCOUNT_PLUGINS;
+  process.env.CHATGPT_WEB_ACCOUNT_PLUGINS = "1";
+  let sessionInput: any = null;
+  let seenPrompt = "";
+
+  try {
+    const executor = new ChatGptWebExecutor({
+      createSession: async (input) => {
+        sessionInput = input;
+        return {
+          url: () => input.pageUrl || "https://chatgpt.com/",
+          start: async () => async () => {},
+          submitPrompt: async () => {},
+        };
+      },
+      runTurn: async (_session, request) => {
+        seenPrompt = request.prompt;
+        return {
+          conversationId: "private-conversation",
+          turnExchangeId: "private-turn",
+          text: "ACCOUNT_PLUGIN_OK",
+          status: "finished_successfully" as const,
+          endTurn: true,
+        };
+      },
+    });
+
+    const response = await executor.execute({
+      model: "gpt-5-6-thinking",
+      body: {
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "Bash",
+              description: "Run a shell command in the current project",
+              parameters: {
+                type: "object",
+                properties: { command: { type: "string" } },
+                required: ["command"],
+              },
+            },
+          },
+        ],
+        messages: [{ role: "user", content: "crie um arquivo html no meu pc" }],
+      },
+      stream: false,
+      credentials: {
+        connectionId: "connection",
+        apiKey: JSON.stringify({ cookies: [], origins: [] }),
+      },
+    });
+
+    assert.equal(sessionInput?.forceComposer, true);
+    assert.equal(sessionInput?.pageUrl, "https://chatgpt.com/");
+    assert.match(seenPrompt, /Remote Desktop Commander/);
+    assert.doesNotMatch(seenPrompt, /Client tools available in the calling application/);
+    const body = await response.json();
+    assert.equal(body.choices[0].message.content, "ACCOUNT_PLUGIN_OK");
+    assert.equal(body.choices[0].finish_reason, "stop");
+  } finally {
+    if (previous === undefined) delete process.env.CHATGPT_WEB_ACCOUNT_PLUGINS;
+    else process.env.CHATGPT_WEB_ACCOUNT_PLUGINS = previous;
+  }
+});
+
 test("returns emulated OpenAI tool_calls for agent clients", async () => {
   const executor = new ChatGptWebExecutor({
     createSession: async () => ({
