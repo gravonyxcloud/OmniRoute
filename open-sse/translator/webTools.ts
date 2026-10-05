@@ -60,7 +60,7 @@ interface ShellToolTarget {
 }
 
 const SHELL_TOOL_NAME_RE =
-  /^(?:bash|shell|terminal|exec|executecommand|runcommand|shellcommandtool|command)$/;
+  /^(?:bash|shell|terminal|exec|executecommand|runcommand|shellcommandtool|command|startprocess)$/;
 
 function resolveShellToolTarget(tools: unknown): ShellToolTarget | null {
   if (!Array.isArray(tools)) return null;
