@@ -168,6 +168,7 @@ export interface PlaywrightChatGptWebBrowserSessionOptions {
   pageUrl?: string;
   selection?: ChatGptWebUiSelection;
   closePageOnCleanup?: boolean;
+  forceComposer?: boolean;
   executePageRequest?: (
     page: Page,
     input: ChatGptWebFirstPartyRequest,
@@ -608,6 +609,7 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
   private readonly pageUrl: string;
   private readonly selection: ChatGptWebUiSelection | undefined;
   private readonly closePageOnCleanup: boolean;
+  private readonly forceComposer: boolean;
   private readonly executePageRequest: NonNullable<
     PlaywrightChatGptWebBrowserSessionOptions["executePageRequest"]
   >;
@@ -621,11 +623,13 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
       this.pageUrl = options;
       this.selection = undefined;
       this.closePageOnCleanup = false;
+      this.forceComposer = false;
       this.executePageRequest = executeChatGptWebFirstPartyTurn;
     } else {
       this.pageUrl = options.pageUrl ?? "https://chatgpt.com/?temporary-chat=true";
       this.selection = options.selection;
       this.closePageOnCleanup = options.closePageOnCleanup === true;
+      this.forceComposer = options.forceComposer === true;
       this.executePageRequest = options.executePageRequest ?? executeChatGptWebFirstPartyTurn;
     }
   }
@@ -988,6 +992,10 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
   async submitPrompt(request: ChatGptWebBrowserSubmission): Promise<string | void> {
     if (!this.selection) throw new Error("ChatGPT Web direct request requires a model selection");
     requireFirstPartyUrl(this.page.url());
+    if (this.forceComposer) {
+      await this.submitThroughComposer(request);
+      return;
+    }
     try {
       return await this.executePageRequest(
         this.page,
