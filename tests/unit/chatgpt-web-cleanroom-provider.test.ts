@@ -253,6 +253,61 @@ test("returns emulated OpenAI tool_calls for agent clients", async () => {
 });
 
 
+test("keeps repairing claimed local completion until a real client tool call is emitted", async () => {
+  let turns = 0;
+  const executor = new ChatGptWebExecutor({
+    createSession: async () => ({
+      url: () => "https://chatgpt.com/?temporary-chat=true",
+      start: async () => async () => {},
+      submitPrompt: async () => {},
+    }),
+    runTurn: async () => {
+      turns += 1;
+      return {
+        conversationId: "private-conversation",
+        turnExchangeId: "private-turn",
+        text:
+          turns < 3
+            ? "Apagados: design-plan.md e .claude/settings.local.json"
+            : '<tool>{"name":"Bash","arguments":{"command":"rm -f design-plan.md .claude/settings.local.json"}}</tool>',
+        status: "finished_successfully" as const,
+        endTurn: true,
+      };
+    },
+  });
+
+  const response = await executor.execute({
+    model: "gpt-5-6-thinking",
+    body: {
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "Bash",
+            description: "Run a shell command in the current project",
+            parameters: {
+              type: "object",
+              properties: { command: { type: "string" } },
+              required: ["command"],
+            },
+          },
+        },
+      ],
+      messages: [{ role: "user", content: "apaga os dois arquivos" }],
+    },
+    stream: false,
+    credentials: {
+      connectionId: "connection",
+      apiKey: JSON.stringify({ cookies: [], origins: [] }),
+    },
+  });
+
+  assert.equal(turns, 3);
+  const body = await response.json();
+  assert.equal(body.choices[0].finish_reason, "tool_calls");
+  assert.equal(body.choices[0].message.tool_calls[0].function.name, "Bash");
+});
+
 test("repairs a deferred local action into a real client tool call", async () => {
   let turns = 0;
   const executor = new ChatGptWebExecutor({
