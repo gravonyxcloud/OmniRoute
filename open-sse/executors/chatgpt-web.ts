@@ -25,18 +25,30 @@ function contentText(content: unknown): string {
     .join("\n");
 }
 
-export function shouldRepairMissingToolCall(
-  assistantText: string,
+export function userRequestRequiresClientTool(
   messages: Array<{ role: string; content: unknown }>
 ): boolean {
   const lastUser = [...messages].reverse().find((message) => message?.role === "user");
   const userText = contentText(lastUser?.content).toLowerCase();
+  if (!userText.trim()) return false;
+
+  // Avoid turning plain how-to/explanatory questions into unintended local actions.
+  if (/\b(?:como\s+(?:fa[çc]o|fazer)|how\s+to|o\s+que\s+[ée]|what\s+is)\b/i.test(userText)) {
+    return false;
+  }
+
+  return /\b(?:arquivo|arquivos|file|files|pasta|pastas|folder|folders|terminal|shell|comando|command|git|repo|mcp|pc|computer|config|configura(?:ç|c)[aã]o|crie|criar|create|edite|editar|edit|execute|executar|rode|run|verifique|check|leia|ler|read|liste|listar|list|abra|open|busque|buscar|search|procure|procurar|inspect|inspecione|veja|look|apaga(?:r|do|dos)?|apague|exclua|excluir|remove|remova|remover|delete|deleted?)\b/i.test(
+    userText
+  );
+}
+
+export function shouldRepairMissingToolCall(
+  assistantText: string,
+  messages: Array<{ role: string; content: unknown }>
+): boolean {
   const reply = assistantText.toLowerCase();
 
-  const actionableRequest =
-    /\b(?:arquivo|file|pasta|folder|terminal|shell|comando|command|git|repo|mcp|pc|computer|config|configura(?:ç|c)[aã]o|crie|create|edite|edit|execute|run|verifique|check|leia|read|liste|list|abra|open|busque|search|procure|inspect|veja|look|apaga(?:r|do|dos)?|apague|exclua|excluir|remove|remova|remover|delete|deleted?)\b/i.test(
-      userText
-    );
+  const actionableRequest = userRequestRequiresClientTool(messages);
   if (!actionableRequest) return false;
 
   const deferredOrUnavailable =
@@ -122,39 +134,53 @@ export class ChatGptWebExecutor extends BaseExecutor {
           this.deps
         );
 
-        const firstText = await assistantTextFromBufferedResponse(buffered);
-        const firstParsed = buildToolAwareResult(firstText, toolPrep.requestedTools, "cgpt");
-        if (
-          buffered.ok &&
-          !firstParsed.toolCalls &&
-          shouldRepairMissingToolCall(firstText, messages)
-        ) {
-          input.log?.warn?.(
-            "CHATGPT-WEB",
-            "Agent described a client-side action without invoking a tool; retrying once with a strict tool-call repair"
-          );
-          const repairMessages = [
-            ...toolPrep.effectiveMessages,
-            { role: "assistant", content: firstText },
-            {
-              role: "user",
-              content:
-                "[Client tool repair: your previous reply described an action but did not invoke the available client tool. " +
-                "Do not repeat the prose. Return exactly one <tool>{...}</tool> block for the next required action, " +
-                "using a tool listed in the client-tool contract and the exact _nonce shown there. No prose before or after the tool block.]",
-            },
-          ];
-          buffered = await executeChatGptWebCleanRoom(
-            {
-              ...input,
-              stream: false,
-              body: {
-                ...bodyWithoutNativeTools,
-                messages: repairMessages,
+        // Web models sometimes acknowledge a local action in prose without emitting
+        // the client-tool envelope. One retry was not enough in real Claude Code
+        // sessions: the model could repeat the false "done" claim a second time.
+        // For actionable local/external requests, allow up to three strict repairs,
+        // but never execute anything unless a real requested tool call is parsed.
+        if (buffered.ok && userRequestRequiresClientTool(messages)) {
+          let repairHistory = [...toolPrep.effectiveMessages];
+          for (let attempt = 1; attempt <= 3; attempt += 1) {
+            const text = await assistantTextFromBufferedResponse(buffered);
+            const parsed = buildToolAwareResult(text, toolPrep.requestedTools, "cgpt");
+            if (parsed.toolCalls) break;
+            if (!shouldRepairMissingToolCall(text, messages) && attempt === 1) {
+              // The user asked for an action, so a plain prose response is still not
+              // sufficient even when it avoids explicit "done" wording.
+            }
+
+            input.log?.warn?.(
+              "CHATGPT-WEB",
+              `Actionable client request returned no tool call; strict repair ${attempt}/3`
+            );
+            repairHistory = [
+              ...repairHistory,
+              { role: "assistant", content: text },
+              {
+                role: "user",
+                content:
+                  "[Client tool repair: this request requires a real client-side tool call. " +
+                  "Do not claim success, do not explain, and do not return prose. Return exactly one " +
+                  "<tool>{...}</tool> block for the NEXT required action using a tool listed in the " +
+                  "client-tool contract and the exact _nonce shown there. For filesystem changes, " +
+                  "listing, reading, creating, deleting, editing, or terminal work, use the matching " +
+                  "filesystem/shell tool. No prose before or after the tool block.]",
               },
-            },
-            this.deps
-          );
+            ];
+            buffered = await executeChatGptWebCleanRoom(
+              {
+                ...input,
+                stream: false,
+                body: {
+                  ...bodyWithoutNativeTools,
+                  messages: repairHistory,
+                },
+              },
+              this.deps
+            );
+            if (!buffered.ok) break;
+          }
         }
 
         return await buildToolModeResponse(buffered, toolPrep.requestedTools, input.stream, {
