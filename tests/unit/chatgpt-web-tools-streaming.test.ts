@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildToolModeResponse } from "../../open-sse/executors/chatgptWebTools.ts";
+import { shouldRepairMissingToolCall } from "../../open-sse/executors/chatgpt-web.ts";
+import { parseToolCallsFromText } from "../../open-sse/translator/webTools.ts";
 
 test("chatgpt-web tool-mode stream preserves reasoning and indexes tool calls", async () => {
   const requestedTools = [
@@ -62,5 +64,54 @@ test("chatgpt-web tool-mode stream preserves reasoning and indexes tool calls", 
   assert.deepEqual(
     toolChunk.choices[0].delta.tool_calls.map((call: { index: number }) => call.index),
     [0, 1]
+  );
+});
+
+
+test("chatgpt-web repair catches false delete completion claims", () => {
+  assert.equal(
+    shouldRepairMissingToolCall("Apagados:\n- design-plan.md\n- .claude/settings.local.json", [
+      { role: "user", content: "apaga os dois" },
+    ]),
+    true
+  );
+
+  assert.equal(
+    shouldRepairMissingToolCall("Para apagar os dois, você pode usar Remove-Item.", [
+      { role: "user", content: "como apago os dois?" },
+    ]),
+    false
+  );
+});
+
+test("chatgpt-web recognizes Desktop Commander start_process for bare shell commands", () => {
+  const tools = [
+    {
+      type: "function",
+      function: {
+        name: "start_process",
+        description: "Start a terminal process",
+        parameters: {
+          type: "object",
+          properties: { command: { type: "string" } },
+          required: ["command"],
+        },
+      },
+    },
+  ];
+
+  const parsed = parseToolCallsFromText(
+    'Remove-Item -LiteralPath "design-plan.md",".claude\\settings.local.json" -Force',
+    "cgpt-test",
+    tools
+  );
+
+  assert.equal(parsed.content, "");
+  assert.equal(parsed.toolCalls?.[0]?.function.name, "start_process");
+  assert.deepEqual(
+    JSON.parse(parsed.toolCalls?.[0]?.function.arguments || "{}"),
+    {
+      command: 'Remove-Item -LiteralPath "design-plan.md",".claude\\settings.local.json" -Force',
+    }
   );
 });
