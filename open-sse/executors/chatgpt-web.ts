@@ -25,7 +25,7 @@ function contentText(content: unknown): string {
     .join("\n");
 }
 
-function shouldRepairMissingToolCall(
+export function shouldRepairMissingToolCall(
   assistantText: string,
   messages: Array<{ role: string; content: unknown }>
 ): boolean {
@@ -34,14 +34,22 @@ function shouldRepairMissingToolCall(
   const reply = assistantText.toLowerCase();
 
   const actionableRequest =
-    /\b(?:arquivo|file|pasta|folder|terminal|shell|comando|command|git|repo|mcp|pc|computer|config|configura(?:ç|c)[aã]o|crie|create|edite|edit|execute|run|verifique|check|leia|read|liste|list|abra|open|busque|search|procure|inspect|veja|look)\b/i.test(
+    /\b(?:arquivo|file|pasta|folder|terminal|shell|comando|command|git|repo|mcp|pc|computer|config|configura(?:ç|c)[aã]o|crie|create|edite|edit|execute|run|verifique|check|leia|read|liste|list|abra|open|busque|search|procure|inspect|veja|look|apaga(?:r|do|dos)?|apague|exclua|excluir|remove|remova|remover|delete|deleted?)\b/i.test(
       userText
     );
   if (!actionableRequest) return false;
 
-  return /\b(?:vou|irei|deixa eu|deixe-me|vamos)\s+(?:pegar|ver|verificar|checar|olhar|inspecionar|ler|listar|executar|rodar|criar|editar|alterar|abrir|buscar|procurar|consultar|usar|acessar)\b|\b(?:i(?:'|’)ll|i will|let me|i(?:'|’)m going to|i am going to)\s+(?:check|inspect|read|list|run|execute|create|edit|open|search|look|fetch|use|access)\b|\b(?:n[aã]o tenho acesso|n[aã]o consigo acessar|can(?:not|'t) access|do not have access|don't have access)\b/i.test(
-    reply
-  );
+  const deferredOrUnavailable =
+    /\b(?:vou|irei|deixa eu|deixe-me|vamos)\s+(?:pegar|ver|verificar|checar|olhar|inspecionar|ler|listar|executar|rodar|criar|editar|alterar|abrir|buscar|procurar|consultar|usar|acessar|apagar|excluir|remover)\b|\b(?:i(?:'|’)ll|i will|let me|i(?:'|’)m going to|i am going to)\s+(?:check|inspect|read|list|run|execute|create|edit|open|search|look|fetch|use|access|delete|remove)\b|\b(?:n[aã]o tenho acesso|n[aã]o consigo acessar|can(?:not|'t) access|do not have access|don't have access)\b/i.test(
+      reply
+    );
+
+  const claimedCompletion =
+    /\b(?:apag(?:ado|ados|ada|adas)|exclu[ií]d(?:o|os|a|as)|removid(?:o|os|a|as)|deletei|apaguei|removi|feito|conclu[ií]do|pronto|done|deleted|removed|completed)\b/i.test(
+      reply
+    );
+
+  return deferredOrUnavailable || claimedCompletion;
 }
 
 async function assistantTextFromBufferedResponse(response: Response): Promise<string> {
