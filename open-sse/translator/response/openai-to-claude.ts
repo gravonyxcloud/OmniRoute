@@ -292,7 +292,11 @@ export function openaiToClaudeResponse(chunk, state) {
   const choice = chunkChoice || state.pendingClaudeFinishChoice;
   if (!choice) return null;
   if (flushingPendingFinish) state.pendingClaudeFinishChoice = null;
-  const delta = choice.delta;
+  // A deferred finish replays the SAME choice object after the original chunk has
+  // already emitted its content/reasoning/tool deltas. Only the terminal metadata
+  // must be processed on flush; replaying choice.delta duplicates the final answer
+  // for one-chunk providers such as chatgpt-web.
+  const delta = flushingPendingFinish ? undefined : choice.delta;
   // First chunk - ALWAYS send message_start first
   if (!state.messageStartSent) {
     state.messageStartSent = true;
