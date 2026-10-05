@@ -268,10 +268,42 @@ function contentText(value: unknown): string {
       parts.push(part.text);
       continue;
     }
+    if (isRecord(part) && (part.type === "thinking" || part.type === "redacted_thinking")) {
+      // Never replay prior private reasoning into the browser prompt. Claude-compatible
+      // clients legitimately send thinking blocks back on subsequent agent turns.
+      continue;
+    }
+    if (isRecord(part) && part.type === "tool_use") {
+      const name = typeof part.name === "string" && part.name.trim() ? part.name.trim() : "tool";
+      const input =
+        typeof part.input === "string"
+          ? part.input
+          : part.input === undefined
+            ? "{}"
+            : JSON.stringify(part.input);
+      parts.push(`Requested tool ${name}: ${input}`);
+      continue;
+    }
+    if (isRecord(part) && part.type === "tool_result") {
+      const toolUseId =
+        typeof part.tool_use_id === "string" && part.tool_use_id.trim()
+          ? ` ${part.tool_use_id.trim()}`
+          : "";
+      const resultText =
+        typeof part.content === "string"
+          ? part.content
+          : Array.isArray(part.content)
+            ? contentText(part.content)
+            : part.content === undefined
+              ? ""
+              : JSON.stringify(part.content);
+      parts.push(`Tool result${toolUseId}: ${resultText}`);
+      continue;
+    }
     if (isChatGptWebAttachmentContentPart(part)) continue;
     throw new Error("ChatGPT Web clean-room adapter received unsupported content");
   }
-  return parts.join("");
+  return parts.join("\n");
 }
 
 function toolDefinitionsText(value: unknown): string {
