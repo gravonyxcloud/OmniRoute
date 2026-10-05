@@ -14,6 +14,7 @@ import {
 import {
   PlaywrightChatGptWebBrowserSession,
   runChatGptWebBrowserTurn,
+  stripChatGptWebUiChrome,
   type ChatGptWebBrowserSession,
   type ChatGptWebBrowserTurnRequest,
   type ChatGptWebBrowserTurnResult,
@@ -578,7 +579,7 @@ function chatGptWebReasoningNotice(model: string): string {
     normalized.includes("gpt-6");
   return reasoningMode
     ? "Reasoning enabled via ChatGPT Web. The upstream private reasoning trace is not exposed."
-    : "ChatGPT Web reasoning trace is not exposed for this mode.";
+    : "";
 }
 
 export function buildChatGptWebOpenAiResponse(
@@ -589,11 +590,12 @@ export function buildChatGptWebOpenAiResponse(
 ): Response {
   const id = metadata.id ?? `chatcmpl-${randomUUID()}`;
   const created = metadata.created ?? Math.floor(Date.now() / 1000);
+  const outputText = stripChatGptWebUiChrome(result.text);
   // The first-party browser flow does not expose token receipts. Emit a clear
   // OpenAI-compatible estimate so proxy accounting and clients such as n8n do
   // not record a successful request as zero usage.
   const promptTokens = metadata.prompt ? Math.max(1, Math.ceil(metadata.prompt.length / 4)) : 0;
-  const completionTokens = result.text ? Math.max(1, Math.ceil(result.text.length / 4)) : 0;
+  const completionTokens = outputText ? Math.max(1, Math.ceil(outputText.length / 4)) : 0;
   const usage = {
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
@@ -612,8 +614,8 @@ export function buildChatGptWebOpenAiResponse(
           index: 0,
           message: {
             role: "assistant",
-            content: result.text,
-            reasoning_content: reasoningContent,
+            content: outputText,
+            ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
           },
           finish_reason: "stop",
         },
@@ -630,19 +632,25 @@ export function buildChatGptWebOpenAiResponse(
       model,
       choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
     },
+    ...(reasoningContent
+      ? [
+          {
+            id,
+            object: "chat.completion.chunk",
+            created,
+            model,
+            choices: [
+              { index: 0, delta: { reasoning_content: reasoningContent }, finish_reason: null },
+            ],
+          },
+        ]
+      : []),
     {
       id,
       object: "chat.completion.chunk",
       created,
       model,
-      choices: [{ index: 0, delta: { reasoning_content: reasoningContent }, finish_reason: null }],
-    },
-    {
-      id,
-      object: "chat.completion.chunk",
-      created,
-      model,
-      choices: [{ index: 0, delta: { content: result.text }, finish_reason: null }],
+      choices: [{ index: 0, delta: { content: outputText }, finish_reason: null }],
     },
     {
       id,

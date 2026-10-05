@@ -44,7 +44,17 @@ async function applyToolCallsToJsonResponse(
       idSeed
     );
     if (toolCalls) {
-      json.choices[0].message = { role: "assistant", content: null, tool_calls: toolCalls };
+      const previousMessage = json.choices[0].message ?? {};
+      const reasoningContent =
+        typeof previousMessage.reasoning_content === "string"
+          ? previousMessage.reasoning_content
+          : undefined;
+      json.choices[0].message = {
+        role: "assistant",
+        content: null,
+        ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
+        tool_calls: toolCalls,
+      };
       json.choices[0].finish_reason = finishReason;
     } else {
       json.choices[0].message.content = content;
@@ -92,8 +102,23 @@ function toolCompletionToSseStream(
   return new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(chunk({ role: "assistant" }, null));
-      const delta = message.tool_calls
-        ? { tool_calls: message.tool_calls }
+      const reasoningContent =
+        typeof message.reasoning_content === "string" ? message.reasoning_content : "";
+      if (reasoningContent) {
+        controller.enqueue(chunk({ reasoning_content: reasoningContent }, null));
+      }
+      const rawToolCalls = Array.isArray(message.tool_calls)
+        ? (message.tool_calls as Array<Record<string, unknown>>)
+        : null;
+      const indexedToolCalls = rawToolCalls?.map((toolCall, index) => ({
+        ...toolCall,
+        index:
+          typeof toolCall.index === "number" && Number.isFinite(toolCall.index)
+            ? toolCall.index
+            : index,
+      }));
+      const delta = indexedToolCalls
+        ? { tool_calls: indexedToolCalls }
         : { content: (message.content as string) ?? "" };
       controller.enqueue(chunk(delta, finishReason));
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));

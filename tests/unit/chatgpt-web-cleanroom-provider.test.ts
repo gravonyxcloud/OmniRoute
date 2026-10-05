@@ -251,3 +251,56 @@ test("returns emulated OpenAI tool_calls for agent clients", async () => {
     { path: "notes.txt", content: "hello" }
   );
 });
+
+
+test("repairs a deferred local action into a real client tool call", async () => {
+  let turns = 0;
+  const executor = new ChatGptWebExecutor({
+    createSession: async () => ({
+      url: () => "https://chatgpt.com/?temporary-chat=true",
+      start: async () => async () => {},
+      submitPrompt: async () => {},
+    }),
+    runTurn: async () => {
+      turns += 1;
+      return {
+        conversationId: "private-conversation",
+        turnExchangeId: "private-turn",
+        text:
+          turns === 1
+            ? "Vou pegar a configuração do seu PC e te passo CPU, RAM, GPU e Windows."
+            : '<tool>{"name":"get_pc_config","arguments":{}}</tool>',
+        status: "finished_successfully" as const,
+        endTurn: true,
+      };
+    },
+  });
+
+  const response = await executor.execute({
+    model: "gpt-5-6-thinking",
+    body: {
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "get_pc_config",
+            description: "Read the current PC hardware and Windows configuration",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      ],
+      messages: [{ role: "user", content: "qual config do meu pc" }],
+    },
+    stream: false,
+    credentials: {
+      connectionId: "connection",
+      apiKey: JSON.stringify({ cookies: [], origins: [] }),
+    },
+  });
+
+  assert.equal(turns, 2);
+  assert.ok(response instanceof Response);
+  const body = await response.json();
+  assert.equal(body.choices[0].finish_reason, "tool_calls");
+  assert.equal(body.choices[0].message.tool_calls[0].function.name, "get_pc_config");
+});

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { chatgpt_webProvider } from "../config/providers/registry/chatgpt-web/index.ts";
-import { prepareToolMessages } from "../translator/webTools.ts";
+import { buildToolAwareResult, prepareToolMessages } from "../translator/webTools.ts";
 import {
   executeChatGptWebCleanRoom,
   type ChatGptWebExecutorAdapterDeps,
@@ -11,6 +11,52 @@ import { makeExecutorErrorResult, sanitizeErrorMessage } from "../utils/error.ts
 import { BaseExecutor, type ExecuteInput } from "./base.ts";
 
 const CHATGPT_WEB_URL = "https://chatgpt.com";
+
+function contentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) =>
+      part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string"
+        ? String((part as { text: string }).text)
+        : ""
+    )
+    .filter(Boolean)
+    .join("\n");
+}
+
+function shouldRepairMissingToolCall(
+  assistantText: string,
+  messages: Array<{ role: string; content: unknown }>
+): boolean {
+  const lastUser = [...messages].reverse().find((message) => message?.role === "user");
+  const userText = contentText(lastUser?.content).toLowerCase();
+  const reply = assistantText.toLowerCase();
+
+  const actionableRequest =
+    /\b(?:arquivo|file|pasta|folder|terminal|shell|comando|command|git|repo|mcp|pc|computer|config|configura(?:ç|c)[aã]o|crie|create|edite|edit|execute|run|verifique|check|leia|read|liste|list|abra|open|busque|search|procure|inspect|veja|look)\b/i.test(
+      userText
+    );
+  if (!actionableRequest) return false;
+
+  return /\b(?:vou|irei|deixa eu|deixe-me|vamos)\s+(?:pegar|ver|verificar|checar|olhar|inspecionar|ler|listar|executar|rodar|criar|editar|alterar|abrir|buscar|procurar|consultar|usar|acessar)\b|\b(?:i(?:'|’)ll|i will|let me|i(?:'|’)m going to|i am going to)\s+(?:check|inspect|read|list|run|execute|create|edit|open|search|look|fetch|use|access)\b|\b(?:n[aã]o tenho acesso|n[aã]o consigo acessar|can(?:not|'t) access|do not have access|don't have access)\b/i.test(
+    reply
+  );
+}
+
+async function assistantTextFromBufferedResponse(response: Response): Promise<string> {
+  if (!response.ok) return "";
+  try {
+    const json = (await response.clone().json()) as {
+      choices?: Array<{ message?: { content?: unknown } }>;
+    };
+    return typeof json.choices?.[0]?.message?.content === "string"
+      ? json.choices[0].message.content
+      : "";
+  } catch {
+    return "";
+  }
+}
 
 function statusForAdapterError(message: string): number {
   if (/storage state|credentials|connection ID/i.test(message)) return 401;
@@ -56,7 +102,7 @@ export class ChatGptWebExecutor extends BaseExecutor {
           parallel_tool_calls: _parallelToolCalls,
           ...bodyWithoutNativeTools
         } = body!;
-        const buffered = await executeChatGptWebCleanRoom(
+        let buffered = await executeChatGptWebCleanRoom(
           {
             ...input,
             stream: false,
@@ -67,6 +113,42 @@ export class ChatGptWebExecutor extends BaseExecutor {
           },
           this.deps
         );
+
+        const firstText = await assistantTextFromBufferedResponse(buffered);
+        const firstParsed = buildToolAwareResult(firstText, toolPrep.requestedTools, "cgpt");
+        if (
+          buffered.ok &&
+          !firstParsed.toolCalls &&
+          shouldRepairMissingToolCall(firstText, messages)
+        ) {
+          input.log?.warn?.(
+            "CHATGPT-WEB",
+            "Agent described a client-side action without invoking a tool; retrying once with a strict tool-call repair"
+          );
+          const repairMessages = [
+            ...toolPrep.effectiveMessages,
+            { role: "assistant", content: firstText },
+            {
+              role: "user",
+              content:
+                "[Client tool repair: your previous reply described an action but did not invoke the available client tool. " +
+                "Do not repeat the prose. Return exactly one <tool>{...}</tool> block for the next required action, " +
+                "using a tool listed in the client-tool contract and the exact _nonce shown there. No prose before or after the tool block.]",
+            },
+          ];
+          buffered = await executeChatGptWebCleanRoom(
+            {
+              ...input,
+              stream: false,
+              body: {
+                ...bodyWithoutNativeTools,
+                messages: repairMessages,
+              },
+            },
+            this.deps
+          );
+        }
+
         return await buildToolModeResponse(buffered, toolPrep.requestedTools, input.stream, {
           cid: `chatcmpl-${randomUUID()}`,
           created: Math.floor(Date.now() / 1000),
