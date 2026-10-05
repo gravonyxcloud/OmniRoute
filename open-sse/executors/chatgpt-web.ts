@@ -25,6 +25,10 @@ function contentText(content: unknown): string {
     .join("\n");
 }
 
+export function chatGptWebAccountPluginsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return /^(?:1|true|yes|on)$/i.test(env.CHATGPT_WEB_ACCOUNT_PLUGINS?.trim() ?? "");
+}
+
 export function userRequestRequiresClientTool(
   messages: Array<{ role: string; content: unknown }>
 ): boolean {
@@ -113,6 +117,30 @@ export class ChatGptWebExecutor extends BaseExecutor {
         body && Array.isArray(body.messages)
           ? (body.messages as Array<{ role: string; content: unknown }>)
           : [];
+      const accountPluginMode =
+        Boolean(body) &&
+        chatGptWebAccountPluginsEnabled() &&
+        userRequestRequiresClientTool(messages);
+
+      if (body && accountPluginMode) {
+        const {
+          tools: _tools,
+          tool_choice: _toolChoice,
+          parallel_tool_calls: _parallelToolCalls,
+          ...bodyWithoutClientTools
+        } = body;
+        return await executeChatGptWebCleanRoom(
+          {
+            ...input,
+            body: {
+              ...bodyWithoutClientTools,
+              __omniroute_chatgpt_web_account_plugins: true,
+            },
+          },
+          this.deps
+        );
+      }
+
       const toolPrep = body ? prepareToolMessages(body, messages) : null;
 
       if (toolPrep?.hasTools) {
