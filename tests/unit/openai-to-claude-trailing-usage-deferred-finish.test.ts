@@ -227,3 +227,37 @@ test("trailing choices-empty chunk with tool_calls finish_reason preserves tool_
     { type: "message_stop" },
   ]);
 });
+
+
+test("single terminal content chunk is not replayed when deferred finish flushes", () => {
+  const state = createState();
+  const events = collectEvents(
+    [
+      {
+        id: "chatcmpl-chatgpt-web-single",
+        model: "gpt-5.6-luna-free-thinking",
+        choices: [
+          {
+            index: 0,
+            delta: { content: "Oi! 👋 Como posso ajudar hoje?" },
+            finish_reason: "stop",
+          },
+        ],
+      },
+      null,
+    ],
+    state
+  );
+
+  const text = events
+    .filter((event) => event.type === "content_block_delta")
+    .map((event) => event.delta?.text ?? "")
+    .join("");
+
+  assert.equal(text, "Oi! 👋 Como posso ajudar hoje?");
+  assert.equal(
+    events.filter((event) => event.type === "content_block_delta").length,
+    1
+  );
+  assert.equal(events.at(-1)?.type, "message_stop");
+});
