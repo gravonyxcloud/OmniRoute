@@ -11035,6 +11035,7 @@
     "poolMembersLabel": "Membros do pool ({count})",
     "poolNoMembers": "Ainda não há proxies neste pool.",
     "poolAllActiveHint": "Modo automático: todos os proxies ativos do registro são usados dinamicamente. Não é necessário adicionar proxies manualmente; novos proxies ativos entram automaticamente e proxies desativados deixam de ser usados.",
+    "poolAllActiveCount": "{count} proxy(s) ativo(s) disponíveis dinamicamente neste modo.",
     "poolEgressObservation": "Uso de {exits, plural, one {# saída} other {# saídas}} por {connections, plural, one {# conexão} other {# conexões}} · até {max} em uma única saída · últimas {hours} h",
     "poolEgressObservationEmpty": "Nenhum tráfego observado nas últimas {hours} h",
     "poolEgressObservationHint": "Contabilizado com base no log do proxy durante o período: IPs de saída distintos observados para os membros deste pool e as conexões do OmniRoute que os utilizaram. \"Em uma saída\" significa ao longo do período, não ao mesmo tempo. O bloqueio por IP após um erro 429 pausa apenas as conexões da mesma família de provedores.",
