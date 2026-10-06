@@ -812,12 +812,15 @@ async function maybeSyntheticNoAuthFallback(
   // key reach free providers (OpenCode Free, etc.) that it should not access.
   if (Array.isArray(allowedConnections) && allowedConnections.length > 0) return null;
   if (excludedConnectionIds.has(SYNTHETIC_NOAUTH_CONNECTION_ID)) return null;
-  // #14313: a free-tier refusal just paused this keyless path — do not re-select
-  // the synthetic noauth connection until the short TTL expires.
-  if (isOpencodeFreeTierSkipped(providerId)) {
-    log.info("AUTH", `${providerId} | no-auth fallback skipped (OpenCode free-tier pause)`);
-    return null;
-  }
+  // #14313: auto-combo resilience still pauses the no-auth candidate after a
+  // free-tier refusal (see resilienceCandidateFilter). Do NOT apply that provider-wide
+  // pause here: direct requests to a genuinely no-auth provider must still receive
+  // synthetic credentials, otherwise a temporary model refusal turns into the much
+  // worse public error "No active credentials for provider: opencode".
+  //
+  // The account/model rotation layer is responsible for moving past the failed
+  // fingerprint/proxy; this fallback must remain available whenever the provider itself
+  // is configured as no-auth.
   if (
     isAnonymousFallbackOnlyProvider(providerId) &&
     (await isAnonymousFallbackDisabledBySettings(providerId))
