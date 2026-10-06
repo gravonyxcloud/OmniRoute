@@ -12,6 +12,21 @@ const ACCOUNT_PROVIDER_NAMES: Record<string, string> = {
   dahl: "Dahl",
 };
 
+function generateOpenCodeAccountKey(): string {
+  const bytes = new Uint8Array(30);
+  crypto.getRandomValues(bytes);
+
+  const hexPrefix = Array.from(bytes.subarray(0, 6), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+
+  let binary = "";
+  for (const byte of bytes.subarray(6)) binary += String.fromCharCode(byte);
+  const randomSuffix = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+
+  return `oc_sk_${hexPrefix}_${randomSuffix}`;
+}
+
 interface NoAuthProviderControlsProps {
   providerId: string;
   providerName: string;
@@ -148,7 +163,11 @@ export default function NoAuthProviderControls({
       <NoAuthAccountCard
         providerId={providerId}
         providerName={accountProviderName}
-        generateAccountId={() => crypto.randomUUID().replace(/-/g, "")}
+        generateAccountId={() =>
+          providerId === "opencode"
+            ? generateOpenCodeAccountKey()
+            : crypto.randomUUID().replace(/-/g, "")
+        }
         enableBulkAccountAdd={providerId === "opencode"}
         generateApiKey={
           providerId === "dahl"
