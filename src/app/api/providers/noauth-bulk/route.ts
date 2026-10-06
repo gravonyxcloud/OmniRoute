@@ -60,56 +60,40 @@ export async function POST(request: Request) {
     Record<string, unknown>
   >;
 
-  // OpenCode Free is a no-auth provider. Multiple fingerprints are rotation
-  // identities inside ONE logical connection; they are not API credentials.
-  // Prefer a canonical noauth row. For compatibility, reuse a legacy empty-key
-  // row that already carries fingerprints instead of creating another row.
-  const target =
-    existing.find((connection) => connection.authType === "noauth") ??
-    existing.find((connection) => {
-      const apiKey =
-        typeof connection.apiKey === "string" ? connection.apiKey.trim() : "";
-      return apiKey.length === 0 && connectionFingerprints(connection).length > 0;
-    });
+  // Each generated OpenCode account is represented by its own connection row.
+  // The runtime still combines all rows into the synthetic no-auth credential
+  // pool, so account rotation/proxy assignment remains global while the
+  // dashboard can manage/delete accounts one connection at a time.
+  const existingFingerprints = new Set(
+    existing.flatMap((connection) => connectionFingerprints(connection))
+  );
+  const newAccountIds = uniqueIncoming.filter((accountId) => !existingFingerprints.has(accountId));
+  const createdConnectionIds: string[] = [];
 
-  if (target) {
-    const current = connectionFingerprints(target);
-    const merged = [...new Set([...current, ...uniqueIncoming])];
-    const updated = await updateProviderConnection(String(target.id), {
+  for (const accountId of newAccountIds) {
+    const suffix = accountId.slice(-8);
+    const connection = await createProviderConnection({
+      provider: "opencode",
       authType: "noauth",
+      name: `OpenCode Free • ${suffix}`,
+      priority: 1,
+      globalPriority: null,
+      defaultModel: null,
       providerSpecificData: {
-        ...((target.providerSpecificData as Record<string, unknown> | undefined) ?? {}),
-        fingerprints: merged,
+        fingerprints: [accountId],
+        accountProxies: [],
       },
       isActive: true,
+      testStatus: "unknown",
     });
-
-    return NextResponse.json({
-      success: uniqueIncoming.length,
-      failed: 0,
-      total: uniqueIncoming.length,
-      connectionId: updated?.id ?? target.id,
-      fingerprints: merged.length,
-    });
+    createdConnectionIds.push(connection.id);
   }
 
-  const connection = await createProviderConnection({
-    provider: "opencode",
-    authType: "noauth",
-    name: "OpenCode Free",
-    priority: 1,
-    globalPriority: null,
-    defaultModel: null,
-    providerSpecificData: { fingerprints: uniqueIncoming },
-    isActive: true,
-    testStatus: "unknown",
-  });
-
   return NextResponse.json({
-    success: uniqueIncoming.length,
+    success: newAccountIds.length,
     failed: 0,
     total: uniqueIncoming.length,
-    connectionId: connection.id,
-    fingerprints: uniqueIncoming.length,
+    skipped: uniqueIncoming.length - newAccountIds.length,
+    connectionIds: createdConnectionIds,
   });
 }
