@@ -232,6 +232,23 @@ export const proxyPoolMemberSchema = z
     }
   });
 
+export const proxyPoolBulkMemberSchema = z
+  .object({
+    scope: z.enum(["global", "provider", "account", "combo", "key"]),
+    scopeId: z.string().trim().nullable().optional(),
+    proxyIds: z.array(z.string().trim().min(1, "proxyId is required")).min(1),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.scope !== "global" && !value.scopeId?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "scopeId is required for provider/account/combo/key scope",
+        path: ["scopeId"],
+      });
+    }
+  });
+
 // GET /api/settings/proxies/pool/egress-observation query (#13581). Same scope vocabulary and
 // scopeId rule as the pool routes: an unknown scope is rejected, never read as "global".
 export const proxyPoolEgressObservationQuerySchema = z
