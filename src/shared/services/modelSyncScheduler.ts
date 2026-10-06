@@ -304,9 +304,18 @@ export function startModelSyncScheduler(
 
   console.log(`[ModelSync] Scheduler started — interval: ${effectiveIntervalMs / 3_600_000}h`);
 
-  // Run immediately on startup (staggered by 5s to avoid startup congestion)
-  const startupDelay = setTimeout(() => runSyncCycle(trustedApiBaseUrl), 5_000);
-  startupDelay.unref?.();
+  // A full catalog sync is expensive on a multi-tenant server because every sync is an
+  // internal HTTP request to the same inference listener. Running it immediately after every
+  // restart can starve fresh client requests while dozens of connections refresh together.
+  // Keep startup sync opt-in; the normal 6h interval and reactive model-not-found syncs still
+  // keep catalogs fresh without making container restarts a thundering-herd event.
+  const syncOnStartup = process.env.MODEL_SYNC_ON_STARTUP === "true";
+  if (syncOnStartup) {
+    const startupDelay = setTimeout(() => runSyncCycle(trustedApiBaseUrl), 60_000);
+    startupDelay.unref?.();
+  } else {
+    console.log("[ModelSync] Startup catalog sync disabled; waiting for regular interval/reactive sync");
+  }
 
   // Codex-only: revalidate catalog only on first-start or app upgrade (not every boot).
   void import("./codexCatalogRevalidation")
