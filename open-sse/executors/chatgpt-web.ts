@@ -26,7 +26,9 @@ function contentText(content: unknown): string {
 }
 
 export function chatGptWebAccountPluginsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return /^(?:1|true|yes|on)$/i.test(env.CHATGPT_WEB_ACCOUNT_PLUGINS?.trim() ?? "");
+  const raw = env.CHATGPT_WEB_ACCOUNT_PLUGINS?.trim();
+  if (!raw) return true;
+  return !/^(?:0|false|no|off)$/i.test(raw);
 }
 
 export function userRequestRequiresClientTool(
