@@ -68,3 +68,26 @@ test("returns a plain object (no per-model extra headers configured for unknown 
   assert.equal(typeof h, "object");
   assert.equal(h[CPA_FORCE_FAST_MODE_HEADER], undefined);
 });
+
+
+test("OpenCode Zen/Go cannot override the synthesized CLI identity with persisted custom headers", () => {
+  for (const provider of ["opencode-zen", "opencode-go"]) {
+    const h = buildUpstreamHeadersForExecute({
+      ...base,
+      provider,
+      connectionCustomHeaders: {
+        "x-opencode-client": "desktop",
+        "X-OpenCode-Session": "fake-session",
+        "x-opencode-request": "fake-request",
+        "x-opencode-project": "desktop-project",
+        "x-custom": "kept",
+      },
+    });
+
+    assert.equal(h["x-opencode-client"], undefined);
+    assert.equal(h["X-OpenCode-Session"], undefined);
+    assert.equal(h["x-opencode-request"], undefined);
+    assert.equal(h["x-opencode-project"], undefined);
+    assert.equal(h["x-custom"], "kept");
+  }
+});
