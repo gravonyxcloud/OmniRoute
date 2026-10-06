@@ -53,6 +53,50 @@ test("apikey providers with anonymous fallback use no-auth when saved rows are t
   assert.equal((creds as { apiKey?: unknown }).apiKey, null);
 });
 
+test("OpenCode no-auth account connections merge into one runtime rotation pool", async () => {
+  const { createProviderConnection } = await import("../../src/lib/db/providers.ts");
+
+  await createProviderConnection({
+    provider: "opencode",
+    authType: "noauth",
+    name: "OpenCode Free • account-a",
+    priority: 1,
+    isActive: true,
+    testStatus: "unknown",
+    providerSpecificData: {
+      fingerprints: ["oc_sk_aaaaaaaaaaaa_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
+      accountProxies: [
+        { fingerprint: "oc_sk_aaaaaaaaaaaa_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", proxyId: "proxy-a" },
+      ],
+    },
+  });
+
+  await createProviderConnection({
+    provider: "opencode",
+    authType: "noauth",
+    name: "OpenCode Free • account-b",
+    priority: 1,
+    isActive: true,
+    testStatus: "unknown",
+    providerSpecificData: {
+      fingerprints: ["oc_sk_bbbbbbbbbbbb_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"],
+      accountProxies: [
+        { fingerprint: "oc_sk_bbbbbbbbbbbb_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", proxyId: "proxy-b" },
+      ],
+    },
+  });
+
+  const creds = await getProviderCredentials("opencode");
+  assert.ok(creds);
+  assert.equal((creds as { connectionId?: string }).connectionId, "noauth");
+  const fingerprints = (creds as { providerSpecificData?: { fingerprints?: string[] } })
+    .providerSpecificData?.fingerprints;
+  assert.deepEqual(fingerprints, [
+    "oc_sk_aaaaaaaaaaaa_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "oc_sk_bbbbbbbbbbbb_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  ]);
+});
+ 
 test("#2962 a normal api-key provider with no connection still returns null (no over-broadening)", async () => {
   const creds = await getProviderCredentials("openai");
   // Must NOT synthesize no-auth creds for a real api-key provider.
