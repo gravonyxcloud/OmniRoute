@@ -182,6 +182,35 @@ test("random strategy always returns a member of the alive set", async () => {
   );
 });
 
+test("all-active dynamically uses every alive registry proxy without manual assignments", async () => {
+  await resetStorage();
+  const a = await makeProxy("active");
+  const b = await makeProxy("active");
+  const dead = await makeProxy("inactive");
+
+  await proxiesDb.setScopeRotationStrategy("provider", "openai", "all-active");
+
+  const firstSeen = new Set<string>();
+  for (let i = 0; i < 6; i++) {
+    const r = await proxiesDb.resolveProxyForScopeFromRegistry("provider", "openai");
+    assert.ok(r?.proxy);
+    firstSeen.add(r.proxy.host);
+  }
+  assert.deepEqual([...firstSeen].sort(), [a.host, b.host].sort());
+  assert.ok(!firstSeen.has(dead.host));
+
+  const c = await makeProxy("active");
+  const afterAdding = new Set<string>();
+  for (let i = 0; i < 9; i++) {
+    const r = await proxiesDb.resolveProxyForScopeFromRegistry("provider", "openai");
+    assert.ok(r?.proxy);
+    afterAdding.add(r.proxy.host);
+  }
+
+  assert.deepEqual([...afterAdding].sort(), [a.host, b.host, c.host].sort());
+  assert.ok(!afterAdding.has(dead.host));
+});
+
 test("setScopeRotationStrategy round-trips via getScopeRotationStrategy", async () => {
   await resetStorage();
   assert.equal(
