@@ -1275,40 +1275,41 @@ import {
               </div>
 
               {poolStrategy !== "all-active" && (
-              <div className="flex items-end gap-2 pt-2 border-t border-border">
-                <div className="flex-1">
-                  <label className="text-xs text-text-muted mb-1 block">{t("poolAddLabel")}</label>
-                  <select
-                    className="w-full px-3 py-2 rounded bg-bg-subtle border border-border"
-                    value={poolAddProxyId}
-                    onChange={(e) => setPoolAddProxyId(e.target.value)}
-                    data-testid="proxy-registry-pool-add-select"
+                <div className="flex items-end gap-2 pt-2 border-t border-border">
+                  <div className="flex-1">
+                    <label className="text-xs text-text-muted mb-1 block">{t("poolAddLabel")}</label>
+                    <select
+                      className="w-full px-3 py-2 rounded bg-bg-subtle border border-border"
+                      value={poolAddProxyId}
+                      onChange={(e) => setPoolAddProxyId(e.target.value)}
+                      data-testid="proxy-registry-pool-add-select"
+                    >
+                      <option value="">{t("poolSelectProxy")}</option>
+                      {items
+                        .filter(
+                          (item) =>
+                            !poolMembers.includes(item.id) &&
+                            (item.status ?? "").toLowerCase() !== "dead"
+                        )
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} ({item.type}://{item.host}:{item.port})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <Button
+                    size="sm"
+                    icon="add"
+                    onClick={handlePoolAddMember}
+                    loading={poolSaving}
+                    disabled={!poolAddProxyId}
+                    data-testid="proxy-registry-pool-add"
                   >
-                    <option value="">{t("poolSelectProxy")}</option>
-                    {items
-                      .filter(
-                        (item) =>
-                          !poolMembers.includes(item.id) &&
-                          (item.status ?? "").toLowerCase() !== "dead"
-                      )
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} ({item.type}://{item.host}:{item.port})
-                        </option>
-                      ))}
-                  </select>
+                    {t("poolAddMember")}
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  icon="add"
-                  onClick={handlePoolAddMember}
-                  loading={poolSaving}
-                  disabled={!poolAddProxyId}
-                  data-testid="proxy-registry-pool-add"
-                >
-                  {t("poolAddMember")}
-                </Button>
-              )}              </div>
+              )}
             </>
           )}
 
