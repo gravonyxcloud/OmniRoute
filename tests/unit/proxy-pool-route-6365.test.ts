@@ -132,6 +132,16 @@ test("PATCH sets and GET reads back the rotation strategy", async () => {
   assert.equal(body.strategy, "random");
 });
 
+test("PATCH accepts all-active automatic strategy", async () => {
+  await resetStorage();
+  const res = await PATCH(
+    jsonRequest("PATCH", { scope: "global", strategy: "all-active" })
+  );
+  assert.equal(res.status, 200);
+  assert.equal(((await res.json()) as { strategy: string }).strategy, "all-active");
+  assert.equal(await proxiesDb.getScopeRotationStrategy("global", null), "all-active");
+});
+
 test("PATCH accepts sticky with a sticky window", async () => {
   await resetStorage();
   const res = await PATCH(
