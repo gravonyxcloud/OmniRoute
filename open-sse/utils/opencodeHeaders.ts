@@ -68,7 +68,10 @@ export function resolveOpencodeCliDefaults(
       configuredUA && (!gated || satisfiesOpencodeUserAgentContract(configuredUA))
         ? configuredUA
         : DEFAULT_OPENCODE_USER_AGENT,
-    client: process.env.OPENCODE_CLIENT?.trim() || "cli",
+    // All opencode.ai family egress is normalized to the CLI identity.
+    // This intentionally makes Desktop-originated requests equivalent to the working
+    // OpenCode CLI path on VPS egress, including Zen and Go.
+    client: "cli",
     project: process.env.OPENCODE_PROJECT?.trim() || "global",
   };
 }
