@@ -689,7 +689,12 @@ function buildSyntheticNoAuthCredentials(providerSpecificData: JsonRecord = {}):
   };
 }
 
-/** Merge one connection's fingerprints/accountProxies into `hydrated`, first-wins. */
+/**
+ * Merge every no-auth connection into the synthetic runtime pool. OpenCode
+ * accounts are stored as separate rows for independent dashboard management,
+ * but request execution uses one synthetic anonymous credential and therefore
+ * must see all fingerprints and per-account proxy assignments.
+ */
 function mergeNoAuthProviderSpecificData(
   hydrated: JsonRecord,
   conn: { providerSpecificData?: unknown }
@@ -697,11 +702,32 @@ function mergeNoAuthProviderSpecificData(
   const psd = conn.providerSpecificData;
   if (!psd || typeof psd !== "object") return;
   const record = psd as JsonRecord;
-  if (Array.isArray(record.fingerprints) && !Array.isArray(hydrated.fingerprints)) {
-    hydrated.fingerprints = record.fingerprints;
+
+  const incomingFingerprints = Array.isArray(record.fingerprints)
+    ? record.fingerprints.filter((value): value is string => typeof value === "string")
+    : [];
+  if (incomingFingerprints.length > 0) {
+    const existing = Array.isArray(hydrated.fingerprints)
+      ? hydrated.fingerprints.filter((value): value is string => typeof value === "string")
+      : [];
+    hydrated.fingerprints = Array.from(new Set([...existing, ...incomingFingerprints]));
   }
-  if (Array.isArray(record.accountProxies) && !Array.isArray(hydrated.accountProxies)) {
-    hydrated.accountProxies = record.accountProxies;
+
+  const incomingProxies = Array.isArray(record.accountProxies) ? record.accountProxies : [];
+  if (incomingProxies.length > 0) {
+    const existing = Array.isArray(hydrated.accountProxies) ? hydrated.accountProxies : [];
+    const merged: unknown[] = [];
+    const seen = new Set<string>();
+    for (const entry of [...existing, ...incomingProxies]) {
+      if (!entry || typeof entry !== "object") continue;
+      const fingerprint = (entry as JsonRecord).fingerprint;
+      const dedupeKey =
+        typeof fingerprint === "string" ? fingerprint : JSON.stringify(entry);
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+      merged.push(entry);
+    }
+    hydrated.accountProxies = merged;
   }
 }
 
