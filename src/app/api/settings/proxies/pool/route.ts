@@ -2,7 +2,6 @@ import {
   addProxyToScopePool,
   addProxiesToScopePool,
   removeProxyFromScopePool,
-  listProxies,
   getScopeProxyPool,
   getScopeRotationStrategy,
   setScopeRotationStrategy,
