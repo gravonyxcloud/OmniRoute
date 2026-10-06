@@ -53,8 +53,12 @@ export const DEFAULT_REQUEST_QUEUE_MAX_WAIT_MS = (() => {
 // executions run minutes. Default 10 min; the backstop only catches executors
 // without their own upstream timeout.
 export const DEFAULT_REQUEST_QUEUE_EXECUTION_MAX_WAIT_MS = (() => {
-  const parsed = Number(process.env.RATE_LIMIT_EXECUTION_MAX_WAIT_MS || "600000");
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 600000;
+  // Keep the limiter-managed execution backstop aligned with the longest
+  // registered reasoning budgets (20 min). This is a safety ceiling only after
+  // dispatch; it is not a usage quota and does not terminate a request merely
+  // because it is taking longer than another client's request.
+  const parsed = Number(process.env.RATE_LIMIT_EXECUTION_MAX_WAIT_MS || "1200000");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 1200000;
 })();
 
 // Issue #6593: opt-in admission cap on the local rate-limit queue depth.
