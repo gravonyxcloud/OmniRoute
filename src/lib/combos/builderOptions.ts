@@ -16,6 +16,7 @@ import {
 } from "@/shared/constants/providers";
 import type { RegistryModel } from "@omniroute/open-sse/config/providerRegistry.ts";
 import { appendSyncedEffortVariants } from "@omniroute/open-sse/utils/syncedEffortVariants";
+import { opencodeProvider } from "@omniroute/open-sse/config/providers/registry/opencode/index.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -152,6 +153,136 @@ function toStringArray(value: unknown): string[] | undefined {
     .map((item) => toStringOrNull(item))
     .filter((item): item is string => Boolean(item));
   return normalized.length > 0 ? normalized : undefined;
+}
+
+const OPENCODE_BUILDER_CATALOG_TTL_MS = 5 * 60 * 1000;
+const OPENCODE_BUILDER_FETCH_TIMEOUT_MS = 2500;
+const OPENCODE_KNOWN_NOAUTH_FREE_MODELS = new Set([
+  "big-pickle",
+  "deepseek-v4-flash-free",
+  "mimo-v2.5-free",
+  "hy3-free",
+  "nemotron-3-ultra-free",
+  "north-mini-code-free",
+]);
+
+type OpenCodeBuilderCatalogModel = {
+  id: string;
+  name: string;
+  contextLength?: number;
+};
+
+let opencodeBuilderCatalogCache: {
+  expiresAt: number;
+  models: OpenCodeBuilderCatalogModel[];
+} | null = null;
+let opencodeBuilderCatalogPromise: Promise<OpenCodeBuilderCatalogModel[]> | null = null;
+
+function isOpenCodeNoAuthFreeModel(modelId: string): boolean {
+  return modelId.endsWith("-free") || OPENCODE_KNOWN_NOAUTH_FREE_MODELS.has(modelId);
+}
+
+function normalizeOpenCodeLiveCatalog(payload: unknown): OpenCodeBuilderCatalogModel[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const data = (payload as { data?: unknown }).data;
+  if (!Array.isArray(data)) return [];
+
+  const dedupe = new Map<string, OpenCodeBuilderCatalogModel>();
+  for (const item of data) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const id = toStringOrNull((item as { id?: unknown }).id);
+    if (!id || !isOpenCodeNoAuthFreeModel(id)) continue;
+
+    const name = toStringOrNull((item as { name?: unknown }).name) || id;
+    const contextLength =
+      toNumberOrNull((item as { context_length?: unknown }).context_length) ??
+      toNumberOrNull((item as { contextWindow?: unknown }).contextWindow) ??
+      undefined;
+
+    dedupe.set(id, { id, name, ...(typeof contextLength === "number" ? { contextLength } : {}) });
+  }
+
+  return Array.from(dedupe.values()).sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+  );
+}
+
+async function getOpenCodeNoAuthBuilderCatalog(): Promise<OpenCodeBuilderCatalogModel[]> {
+  const now = Date.now();
+  if (opencodeBuilderCatalogCache && opencodeBuilderCatalogCache.expiresAt > now) {
+    return opencodeBuilderCatalogCache.models;
+  }
+  if (opencodeBuilderCatalogPromise) return opencodeBuilderCatalogPromise;
+
+  opencodeBuilderCatalogPromise = (async () => {
+    const staticModels = (opencodeProvider.models || [])
+      .filter((model) => typeof model.id === "string" && isOpenCodeNoAuthFreeModel(model.id))
+      .map((model) => ({
+        id: model.id,
+        name: model.name || model.id,
+        ...(typeof model.contextLength === "number"
+          ? { contextLength: model.contextLength }
+          : {}),
+      }));
+
+    let liveModels: OpenCodeBuilderCatalogModel[] = [];
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), OPENCODE_BUILDER_FETCH_TIMEOUT_MS);
+      try {
+        const response = await fetch(opencodeProvider.modelsUrl || opencodeProvider.baseUrl, {
+          method: "GET",
+          headers: {
+            "accept": "application/json",
+            "user-agent": "opencode/1.18.34",
+            "x-opencode-client": "cli",
+          },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (response.ok) {
+          liveModels = normalizeOpenCodeLiveCatalog(await response.json());
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    } catch {
+      liveModels = [];
+    }
+
+    // Live catalog wins on names and newly-added free models; static registry is the
+    // immediate fallback when the public catalog is unavailable.
+    const merged = new Map<string, OpenCodeBuilderCatalogModel>();
+    for (const model of staticModels) merged.set(model.id, model);
+    for (const model of liveModels) merged.set(model.id, model);
+
+    const result = Array.from(merged.values()).sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+    );
+    opencodeBuilderCatalogCache = {
+      expiresAt: Date.now() + OPENCODE_BUILDER_CATALOG_TTL_MS,
+      models: result,
+    };
+    return result;
+  })().finally(() => {
+    opencodeBuilderCatalogPromise = null;
+  });
+
+  return opencodeBuilderCatalogPromise;
+}
+
+function addOpenCodeNoAuthBuilderModels(
+  modelMap: Map<string, ComboBuilderModelOption>,
+  models: OpenCodeBuilderCatalogModel[]
+): void {
+  for (const model of models) {
+    addModelOption(modelMap, "opencode", {
+      id: model.id,
+      name: model.name,
+      source: "imported",
+      contextLength: model.contextLength ?? null,
+    });
+  }
 }
 
 function getSourcePriority(source: BuilderModelSource): number {
@@ -663,6 +794,9 @@ export async function getComboBuilderOptions(): Promise<ComboBuilderOptionsPaylo
       ? ((settings as Record<string, unknown>).blockedProviders as string[])
       : []
   );
+  // Start the public OpenCode catalog fetch alongside the DB work above so opening
+  // the combo modal does not pay the network latency separately.
+  const opencodeBuilderCatalogPromise = getOpenCodeNoAuthBuilderCatalog();
 
   const providerNodeMap = new Map<string, ProviderNodeLike>();
   for (const providerNode of providerNodes as ProviderNodeLike[]) {
@@ -703,6 +837,9 @@ export async function getComboBuilderOptions(): Promise<ComboBuilderOptionsPaylo
       syncedModels,
       customModels
     );
+    if (providerId === "opencode") {
+      addOpenCodeNoAuthBuilderModels(modelMap, await opencodeBuilderCatalogPromise);
+    }
 
     // #2901 follow-up: a configured OpenCode connection shadows the no-auth
     // entry below, so it must receive the same `oc/` routing prefix. The raw
@@ -769,6 +906,9 @@ export async function getComboBuilderOptions(): Promise<ComboBuilderOptionsPaylo
       syncedModels,
       customModels
     );
+    if (providerId === "opencode") {
+      addOpenCodeNoAuthBuilderModels(modelMap, await opencodeBuilderCatalogPromise);
+    }
 
     // #2901: no-auth providers must route under their alias (e.g. "oc"), not
     // their id — "opencode/<model>" misroutes to the opencode-zen api-key tier
