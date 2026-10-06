@@ -245,11 +245,26 @@ async function runSyncCycle(apiBaseUrl: string): Promise<void> {
 
     console.log(`[ModelSync] Starting model sync cycle — ${connections.length} connection(s)`);
 
-    const results = await Promise.allSettled(
-      connections.map((conn) =>
-        syncConnectionModels(conn.id, conn.name || conn.provider, apiBaseUrl)
-      )
+    // Never fan out a full provider catalog refresh against the same Next.js
+    // listener. A large installation can have dozens of auto-sync connections;
+    // firing them all at once starves normal inference requests because every
+    // sync is an internal HTTP request to 127.0.0.1:20128.
+    // Keep a small bounded concurrency so model discovery cannot become a
+    // denial-of-service against the inference path.
+    const SYNC_CONCURRENCY = Math.max(
+      1,
+      Math.min(4, Number.parseInt(process.env.MODEL_SYNC_CONCURRENCY ?? "4", 10) || 4)
     );
+    const results: PromiseSettledResult<boolean>[] = [];
+    for (let i = 0; i < connections.length; i += SYNC_CONCURRENCY) {
+      const batch = connections.slice(i, i + SYNC_CONCURRENCY);
+      const batchResults = await Promise.allSettled(
+        batch.map((conn) =>
+          syncConnectionModels(conn.id, conn.name || conn.provider, apiBaseUrl)
+        )
+      );
+      results.push(...batchResults);
+    }
 
     const succeeded = results.filter((r) => r.status === "fulfilled" && r.value === true).length;
     console.log(
