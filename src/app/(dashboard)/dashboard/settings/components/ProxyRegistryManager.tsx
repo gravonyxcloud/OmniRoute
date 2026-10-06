@@ -76,6 +76,7 @@ import {
   const [poolLoading, setPoolLoading] = useState(false);
   const [poolLoaded, setPoolLoaded] = useState(false);
   const [poolSaving, setPoolSaving] = useState(false);
+  const [poolAutoAdding, setPoolAutoAdding] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [bulkImportText, setBulkImportText] = useState("");
   const [bulkImportParsed, setBulkImportParsed] = useState<ParsedProxyEntry[]>([]);
@@ -488,6 +489,42 @@ import {
       setError(e?.message || t("poolAddFailed"));
     } finally {
       setPoolSaving(false);
+    }
+  };
+
+  const handlePoolAddAll = async () => {
+    const candidates = items
+      .filter((item) => (item.status ?? "active").toLowerCase() !== "dead")
+      .filter((item) => !poolMembers.includes(item.id))
+      .map((item) => item.id)
+      .filter(Boolean);
+
+    if (candidates.length === 0) return;
+
+    setPoolAutoAdding(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/proxies/pool", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: poolScope,
+          scopeId: poolScope === "global" ? null : poolScopeId.trim(),
+          proxyIds: candidates,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(payload?.error?.message || t("poolAddAllFailed"));
+        return;
+      }
+
+      await loadPool();
+      await load();
+    } catch (e: any) {
+      setError(e?.message || t("poolAddAllFailed"));
+    } finally {
+      setPoolAutoAdding(false);
     }
   };
 
@@ -1147,7 +1184,7 @@ import {
       <Modal
         isOpen={poolOpen}
         onClose={() => {
-          if (!poolSaving && !poolLoading) setPoolOpen(false);
+          if (!poolSaving && !poolLoading && !poolAutoAdding) setPoolOpen(false);
         }}
         title={t("poolTitle")}
         maxWidth="lg"
@@ -1194,7 +1231,7 @@ import {
             )}
           </div>
 
-          <div>
+          <div className="flex items-center gap-2">
             <Button
               size="sm"
               variant="secondary"
@@ -1204,6 +1241,16 @@ import {
               data-testid="proxy-registry-pool-load"
             >
               {t("poolLoad")}
+            </Button>
+            <Button
+              size="sm"
+              icon="done_all"
+              onClick={handlePoolAddAll}
+              loading={poolAutoAdding}
+              disabled={poolAutoAdding || poolLoading}
+              data-testid="proxy-registry-pool-add-all"
+            >
+              {t("poolAddAll")}
             </Button>
           </div>
 
