@@ -48,7 +48,11 @@ const CLI_DEFAULTS = { userAgent: "opencode/1.18.31", client: "cli", project: "d
 // PR #10571's new synthesized defaults for OpencodeExecutor.buildHeaders() itself.
 // The user-agent default carries a version since 2026-09-17: the free tier refuses a
 // bare `opencode` and answers 426 below version 1.17.
-const OPENCODE_DEFAULTS = { userAgent: "opencode/1.18.31", client: "desktop", project: "global" };
+const OPENCODE_DEFAULTS = {
+  userAgent: "opencode/1.18.34 ai-sdk/provider-utils/4.0.23",
+  client: "cli",
+  project: "global",
+};
 
 function withEnv(key: string, value: string | undefined, fn: () => void) {
   const saved = process.env[key];
@@ -128,6 +132,30 @@ test("forwardOpencodeClientHeaders: without cliDefaults, no synthesis (DefaultEx
   assert.equal(headers["User-Agent"], undefined);
   assert.equal(headers["x-opencode-client"], undefined);
   assert.equal(headers["x-opencode-project"], undefined);
+});
+
+test("OpencodeExecutor.buildHeaders: normalizes Desktop-originated Zen and Go requests to CLI identity", () => {
+  for (const provider of ["opencode-zen", "opencode-go"]) {
+    withEnv("OPENCODE_SYNTHESIZE_CLI_HEADERS", undefined, () => {
+      withEnv("OPENCODE_CLIENT", "desktop", () => {
+        const executor = new OpencodeExecutor(provider);
+        const headers = executor.buildHeaders(
+          null,
+          true,
+          {
+            "User-Agent": "opencode/1.18.31",
+            "x-opencode-client": "desktop",
+          },
+          provider === "opencode-go" ? "glm-5.2" : "kimi-k2.7-code"
+        );
+        assert.equal(headers["User-Agent"], OPENCODE_DEFAULTS.userAgent);
+        assert.equal(headers["x-opencode-client"], "cli");
+        assert.equal(headers["x-opencode-project"], OPENCODE_DEFAULTS.project);
+        assert.match(headers["x-opencode-request"] ?? "", REQUEST_RE);
+        assert.match(headers["x-opencode-session"] ?? "", SESSION_RE);
+      });
+    });
+  }
 });
 
 test("OpencodeExecutor.buildHeaders: synthesizes CLI defaults by default — flag unset [#10571]", () => {
