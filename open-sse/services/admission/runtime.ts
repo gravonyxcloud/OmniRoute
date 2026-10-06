@@ -32,15 +32,35 @@ import type { PressureReason, PressureSeverity } from "../../utils/resourcePress
 export { extractAdmissionCostFeatures } from "./requestFeatures.ts";
 
 export const DEFAULT_ADAPTIVE_ADMISSION_CONFIG: Readonly<AdaptiveAdmissionConfig> = Object.freeze({
-  mode: "shadow",
+  // Fair-use protection is enforced by default in production. This does NOT cap
+  // daily/monthly usage; it only bounds in-flight work and queue pressure so a
+  // long-running request cannot monopolize the process or starve other tenants.
+  mode: "enforce",
   minLimit: 8,
   initialLimit: 64,
-  maxLimit: 1000,
-  maxQueueCount: 128,
-  maxQueueCost: 2000,
-  defaultMaxWaitMs: 5_000,
+  maxLimit: 256,
+  maxQueueCount: 256,
+  maxQueueCost: 4096,
+  // Give legitimate agent/coding bursts enough time to wait for a fair slot,
+  // while still shedding sustained overload instead of growing indefinitely.
+  defaultMaxWaitMs: 60_000,
   windowMs: 1_000,
-  virtualLanes: false,
+  // Per-tenant lanes prevent one noisy client from filling the shared wait queue.
+  virtualLanes: true,
+  // Cost is intentionally weighted toward request size/tools rather than wall time.
+  // A long stream holds its lease for the full response lifetime, so other tenants
+  // consume the remaining capacity instead of being evicted or starved.
+  cost: {
+    baseCost: 1,
+    bodyBytesPerUnit: 65_536,
+    tokensPerUnit: 8_192,
+    messagesPerUnit: 64,
+    toolsPerUnit: 16,
+    fanoutPerUnit: 1,
+    streamingClassCost: 1,
+    nonStreamingClassCost: 2,
+    maxRequestCost: 16,
+  },
 });
 
 const RUNTIME_STORE_KEY = Symbol.for("omniroute.adaptiveAdmission.runtime");
@@ -120,9 +140,14 @@ export function resolveAdaptiveAdmissionConfigFromEnv(
   // Shared pure validation — accept exact documented maxima, reject core-invalid configs.
   validateConfig(cfg);
 
-  // Per-tenant virtual admission lanes (#9654) — opt-in via OMNIROUTE_CHAT_VIRTUAL_LANES.
+  // Per-tenant virtual admission lanes (#9654).
+  // The fair-use default is enabled; an operator can explicitly disable it with
+  // OMNIROUTE_CHAT_VIRTUAL_LANES=0/false for incident debugging or legacy parity.
   const vlRaw = env.OMNIROUTE_CHAT_VIRTUAL_LANES;
-  cfg.virtualLanes = vlRaw === "1" || vlRaw === "true";
+  if (vlRaw !== undefined && vlRaw !== "") {
+    const normalizedVl = vlRaw.trim().toLowerCase();
+    cfg.virtualLanes = normalizedVl === "1" || normalizedVl === "true";
+  }
 
   return cfg;
 }
