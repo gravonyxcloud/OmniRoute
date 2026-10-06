@@ -19,7 +19,12 @@ import { isProxyReachable } from "@/lib/proxyHealth";
 import {
   isControlPlaneProxyDirectFallbackEnabled,
   isFeatureFlagEnabled,
+  isProxySkipRecentlyFailedEnabled,
 } from "@/shared/utils/featureFlags";
+import {
+  noteProxyRefusal,
+  proxyEgressKey,
+} from "./proxyRefusalMemory.ts";
 import {
   directFetchWithBoundedResponseStart,
   isDirectResponseStartTimeout,
@@ -698,10 +703,13 @@ export async function runWithProxyContext(
 
     if (winner.kind === "probe" && !winner.reachable) {
       // Proxy is dead and the request is still in flight → fail fast with the
-      // standard PROXY_UNREACHABLE error (503). The in-flight request's own
-      // result is discarded (its executor-level signal will still fire); the
-      // caller observes this fast failure instead of the ~30s timeout stall.
+      // standard PROXY_UNREACHABLE error (503). Also set this member aside for
+      // the short adaptive cooldown so the next request can use another proxy
+      // while this one has a chance to recover.
       requestPromise.catch(() => {});
+      if (isProxySkipRecentlyFailedEnabled()) {
+        noteProxyRefusal(proxyEgressKey(resolvedProxyUrl), "proxy_unreachable");
+      }
       const proxyLabel = proxyUrlForLogs(resolvedProxyUrl);
       const err = new Error(`[Proxy Fast-Fail] Proxy unreachable: ${proxyLabel}`) as Error & {
         code?: string;
@@ -1171,6 +1179,9 @@ async function patchedFetchUnrecorded(
         originalMsg ? `Proxy request failed: ${originalMsg}` : "Proxy request failed",
         "PROXY_REQUEST_FAILED"
       );
+      if (isProxySkipRecentlyFailedEnabled() && isTransportFailure) {
+        noteProxyRefusal(proxyEgressKey(proxyUrl), "proxy_unreachable");
+      }
       console.error(
         `[ProxyFetch] Proxy request failed (${source}, fail-closed; code=${sanitized.code})`
       );
