@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { chatgpt_webProvider } from "../../open-sse/config/providers/registry/chatgpt-web/index.ts";
-import { ChatGptWebExecutor } from "../../open-sse/executors/chatgpt-web.ts";
+import {
+  ChatGptWebExecutor,
+  chatGptWebAccountPluginsEnabled,
+} from "../../open-sse/executors/chatgpt-web.ts";
 import { REGISTRY, getRegistryEntry } from "../../open-sse/config/providerRegistry.ts";
 import { hasSpecializedExecutor } from "../../open-sse/executors/index.ts";
 import { validateChatGptWebProvider } from "../../src/lib/providers/validation/chatgptWeb.ts";
@@ -27,6 +30,18 @@ const MODEL_IDS = [
   "gpt-5-5-thinking",
   "gpt-5-5-pro",
 ];
+
+test("uses connected ChatGPT account plugins by default with an explicit opt-out", () => {
+  assert.equal(chatGptWebAccountPluginsEnabled({} as NodeJS.ProcessEnv), true);
+  assert.equal(
+    chatGptWebAccountPluginsEnabled({ CHATGPT_WEB_ACCOUNT_PLUGINS: "1" } as NodeJS.ProcessEnv),
+    true
+  );
+  assert.equal(
+    chatGptWebAccountPluginsEnabled({ CHATGPT_WEB_ACCOUNT_PLUGINS: "off" } as NodeJS.ProcessEnv),
+    false
+  );
+});
 
 test("registers only the clean-room ChatGPT Web routes observed in the first-party UI", () => {
   assert.equal(chatgpt_webProvider.id, "chatgpt-web");
