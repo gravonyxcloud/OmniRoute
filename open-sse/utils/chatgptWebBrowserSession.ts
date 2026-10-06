@@ -130,7 +130,7 @@ export interface ChatGptWebBrowserSession {
   url(): string;
   start(handlers: ChatGptWebBrowserSessionHandlers): Promise<() => Promise<void>>;
   submitPrompt(request: ChatGptWebBrowserSubmission): Promise<string | void>;
-  readRenderedAssistantText?(timeoutMs?: number): Promise<string | null>;
+  readRenderedAssistantText?(timeoutMs?: number, requireComplete?: boolean): Promise<string | null>;
 }
 
 export interface ChatGptWebBrowserSubmission {
@@ -371,6 +371,31 @@ class ChatGptWebBrowserTurnRunner {
     this.rejectResult(error);
   }
 
+  private recoverRenderedOrFail(error: Error, timeoutMs = 15_000): void {
+    if (this.settled) return;
+    if (this.renderedReadPending || !this.session.readRenderedAssistantText) {
+      this.fail(error);
+      return;
+    }
+    this.renderedReadPending = true;
+    void this.session
+      .readRenderedAssistantText(timeoutMs, true)
+      .then((text) => {
+        this.renderedReadPending = false;
+        if (this.settled) return;
+        if (typeof text === "string" && text.trim()) {
+          this.emitPartial(text.trim());
+          this.acceptRenderedAssistant(text);
+          return;
+        }
+        this.fail(error);
+      })
+      .catch(() => {
+        this.renderedReadPending = false;
+        this.fail(error);
+      });
+  }
+
   private complete(): void {
     if (this.settled) return;
     try {
@@ -436,7 +461,7 @@ class ChatGptWebBrowserTurnRunner {
       }
       if (frame.done) this.finishFrame();
     } catch (error) {
-      this.fail(turnError(error, "ChatGPT Web stream decoding failed"));
+      this.recoverRenderedOrFail(turnError(error, "ChatGPT Web stream decoding failed"));
     }
   }
 
@@ -485,7 +510,8 @@ class ChatGptWebBrowserTurnRunner {
     return {
       onBootstrap: (sseText) => this.handleBootstrap(sseText),
       onWebSocketFrame: (frameText) => this.handleWebSocketFrame(frameText),
-      onError: () => this.fail(new Error("ChatGPT Web first-party browser session failed")),
+      onError: () =>
+        this.recoverRenderedOrFail(new Error("ChatGPT Web first-party browser session failed")),
     };
   }
 
@@ -510,7 +536,7 @@ class ChatGptWebBrowserTurnRunner {
         this.completeFromRenderedAssistant();
       })
       .catch((error: unknown) => {
-        this.fail(turnError(error, "ChatGPT Web prompt submission failed"));
+        this.recoverRenderedOrFail(turnError(error, "ChatGPT Web prompt submission failed"));
       });
   }
 
@@ -806,7 +832,8 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
   private async waitForRenderedAssistant(
     minimumCount: number,
     timeoutMs: number,
-    onPartialText?: (text: string) => void
+    onPartialText?: (text: string) => void,
+    requireComplete = false
   ): Promise<string | null> {
     const deadline = Date.now() + timeoutMs;
     let lastText = "";
@@ -826,6 +853,7 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
     }
     const snapshot = await this.renderedAssistantSnapshot(minimumCount);
     const text = snapshot.text ? stripChatGptWebUiChrome(snapshot.text) : "";
+    if (requireComplete && snapshot.active) return null;
     return text || null;
   }
 
@@ -984,9 +1012,12 @@ export class PlaywrightChatGptWebBrowserSession implements ChatGptWebBrowserSess
     this.lastRenderedAssistantText = text;
   }
 
-  async readRenderedAssistantText(timeoutMs = 10_000): Promise<string | null> {
+  async readRenderedAssistantText(
+    timeoutMs = 10_000,
+    requireComplete = false
+  ): Promise<string | null> {
     if (this.lastRenderedAssistantText) return this.lastRenderedAssistantText;
-    return this.waitForRenderedAssistant(-1, timeoutMs);
+    return this.waitForRenderedAssistant(-1, timeoutMs, undefined, requireComplete);
   }
 
   async submitPrompt(request: ChatGptWebBrowserSubmission): Promise<string | void> {
