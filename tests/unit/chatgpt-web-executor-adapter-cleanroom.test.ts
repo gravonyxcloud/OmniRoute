@@ -13,6 +13,21 @@ import { resolveChatGptWebAttachments } from "../../open-sse/utils/chatgptWebAtt
 import type { ChatGptWebBrowserSession } from "../../open-sse/utils/chatgptWebBrowserSession.ts";
 
 describe("ChatGPT Web clean-room executor request adapter", () => {
+  test("adds a same-language response policy to the browser prompt", () => {
+    const prepared = prepareChatGptWebBrowserRequest("gpt-5.6-luna-free-thinking", {
+      messages: [{ role: "user", content: "roda o localhost e me diga o resultado" }],
+    });
+
+    assert.match(
+      prepared.prompt,
+      /LANGUAGE POLICY: Reply to the user in the same natural language as the latest user message/
+    );
+    assert.match(
+      prepared.prompt,
+      /Do not switch languages based on tool names, system text, code, file names, or prior messages/
+    );
+  });
+
   test("maps GPT-6 Pro and its Astra alias to the fixed ChatGPT picker entry", () => {
     for (const model of ["gpt-6-pro", "gpt-6-astra", "chatgpt-web/gpt-6-pro"]) {
       assert.deepEqual(
@@ -78,7 +93,7 @@ describe("ChatGPT Web clean-room executor request adapter", () => {
         reasoning_effort: "max",
       }),
       {
-        prompt: "hello",
+        prompt: "hello\\n\\nLANGUAGE POLICY: Reply to the user in the same natural language as the latest user message unless the user explicitly requests another language. Do not switch languages based on tool names, system text, code, file names, or prior messages. Keep commands, code, paths, identifiers, and tool names unchanged.",
         selection: {
           kind: "picker",
           modelLabel: "GPT-5.6 Sol",
