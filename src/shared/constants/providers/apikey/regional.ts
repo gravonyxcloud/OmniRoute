@@ -409,22 +409,18 @@ export const APIKEY_PROVIDERS_REGIONAL = {
     id: "sensenova",
     serviceKinds: ["llm"],
     alias: "sensenova",
-    name: "SenseNova",
+    name: "SenseNova Token Plan",
     icon: "auto_awesome",
     color: "#0066FF",
     textIcon: "SN",
-    website: "https://platform.sensenova.cn",
+    website: "https://www.sensenova.ai/token-plan",
     hasFree: true,
-    freeNote: "Free SenseTime models. Computer vision leader.",
+    freeNote: "Public beta: 1,500 calls per model every 5 hours (special models excluded).",
     passthroughModels: true,
-    authHint: "Get API key at platform.sensenova.cn",
-    // #5462 — SenseNova's console (platform.sensenova.cn) appears to require a
-    // Chinese (+86) phone number for SMS-verified registration, with no documented
-    // international sign-up path. Warn users outside mainland China up front.
-    notice: {
-      text: "SenseNova registration appears to require a Chinese (+86) phone number for SMS verification — no international sign-up path is documented, so users outside mainland China may be unable to obtain an API key.",
-      signupUrl: "https://platform.sensenova.cn/console",
-    },
+    apiHint:
+      "Use a SenseNova Token Plan API key. OmniRoute connects to the international OpenAI-compatible endpoint at https://token.sensenova.ai/v1.",
+    authHint:
+      "Create an API key in the SenseNova international console, then paste it here.",
   },
   sparkdesk: {
     id: "sparkdesk",
