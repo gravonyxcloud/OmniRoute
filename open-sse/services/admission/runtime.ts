@@ -606,7 +606,7 @@ export function createAdaptiveAdmissionRuntime(
 
 function warnInvalidDefaultConfig(warn: ((message: string) => void) | undefined): void {
   const message =
-    "[adaptiveAdmission] invalid environment configuration; using default shadow admission settings";
+    "[adaptiveAdmission] invalid environment configuration; using default enforce admission settings";
   if (warn) {
     warn(message);
     return;
