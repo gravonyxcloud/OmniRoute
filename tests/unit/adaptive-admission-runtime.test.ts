@@ -143,15 +143,27 @@ async function parseJson(response: Response): Promise<Record<string, unknown>> {
 }
 
 describe("adaptive admission runtime env + defaults", () => {
-  it("defaults to complete shadow config", () => {
-    assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.mode, "shadow");
+  it("defaults to enforced fair-use isolation config", () => {
+    assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.mode, "enforce");
     assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.minLimit, 8);
     assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.initialLimit, 64);
-    assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.maxLimit, 1000);
-    assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.maxQueueCount, 128);
-    assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.maxQueueCost, 2000);
-    assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.defaultMaxWaitMs, 5000);
+    assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.maxLimit, 256);
+    assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.maxQueueCount, 256);
+    assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.maxQueueCost, 4096);
+    assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.defaultMaxWaitMs, 60_000);
     assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.windowMs, 1000);
+    assert.equal(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.virtualLanes, true);
+    assert.deepEqual(DEFAULT_ADAPTIVE_ADMISSION_CONFIG.cost, {
+      baseCost: 1,
+      bodyBytesPerUnit: 65_536,
+      tokensPerUnit: 8_192,
+      messagesPerUnit: 64,
+      toolsPerUnit: 16,
+      fanoutPerUnit: 1,
+      streamingClassCost: 1,
+      nonStreamingClassCost: 2,
+      maxRequestCost: 16,
+    });
   });
 
   it("strictly resolves supported env names and rejects invalid values", () => {
@@ -280,13 +292,13 @@ describe("adaptive admission runtime env + defaults", () => {
         getResourcePressureObservation: () => emptyObservation(),
       });
       const snap = runtime.snapshot();
-      assert.equal(snap.mode, "shadow");
+      assert.equal(snap.mode, "enforce");
       assert.equal(snap.minLimit, 8);
       assert.equal(snap.initialLimit ?? snap.currentLimit >= 8, true);
       assert.equal(warnings.length, 1);
       assert.match(
         warnings[0]!,
-        /invalid environment configuration; using default shadow admission settings/
+        /invalid environment configuration; using default enforce admission settings/
       );
       assert.ok(!warnings.join("\n").includes("not-a-mode"));
       assert.ok(!warnings.join("\n").toLowerCase().includes("secret"));
@@ -308,7 +320,7 @@ describe("adaptive admission runtime modes", () => {
     resetAdaptiveAdmissionRuntimeForTests();
   });
 
-  it("default shadow always admits with a real lease and shadowDecision", async () => {
+  it("default enforces admission and returns a real lease", async () => {
     const runtime = makeRuntime(clock);
     const result = await runtime.acquire({
       tenantKey: "tenant-secret-1",
@@ -316,15 +328,11 @@ describe("adaptive admission runtime modes", () => {
     });
     assert.equal(result.status, "admitted");
     if (result.status !== "admitted") throw new Error("expected admitted");
-    assert.equal(result.mode, "shadow");
+    assert.equal(result.mode, "enforce");
+    assert.equal(result.shadowDecision, undefined);
     assert.ok(result.lease);
     assert.equal(typeof result.lease.release, "function");
     assert.equal(result.lease.released, false);
-    assert.ok(
-      result.shadowDecision === "would-admit" ||
-        result.shadowDecision === "would-queue" ||
-        result.shadowDecision === "would-reject"
-    );
     result.lease.release("success");
     assert.equal(result.lease.released, true);
     result.lease.release("success");
