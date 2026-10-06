@@ -13,6 +13,7 @@ import { getModelUpstreamExtraHeaders } from "@/lib/db/models";
 import { resolveModelAlias } from "../../services/modelDeprecation.ts";
 import { CPA_FORCE_FAST_MODE_HEADER, shouldRequestClaudeFastMode } from "@/lib/providers/claudeFastMode";
 import { isForbiddenCustomHeaderName } from "@/shared/constants/upstreamHeaders";
+import { isOpencodeFamilyProvider } from "../../utils/opencodeHeaders.ts";
 
 export function buildUpstreamHeadersForExecute(opts: {
   modelToCall: string;
@@ -71,6 +72,23 @@ export function buildUpstreamHeadersForExecute(opts: {
       );
       if (!existingKey) {
         upstreamHeaders[key] = value;
+      }
+    }
+  }
+
+  // OpenCode CLI identity is synthesized later by OpencodeExecutor.buildHeaders().
+  // Do not allow persisted per-model/connection custom headers to overwrite that
+  // identity after BaseExecutor merges these extras, otherwise a Desktop caller can
+  // reach opencode.ai as x-opencode-client=desktop even though the executor correctly
+  // normalized it to the CLI contract. Session/request/project are also owned by the
+  // OpenCode identity helper and must not be replaced here.
+  if (isOpencodeFamilyProvider(provider)) {
+    for (const key of Object.keys(upstreamHeaders)) {
+      if (key.toLowerCase() === "x-opencode-client" ||
+          key.toLowerCase() === "x-opencode-session" ||
+          key.toLowerCase() === "x-opencode-request" ||
+          key.toLowerCase() === "x-opencode-project") {
+        delete upstreamHeaders[key];
       }
     }
   }
