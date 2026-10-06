@@ -562,11 +562,6 @@ import {
 
   const handleBulkImportExecute = async () => {
     if (bulkImportParsed.length === 0) return;
-    if (bulkImportParsed.length > 100) {
-      setError(t("bulkImportMaxExceeded"));
-      return;
-    }
-
     setBulkImporting(true);
     setError(null);
     setBulkImportResult(null);
