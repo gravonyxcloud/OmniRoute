@@ -1217,7 +1217,7 @@ import {
                   className="w-full px-3 py-2 rounded bg-bg-subtle border border-border"
                   value={poolStrategy}
                   onChange={(e) =>
-                    handlePoolStrategyChange(e.target.value as "round-robin" | "random" | "sticky")
+                    handlePoolStrategyChange(e.target.value as PoolStrategy)
                   }
                   data-testid="proxy-registry-pool-strategy"
                 >
@@ -1231,6 +1231,11 @@ import {
               </div>
 
               <div>
+                {poolStrategy === "all-active" && (
+                  <div className="mb-3 rounded border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-text-muted">
+                    {t("poolAllActiveHint")}
+                  </div>
+                )}
                 <label className="text-xs text-text-muted mb-1 block">
                   {t("poolMembersLabel", { count: poolMembers.length })}
                 </label>
@@ -1269,6 +1274,7 @@ import {
                 )}
               </div>
 
+              {poolStrategy !== "all-active" && (
               <div className="flex items-end gap-2 pt-2 border-t border-border">
                 <div className="flex-1">
                   <label className="text-xs text-text-muted mb-1 block">{t("poolAddLabel")}</label>
@@ -1302,7 +1308,7 @@ import {
                 >
                   {t("poolAddMember")}
                 </Button>
-              </div>
+              )}              </div>
             </>
           )}
 
