@@ -1231,11 +1231,24 @@ import {
               </div>
 
               <div>
-                {poolStrategy === "all-active" && (
-                  <div className="mb-3 rounded border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-text-muted">
-                    {t("poolAllActiveHint")}
+                {poolStrategy === "all-active" ? (
+                  <div className="space-y-3">
+                    <div className="rounded border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-text-muted">
+                      {t("poolAllActiveHint")}
+                    </div>
+                    <div className="rounded border border-border bg-bg-subtle px-3 py-2 text-sm">
+                      {t("poolAllActiveCount", {
+                        count: items.filter(
+                          (item) =>
+                            !["inactive", "error", "disabled", "dead", "down"].includes(
+                              String(item.status || "").toLowerCase()
+                            )
+                        ).length,
+                      })}
+                    </div>
                   </div>
-                )}
+                ) : (
+              <div>
                 <label className="text-xs text-text-muted mb-1 block">
                   {t("poolMembersLabel", { count: poolMembers.length })}
                 </label>
@@ -1271,6 +1284,10 @@ import {
                       );
                     })}
                   </div>
+                )}
+              </div>
+
+
                 )}
               </div>
 
