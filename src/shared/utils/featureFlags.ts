@@ -182,10 +182,10 @@ export function isProxySkipRecentlyFailedEnabled(): boolean {
     return isFeatureFlagEnabled("PROXY_SKIP_RECENTLY_FAILED");
   } catch (error) {
     console.error(
-      "[featureFlags] Failed to resolve PROXY_SKIP_RECENTLY_FAILED, defaulting to disabled:",
+      "[featureFlags] Failed to resolve PROXY_SKIP_RECENTLY_FAILED, defaulting to enabled:",
       error instanceof Error ? error.message : error
     );
-    return false;
+    return true;
   }
 }
 
