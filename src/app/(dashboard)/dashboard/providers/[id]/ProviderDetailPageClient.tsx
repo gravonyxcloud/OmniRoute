@@ -51,6 +51,7 @@ import { useModelVisibilityHandlers } from "./hooks/useModelVisibilityHandlers";
 import { useModelCompatState } from "./hooks/useModelCompatState";
 import { useConnectionGate } from "./hooks/useConnectionGate";
 import { useProviderNodeActions } from "./hooks/useProviderNodeActions";
+import { resolveProviderModelTestConnection } from "./providerPageHelpers";
 import ProviderExtraPanels from "./components/ProviderExtraPanels";
 import ProviderModelsSection from "./components/ProviderModelsSection";
 import CustomModelsSection from "./components/CustomModelsSection";
@@ -172,6 +173,11 @@ export default function ProviderDetailPageClient() {
     getAttachmentFilename,
     PAGE_SIZE,
   } = useProviderConnections(providerId, isCompatible, isSearchProvider);
+
+  const modelTestConnection = useMemo(
+    () => resolveProviderModelTestConnection(connections, selectedConnection),
+    [connections, selectedConnection]
+  );
 
   const {
     codexGlobalServiceMode,
@@ -524,7 +530,7 @@ export default function ProviderDetailPageClient() {
     fetchAliases,
     notify,
     t,
-    selectedConnection,
+    selectedConnection: modelTestConnection,
     providerNode,
   });
 
@@ -782,7 +788,7 @@ export default function ProviderDetailPageClient() {
             onDeleteAlias={handleDeleteAlias}
             fetchProviderModelMeta={fetchProviderModelMeta}
             connections={connections}
-            selectedConnection={selectedConnection}
+            selectedConnection={modelTestConnection}
             canImportModels={canImportModels}
             importingModels={importingModels}
             handleImportModels={handleImportModels}
