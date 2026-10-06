@@ -13,6 +13,7 @@ import {
   type AdaptiveAdmissionRuntime,
 } from "@omniroute/open-sse/services/admission/runtime.ts";
 import type { PerTargetAdmissionHook } from "@omniroute/open-sse/services/admission/types.ts";
+import { fingerprint } from "@/shared/middleware/chatAdmissionIdentity";
 
 /** Single fairness bucket for unauthenticated / keyless traffic. Opaque; never a raw key. */
 export const ANONYMOUS_ADMISSION_TENANT_KEY = "anonymous";
@@ -127,10 +128,25 @@ type AdmittedState = {
   admitted: AdaptiveAdmissionAdmitted;
 };
 
-export function resolveAdmissionTenantKey(apiKeyId: string | null | undefined): string {
-  return typeof apiKeyId === "string" && apiKeyId.length > 0
-    ? apiKeyId
-    : ANONYMOUS_ADMISSION_TENANT_KEY;
+export function resolveAdmissionTenantKey(
+  apiKeyId: string | null | undefined,
+  request?: { headers?: Headers | null }
+): string {
+  if (typeof apiKeyId === "string" && apiKeyId.length > 0) {
+    return fingerprint(apiKeyId);
+  }
+
+  const headers = request?.headers;
+  const opencodeSession = headers?.get("x-opencode-session")?.trim();
+  if (opencodeSession) return fingerprint(opencodeSession).replace(/^key_/, "session_");
+
+  const clientIp =
+    headers?.get("cf-connecting-ip")?.trim() ||
+    headers?.get("x-real-ip")?.trim() ||
+    headers?.get("x-forwarded-for")?.split(",")[0]?.trim();
+  if (clientIp) return fingerprint(clientIp).replace(/^key_/, "ip_");
+
+  return ANONYMOUS_ADMISSION_TENANT_KEY;
 }
 
 const CANCEL_NAMES = new Set(["AbortError"]);
@@ -256,7 +272,10 @@ export function createChatAdmissionContext(
         body !== null && typeof body === "object" && (body as { stream?: unknown }).stream === true;
 
       const result = await runtime.acquire({
-        tenantKey: resolveAdmissionTenantKey(apiKeyId),
+        tenantKey: resolveAdmissionTenantKey(
+          apiKeyId,
+          request as { headers?: Headers | null }
+        ),
         body,
         signal: request?.signal ?? undefined,
         streaming,
@@ -272,7 +291,10 @@ export function createChatAdmissionContext(
     createPerTargetAdmissionHook(apiKeyId, request) {
       return createPerTargetAdmissionHookImpl(
         getRuntime(),
-        resolveAdmissionTenantKey(apiKeyId),
+        resolveAdmissionTenantKey(
+          apiKeyId,
+          request as { headers?: Headers | null }
+        ),
         request?.signal ?? null
       );
     },

@@ -552,6 +552,40 @@ describe("weighted enforce, queue, fairness, and races", () => {
     assert.equal(c.snapshot().activeCount, 0);
   });
 
+  it("caps simultaneous work per tenant so long requests cannot monopolize capacity", async () => {
+    const c = controller({
+      minLimit: 20,
+      initialLimit: 20,
+      maxLimit: 20,
+      maxQueueCount: 10,
+      maxQueueCost: 100,
+      maxActivePerTenant: 2,
+    });
+
+    const a1 = await c.acquire(req({ cost: 4, tenantKey: "customer-a" }));
+    const a2 = await c.acquire(req({ cost: 4, tenantKey: "customer-a" }));
+    assert.equal(a1.status, "admitted");
+    assert.equal(a2.status, "admitted");
+
+    const a3 = await c.acquire(req({ cost: 4, tenantKey: "customer-a" }));
+    assert.equal(a3.status, "queued");
+
+    const b1 = await c.acquire(req({ cost: 4, tenantKey: "customer-b" }));
+    assert.equal(b1.status, "admitted");
+
+    if (a1.status === "admitted") a1.lease.release("success");
+    if (a3.status === "queued") {
+      const promoted = await a3.promise;
+      assert.equal(promoted.lease.cost, 4);
+      promoted.lease.release("success");
+    }
+    if (a2.status === "admitted") a2.lease.release("success");
+    if (b1.status === "admitted") b1.lease.release("success");
+
+    assert.equal(c.snapshot().activeCount, 0);
+    c.shutdown();
+  });
+
   it("fairly schedules across tenants under skew without exposing tenant ids", async () => {
     const c = controller({
       minLimit: 5,

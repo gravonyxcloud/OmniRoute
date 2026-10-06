@@ -22,6 +22,7 @@ export interface ValidatedConfig {
   maxRequestCost: number;
   costConfig: ReturnType<typeof resolveCostConfig>;
   virtualLanes: boolean;
+  maxActivePerTenant: number;
 }
 
 function requirePositiveInt(
@@ -151,6 +152,11 @@ export function validateConfig(input: AdaptiveAdmissionConfig): ValidatedConfig 
       ? 5_000
       : requirePositiveInt("defaultMaxWaitMs", input.defaultMaxWaitMs, MAX_ADMISSION_WINDOW_MS);
   const costConfig = resolveCostConfig(input.cost);
+  const maxActivePerTenant = requirePositiveInt(
+    "maxActivePerTenant",
+    input.maxActivePerTenant ?? 4,
+    1_000
+  );
 
   return {
     mode: resolveMode(input.mode),
@@ -164,6 +170,7 @@ export function validateConfig(input: AdaptiveAdmissionConfig): ValidatedConfig 
     maxRequestCost: costConfig.maxRequestCost,
     costConfig,
     virtualLanes: input.virtualLanes === true,
+    maxActivePerTenant,
     adaptation: resolveAdaptationParams(input, minLimit, maxLimit, windowMs),
   };
 }

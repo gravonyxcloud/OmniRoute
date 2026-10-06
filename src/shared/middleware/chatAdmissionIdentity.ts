@@ -15,7 +15,20 @@ export function resolveSessionId(request: Request): string {
   if (xApiKey) return fingerprint(xApiKey);
 
   const xGoogApiKey = request.headers.get("x-goog-api-key")?.trim();
-  return xGoogApiKey ? fingerprint(xGoogApiKey) : "anonymous";
+  if (xGoogApiKey) return fingerprint(xGoogApiKey);
+
+  // OpenCode no-auth requests still carry a stable session identifier. Use it
+  // only for fair-use scheduling; it is never an authentication credential.
+  const opencodeSession = request.headers.get("x-opencode-session")?.trim();
+  if (opencodeSession) return fingerprint(opencodeSession).replace(/^key_/, "session_");
+
+  const clientIp =
+    request.headers.get("cf-connecting-ip")?.trim() ||
+    request.headers.get("x-real-ip")?.trim() ||
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  if (clientIp) return fingerprint(clientIp).replace(/^key_/, "ip_");
+
+  return "anonymous";
 }
 
 // Lazily generated, held in memory only for the lifetime of this process — never
@@ -55,7 +68,7 @@ export function isInternalAdmissionBypass(request: Request): boolean {
   return timingSafeCompare(match[1].trim().toLowerCase(), resolveSelfLoopBearer().toLowerCase());
 }
 
-function fingerprint(value: string): string {
+export function fingerprint(value: string): string {
   // Deterministic admission-lane fingerprint, never password verification.
   return `key_${createHmac("sha256", FINGERPRINT_KEY).update(value).digest("hex").slice(0, 16)}`;
 }

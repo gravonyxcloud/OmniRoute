@@ -64,6 +64,7 @@ interface ActiveLeaseRecord {
   released: boolean;
   admittedAtMs: number;
   virtualDisposition: VirtualDisposition;
+  tenantKey: string;
 }
 
 interface QueuedPayload {
@@ -114,6 +115,8 @@ export class AdaptiveAdmissionController {
   /** Eviction timer for idle lanes; re-armed when a lane is created. */
   private laneEvictionTimer: unknown = undefined;
   private readonly active = new Map<string, ActiveLeaseRecord>();
+  /** Active in-flight leases by opaque tenant key. */
+  private readonly activeByTenant = new Map<string, number>();
   private activeCost = 0n;
   private virtualActiveCost = 0;
   private virtualActiveCount = 0;
@@ -280,6 +283,10 @@ export class AdaptiveAdmissionController {
 
     const cost = this.resolveCost(request);
     const mode = this.config.mode;
+    const tenantKey =
+      typeof request.tenantKey === "string" && request.tenantKey.length > 0
+        ? request.tenantKey
+        : "_default";
 
     if (mode === "off") {
       return this.admitVirtual(cost);
@@ -301,8 +308,8 @@ export class AdaptiveAdmissionController {
       // single bounded solo request so the pipeline keeps making progress and the limit can
       // recover. The hard per-request ceiling (maxLimit), the critical/high pressure fuse,
       // and a busy system (active/queued work present) all take precedence over solo.
-      if (this.shouldAdmitSolo(cost)) {
-        return this.admit(cost);
+      if (this.shouldAdmitSolo(cost, tenantKey)) {
+        return this.admit(cost, "none", tenantKey);
       }
       return this.reject("ADMISSION_OVERSIZED", "request cost exceeds max budget");
     }
@@ -310,8 +317,12 @@ export class AdaptiveAdmissionController {
     // Once work is queued, every newer request joins the same fair queue even if it
     // currently fits. This makes bounded bypass accounting effective and prevents
     // direct arrivals from indefinitely jumping an older reserved weighted request.
-    if (this.queue.size === 0 && this.activeCost + BigInt(cost) <= BigInt(limit)) {
-      return this.admit(cost);
+    if (
+      this.queue.size === 0 &&
+      this.activeCost + BigInt(cost) <= BigInt(limit) &&
+      this.canAdmitTenant(tenantKey)
+    ) {
+      return this.admit(cost, "none", tenantKey);
     }
 
     if (!this.queue.canAccept(cost)) {
@@ -360,14 +371,23 @@ export class AdaptiveAdmissionController {
    * latency-gradient decrease collapsed the temporary limit. Under genuine load, critical
    * pressure, or an over-ceiling request the caller falls through to the terminal reject.
    */
-  private shouldAdmitSolo(cost: number): boolean {
+  private shouldAdmitSolo(cost: number, tenantKey: string): boolean {
     return (
       cost <= this.config.maxLimit &&
+      this.canAdmitTenant(tenantKey) &&
       this.active.size === 0 &&
       this.queue.size === 0 &&
       this.laneTotalQueuedCount() === 0 &&
       this.adaptation.pressure === "normal"
     );
+  }
+
+  private getActiveTenantCount(tenantKey: string): number {
+    return this.activeByTenant.get(tenantKey) ?? 0;
+  }
+
+  private canAdmitTenant(tenantKey: string): boolean {
+    return this.getActiveTenantCount(tenantKey) < this.config.maxActivePerTenant;
   }
 
   private resolveCost(request: AdmissionRequest): number {
@@ -443,8 +463,10 @@ export class AdaptiveAdmissionController {
       released: false,
       admittedAtMs: this.clock.now(),
       virtualDisposition,
+      tenantKey,
     };
     this.active.set(id, record);
+    this.activeByTenant.set(tenantKey, (this.activeByTenant.get(tenantKey) ?? 0) + 1);
     this.activeCost += BigInt(cost);
     this.admittedCount += 1;
 
@@ -473,6 +495,9 @@ export class AdaptiveAdmissionController {
     this.sampleIntegral();
     if (this.active.has(record.id)) {
       this.active.delete(record.id);
+      const tenantCount = this.activeByTenant.get(record.tenantKey) ?? 0;
+      if (tenantCount <= 1) this.activeByTenant.delete(record.tenantKey);
+      else this.activeByTenant.set(record.tenantKey, tenantCount - 1);
       this.activeCost -= BigInt(record.cost);
     }
 
@@ -508,7 +533,7 @@ export class AdaptiveAdmissionController {
 
     const entry: QueueEntry<QueuedPayload> = {
       id,
-      tenantKey: request.tenantKey && request.tenantKey.length > 0 ? request.tenantKey : "_default",
+      tenantKey,
       cost,
       enqueuedAtMs: now,
       deadlineMs,
@@ -593,7 +618,8 @@ export class AdaptiveAdmissionController {
 
   private dispatch(): void {
     if (this.shutDown || this.config.mode !== "enforce") return;
-    while (this.queue.size > 0) {
+    let attempts = this.queue.size;
+    while (this.queue.size > 0 && attempts-- > 0) {
       const limit = this.adaptation.currentLimit;
       const available = BigInt(limit) - this.activeCost;
       if (available <= 0n) return;
@@ -615,7 +641,13 @@ export class AdaptiveAdmissionController {
         this.rejectedCount += 1;
         continue;
       }
-      entry.payload.resolve(this.admit(entry.cost));
+      if (!this.canAdmitTenant(entry.tenantKey)) {
+        if (!this.queue.enqueue(entry)) {
+          this.failQueued(entry, "ADMISSION_QUEUE_FULL", "admission queue is full");
+        }
+        continue;
+      }
+      entry.payload.resolve(this.admit(entry.cost, "none", entry.tenantKey));
     }
     this.dispatchLanes();
   }
@@ -629,9 +661,10 @@ export class AdaptiveAdmissionController {
     for (const key of keys) {
       const lane = this.virtualLanes.get(key);
       if (!lane) continue;
-      // Dispatch as many entries from this lane as capacity allows,
-      // then break to give other lanes a fair share.
+      if (!this.canAdmitTenant(key)) continue;
+      // Dispatch at most one entry from a tenant lane per fairness pass.
       while (lane.queue.size > 0) {
+        if (!this.canAdmitTenant(key)) break;
         const limit = this.adaptation.currentLimit;
         const available = BigInt(limit) - this.activeCost;
         if (available <= 0n) return;
@@ -653,7 +686,7 @@ export class AdaptiveAdmissionController {
           this.rejectedCount += 1;
           continue;
         }
-        entry.payload.resolve(this.admit(entry.cost));
+        entry.payload.resolve(this.admit(entry.cost, "none", entry.tenantKey));
         break; // yield to next lane for fairness
       }
       this.removeEmptyLane(key);

@@ -47,6 +47,9 @@ export const DEFAULT_ADAPTIVE_ADMISSION_CONFIG: Readonly<AdaptiveAdmissionConfig
   windowMs: 1_000,
   // Per-tenant lanes prevent one noisy client from filling the shared wait queue.
   virtualLanes: true,
+  // Fair-use concurrency ceiling: parallel agent turns are allowed, but one
+  // long-running burst cannot monopolize the whole process. Not a usage quota.
+  maxActivePerTenant: 4,
   // Cost is intentionally weighted toward request size/tools rather than wall time.
   // A long stream holds its lease for the full response lifetime, so other tenants
   // consume the remaining capacity instead of being evicted or starved.
@@ -92,6 +95,7 @@ const ENV_KEYS = {
   maxQueueCost: "ADAPTIVE_ADMISSION_MAX_QUEUE_COST",
   defaultMaxWaitMs: "ADAPTIVE_ADMISSION_MAX_WAIT_MS",
   windowMs: "ADAPTIVE_ADMISSION_WINDOW_MS",
+  maxActivePerTenant: "ADAPTIVE_ADMISSION_MAX_ACTIVE_PER_TENANT",
 } as const;
 
 function parsePositiveSafeInt(name: string, raw: string): number {
@@ -129,6 +133,7 @@ export function resolveAdaptiveAdmissionConfigFromEnv(
     "maxQueueCost",
     "defaultMaxWaitMs",
     "windowMs",
+    "maxActivePerTenant",
   ] as const satisfies ReadonlyArray<EnvIntField>;
   for (const field of intFields) {
     const envName = ENV_KEYS[field];

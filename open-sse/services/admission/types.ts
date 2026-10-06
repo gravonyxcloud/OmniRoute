@@ -82,6 +82,8 @@ export interface AdaptiveAdmissionConfig {
   cost?: Partial<AdmissionCostConfig>;
   /** Per-tenant virtual admission lanes (#9654). Default: false. */
   virtualLanes?: boolean;
+  /** Fair-use ceiling on simultaneous in-flight requests per tenant. */
+  maxActivePerTenant?: number;
 }
 
 export interface AdmissionRequest {
