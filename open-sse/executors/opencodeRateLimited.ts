@@ -10,9 +10,10 @@
  */
 
 const RATE_LIMITED_SIGNALS: ReadonlyArray<RegExp> = [
-  /rate.?limited/i,
-  /usage.?limit/i,
+  /rate[\s._-]*limit(?:ed|ing)?/i,
+  /usage[\s._-]*limit/i,
   /too many requests/i,
+  /quota[\s._-]*(?:exceeded|exhausted|limit)/i,
 ];
 
 /** Bytes of a 429 body inspected by the classifier. */
