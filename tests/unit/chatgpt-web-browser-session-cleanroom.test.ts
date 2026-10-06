@@ -177,6 +177,39 @@ describe("ChatGPT Web clean-room browser-owned session", () => {
     assert.equal(session.handlers, null);
   });
 
+  test("recovers a completed rendered assistant after a first-party mid-response failure", async () => {
+    const session = new FakeBrowserSession(
+      (handlers) => {
+        handlers.onBootstrap(HANDOFF_SSE);
+        handlers.onError(new Error("mid-response transport failure"));
+      },
+      "https://chatgpt.com/?temporary-chat=true",
+      "RECOVERED_FROM_DOM"
+    );
+
+    const result = await runChatGptWebBrowserTurn(session, {
+      prompt: "recover me",
+      timeoutMs: 1_000,
+    });
+
+    assert.equal(result.text, "RECOVERED_FROM_DOM");
+    assert.equal(result.status, "finished_successfully");
+    assert.equal(session.cleanupCount, 1);
+  });
+
+  test("keeps failing closed when a mid-response failure has no completed DOM fallback", async () => {
+    const session = new FakeBrowserSession((handlers) => {
+      handlers.onBootstrap(HANDOFF_SSE);
+      handlers.onError(new Error("mid-response transport failure"));
+    });
+
+    await assert.rejects(
+      runChatGptWebBrowserTurn(session, { prompt: "no fallback", timeoutMs: 1_000 }),
+      /first-party browser session failed/
+    );
+    assert.equal(session.cleanupCount, 1);
+  });
+
   test("rejects incomplete terminal documents and always releases listeners", async () => {
     const session = new FakeBrowserSession((handlers) => {
       handlers.onBootstrap(HANDOFF_SSE);
