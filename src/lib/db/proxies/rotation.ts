@@ -259,18 +259,36 @@ export const PROXY_ALIVE_PREDICATE =
 // Returns the standard registry resolution shape, or null when the pool is empty
 // or every member is dead (preserving the #6246 fail-closed contract — a dead
 // pool never falls through to direct egress; the caller's guard blocks it).
+function fetchAllAliveRegistryRows(db: ReturnType<typeof getDbInstance>): JsonRecord[] {
+  return db
+    .prepare(
+      "SELECT p.id, p.name, p.type, p.host, p.port, p.username, p.password, p.notes, p.family " +
+        "FROM proxy_registry p WHERE " + PROXY_ALIVE_PREDICATE +
+        " ORDER BY datetime(p.updated_at) DESC, p.name ASC, p.id ASC"
+    )
+    .all() as JsonRecord[];
+}
+
 function resolveScopePoolInternal(
   db: ReturnType<typeof getDbInstance>,
   scope: ProxyScope,
   levelId: string | null,
   options: { rotationScopeId: string; matchAnyScopeId?: boolean; scopeIdFilter?: string | null }
 ): ReturnType<typeof toRegistryProxyResolution> | null {
-  const rows = fetchAlivePoolRows(
-    db,
-    scope,
-    options.scopeIdFilter ?? null,
-    options.matchAnyScopeId === true
-  );
+  const strategy = getOrCreateRotationRow(db, scope, options.rotationScopeId).strategy;
+
+  // "all-active" is a dynamic pool: every alive registry proxy is a member.
+  // No assignment rows are needed, so newly activated proxies are picked up automatically.
+  const rows =
+    strategy === "all-active"
+      ? fetchAllAliveRegistryRows(db)
+      : fetchAlivePoolRows(
+          db,
+          scope,
+          options.scopeIdFilter ?? null,
+          options.matchAnyScopeId === true
+        );
+
   if (rows.length === 0) return null;
   const picked = pickFromCandidates(db, scope, options.rotationScopeId, rows);
   return toRegistryProxyResolution(picked, scope, levelId);
