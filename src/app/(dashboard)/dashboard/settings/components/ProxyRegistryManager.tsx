@@ -515,14 +515,14 @@ import {
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(payload?.error?.message || t("poolAddAllFailed"));
+        setError(payload?.error?.message || t("poolAddFailed"));
         return;
       }
 
       await loadPool();
       await load();
     } catch (e: any) {
-      setError(e?.message || t("poolAddAllFailed"));
+      setError(e?.message || t("poolAddFailed"));
     } finally {
       setPoolAutoAdding(false);
     }
