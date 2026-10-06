@@ -1,11 +1,17 @@
 import {
   addProxyToScopePool,
+  addProxiesToScopePool,
   removeProxyFromScopePool,
+  listProxies,
   getScopeProxyPool,
   getScopeRotationStrategy,
   setScopeRotationStrategy,
 } from "@/lib/db/proxies";
-import { proxyPoolMemberSchema, proxyRotationStrategySchema } from "@/shared/validation/schemas";
+import {
+  proxyPoolBulkMemberSchema,
+  proxyPoolMemberSchema,
+  proxyRotationStrategySchema,
+} from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { createErrorResponse, createErrorResponseFromUnknown } from "@/lib/api/errorResponse";
 import { clearDispatcherCache } from "@omniroute/open-sse/utils/proxyDispatcher";
@@ -82,6 +88,36 @@ export async function PUT(request: Request) {
   if ("error" in parsed) return parsed.error;
 
   try {
+    if (
+      typeof parsed.body === "object" &&
+      parsed.body !== null &&
+      "proxyIds" in parsed.body
+    ) {
+      const bulkValidation = validateBody(proxyPoolBulkMemberSchema, parsed.body);
+      if (isValidationFailure(bulkValidation)) {
+        return createErrorResponse({
+          status: 400,
+          message: bulkValidation.error.message,
+          details: bulkValidation.error.details,
+          type: "invalid_request",
+        });
+      }
+
+      const { scope, scopeId, proxyIds } = bulkValidation.data;
+      const normalizedScope = normalizeScopeAlias(scope);
+      const added = await addProxiesToScopePool(
+        normalizedScope,
+        scopeId || null,
+        proxyIds
+      );
+      clearDispatcherCache();
+      return Response.json({
+        success: true,
+        added,
+        requested: proxyIds.length,
+      });
+    }
+
     const validation = validateBody(proxyPoolMemberSchema, parsed.body);
     if (isValidationFailure(validation)) {
       return createErrorResponse({
