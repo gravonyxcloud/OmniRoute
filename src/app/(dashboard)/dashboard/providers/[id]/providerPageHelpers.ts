@@ -98,6 +98,32 @@ export type CompatModelRow = {
 export type CompatModelMap = Map<string, CompatModelRow>;
 export type HeaderDraftRow = { id: string; name: string; value: string };
 
+/**
+ * Pick the connection used by dashboard model probes.
+ *
+ * `selectedConnection` belongs to the edit modal, not to model routing. It can
+ * therefore keep pointing at a row that was deleted/replaced after an API-key
+ * edit. Never forward that stale id as X-OmniRoute-Connection: prefer it only
+ * while it is still present and active, otherwise fall back to the first current
+ * active connection for the provider page.
+ */
+export function resolveProviderModelTestConnection<
+  T extends { id?: unknown; isActive?: unknown },
+>(connections: readonly T[], selectedConnection: T | null | undefined): T | null {
+  const activeConnections = connections.filter(
+    (connection) => typeof connection?.id === "string" && connection.isActive !== false
+  );
+  const selectedId =
+    selectedConnection && typeof selectedConnection.id === "string"
+      ? selectedConnection.id
+      : null;
+  if (selectedId) {
+    const currentSelected = activeConnections.find((connection) => connection.id === selectedId);
+    if (currentSelected) return currentSelected;
+  }
+  return activeConnections[0] ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // #2905 — per-model targetFormat badge label mapping (pure, so it can be unit-tested
 // outside the .tsx). Returns the i18n key for a targetFormat value, or null when the
