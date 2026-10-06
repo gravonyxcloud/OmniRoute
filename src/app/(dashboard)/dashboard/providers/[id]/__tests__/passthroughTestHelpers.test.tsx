@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPassthroughTestBody,
   shouldSwitchToVisibleFilter,
+  resolveProviderModelTestConnection,
 } from "../providerPageHelpers";
 
 // ---------------------------------------------------------------------------
@@ -75,5 +76,33 @@ describe("shouldSwitchToVisibleFilter", () => {
 
   it("returns false when both flag and count are falsy", () => {
     expect(shouldSwitchToVisibleFilter({ autoHideFailed: false, hiddenCount: 0 })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveProviderModelTestConnection
+// ---------------------------------------------------------------------------
+describe("resolveProviderModelTestConnection", () => {
+  it("keeps a selected connection only while it is still active and present", () => {
+    const current = { id: "conn-new", isActive: true };
+    expect(resolveProviderModelTestConnection([current], current)).toBe(current);
+  });
+
+  it("falls back from a deleted stale edit-modal connection to the current active row", () => {
+    const stale = { id: "conn-old", isActive: true };
+    const current = { id: "conn-new", isActive: true };
+    expect(resolveProviderModelTestConnection([current], stale)).toBe(current);
+  });
+
+  it("does not pin model tests to an inactive selected row", () => {
+    const inactive = { id: "conn-old", isActive: false };
+    const current = { id: "conn-new", isActive: true };
+    expect(resolveProviderModelTestConnection([inactive, current], inactive)).toBe(current);
+  });
+
+  it("returns null when the provider has no active connection", () => {
+    expect(
+      resolveProviderModelTestConnection([{ id: "conn-off", isActive: false }], null)
+    ).toBeNull();
   });
 });
