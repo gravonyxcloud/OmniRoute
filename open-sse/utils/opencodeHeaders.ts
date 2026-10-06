@@ -7,7 +7,7 @@ import { generateSessionId } from "../services/sessionManager.ts";
  * exists to be recent enough, not to impersonate a build: any `opencode/<>=1.17>` passes.
  * Overridable through the existing OPENCODE_USER_AGENT (or <PROVIDER>_USER_AGENT) knob.
  */
-export const DEFAULT_OPENCODE_USER_AGENT = "opencode/1.18.31";
+export const DEFAULT_OPENCODE_USER_AGENT = "opencode/1.18.34 ai-sdk/provider-utils/4.0.23";
 
 /** Canonical OpenCode session id shape: `ses_` + 12 hex + 14 base62. */
 export const OPENCODE_SESSION_PATTERN = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
@@ -68,7 +68,7 @@ export function resolveOpencodeCliDefaults(
       configuredUA && (!gated || satisfiesOpencodeUserAgentContract(configuredUA))
         ? configuredUA
         : DEFAULT_OPENCODE_USER_AGENT,
-    client: process.env.OPENCODE_CLIENT?.trim() || "desktop",
+    client: process.env.OPENCODE_CLIENT?.trim() || "cli",
     project: process.env.OPENCODE_PROJECT?.trim() || "global",
   };
 }
@@ -281,7 +281,11 @@ function applyCliDefaults(
   if (!satisfiesOpencodeUserAgentContract(existingUa)) {
     setUserAgentHeader(headers, cliDefaults.userAgent);
   }
-  headers["x-opencode-client"] ||= cliDefaults.client;
+  // NoAuth/free-tier egress must identify as the OpenCode CLI, even when the
+  // caller is the OpenCode Desktop app. This keeps the upstream request contract
+  // identical to the working CLI path while the request still originates from
+  // the OmniRoute VPS IP.
+  headers["x-opencode-client"] = cliDefaults.client;
   headers["x-opencode-project"] ||= cliDefaults.project;
   // Both ids go out in the canonical shape. A client value already in that shape is kept;
   // anything else (a UUID from a generic client, an opaque conversation key) is translated
