@@ -1,9 +1,10 @@
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 
-// The TCP reachability probe already runs for every proxied request. With the opt-in
-// PROXY_SKIP_RECENTLY_FAILED flag on, its verdict feeds proxy selection: a refused probe sets
-// the proxy aside, a successful one takes it back. With the flag off nothing is written.
+// The TCP reachability probe already runs for every proxied request. With
+// PROXY_SKIP_RECENTLY_FAILED enabled (the resilient default), a refused probe sets the
+// proxy aside, a successful one takes it back. An explicit false override restores plain
+// rotation without writing refusal state.
 
 const health = await import("../../src/lib/proxyHealth.ts");
 const memory = await import("../../open-sse/utils/proxyRefusalMemory.ts");
@@ -51,8 +52,8 @@ test("a probe that answers again ends the period", async () => {
   assert.equal(memory.isProxyAvoided(KEY), false);
 });
 
-test("with the flag at its default (off) a refused probe writes nothing", async () => {
-  delete process.env.PROXY_SKIP_RECENTLY_FAILED;
+test("an explicit false override disables the recently-failed cooldown", async () => {
+  process.env.PROXY_SKIP_RECENTLY_FAILED = "false";
   health.__setProxyHealthTcpCheckForTesting(async () => false);
   assert.equal(await health.isProxyReachable(PROXY_URL), false);
   assert.equal(memory.__proxyRefusalMemorySizeForTesting(), 0);
