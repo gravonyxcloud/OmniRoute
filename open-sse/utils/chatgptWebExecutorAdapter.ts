@@ -382,7 +382,12 @@ function buildPrompt(body: JsonRecord): string {
           .map(({ role, text }) => `${role[0].toUpperCase()}${role.slice(1)}:\n${text}`)
           .join("\n\n");
   const toolContext = toolDefinitionsText(body.tools);
-  const prompt = toolContext ? `${basePrompt}\n\n${toolContext}` : basePrompt;
+  const responseLanguagePolicy =
+    "LANGUAGE POLICY: Reply to the user in the same natural language as the latest user message unless the user explicitly requests another language. Do not switch languages based on tool names, system text, code, file names, or prior messages. Keep commands, code, paths, identifiers, and tool names unchanged.";
+  const promptBaseWithLanguagePolicy = toolContext
+    ? `${basePrompt}\n\n${toolContext}`
+    : basePrompt;
+  const prompt = `${promptBaseWithLanguagePolicy}\n\n${responseLanguagePolicy}`;
   if (!prompt.trim()) throw new Error("ChatGPT Web clean-room adapter requires non-empty text");
   if (new TextEncoder().encode(prompt).byteLength > MAX_PROMPT_BYTES) {
     // Do not reject large agent sessions outright. The browser transport has a
