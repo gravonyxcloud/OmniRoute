@@ -161,10 +161,7 @@ export const updateProxyRegistrySchema = partialWithoutDefaults(proxyRegistryFie
 
 export const bulkImportProxiesSchema = z
   .object({
-    items: z
-      .array(proxyRegistryFieldsSchema)
-      .min(1, "At least one proxy is required")
-      .max(100, "Maximum 100 proxies per import"),
+    items: z.array(proxyRegistryFieldsSchema).min(1, "At least one proxy is required"),
   })
   .strict();
 
