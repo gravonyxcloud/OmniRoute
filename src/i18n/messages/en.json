@@ -11042,6 +11042,7 @@
     "poolRemove": "Remove",
     "poolRemoveFailed": "Failed to remove the proxy from the pool",
     "poolAddLabel": "Add a proxy",
+    "poolAddAll": "Add all active proxies",
     "poolAddMember": "Add",
     "poolAddFailed": "Failed to add the proxy to the pool",
     "poolSelectProxy": "Select a proxy…",
