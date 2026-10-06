@@ -20,6 +20,11 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 const core = await import("../../src/lib/db/core.ts");
 const { getProviderCredentials } = await import("../../src/sse/services/auth.ts");
 const { createProviderConnection } = await import("../../src/lib/db/providers.ts");
+const { noteOpencodeFreeTierSkip, clearOpencodeFreeTierSkips } = await import("../../open-sse/services/opencodeFreeTierSkip.ts");
+
+test.afterEach(() => {
+  clearOpencodeFreeTierSkips();
+});
 
 test.after(() => {
   core.resetDbInstance();
@@ -35,6 +40,18 @@ test("#2962 opencode-zen with no connection falls back to anonymous no-auth cred
     "should be synthetic no-auth credentials"
   );
   assert.equal((creds as { apiKey?: unknown }).apiKey, null, "anonymous access carries no api key");
+});
+
+
+test("#14313 direct OpenCode no-auth requests still resolve during the auto-combo skip TTL", async () => {
+  noteOpencodeFreeTierSkip("opencode", Date.now(), 3 * 60 * 1000);
+  const creds = await getProviderCredentials("opencode");
+  assert.ok(
+    creds,
+    "direct no-auth OpenCode must keep a synthetic credential even while auto-combo is paused"
+  );
+  assert.equal((creds as { connectionId?: string }).connectionId, "noauth");
+  assert.equal((creds as { apiKey?: unknown }).apiKey, null);
 });
 
 test("apikey providers with anonymous fallback use no-auth when saved rows are terminal", async () => {
