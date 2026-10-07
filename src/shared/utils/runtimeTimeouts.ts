@@ -58,7 +58,7 @@ export const DEFAULT_TLS_FIRST_BYTE_WATCHDOG_MS = 10_000;
 // generation, so a 2xx Responses stream that stays silent past this window is stalled rather than
 // thinking. Executors that can rotate accounts use it to move on instead of waiting for the
 // readiness timeout. Set to 0 to disable.
-export const DEFAULT_RESPONSES_FIRST_BYTE_TIMEOUT_MS = 15_000;
+export const DEFAULT_RESPONSES_FIRST_BYTE_TIMEOUT_MS = 60_000;
 
 function hasEnvValue(env: EnvSource, name: string): boolean {
   const raw = env[name];
