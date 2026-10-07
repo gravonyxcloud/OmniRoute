@@ -1,15 +1,15 @@
 /**
- * opencodeResponsesStall.ts — opt-in first-byte stall guard for streamed
- * Responses replies in the opencode executor (#13484).
+ * opencodeResponsesStall.ts — bounded first-byte stall guard for streamed
+ * OpenCode replies (#13484).
  *
- * A streamed Responses reply opens with `response.created` before any
- * generation, so a 2xx Responses stream that stays silent past the window is
- * stalled, not thinking. Chat Completions streams are left alone: gateways may
- * legitimately hold them until the answer is ready.
+ * A streamed OpenAI Responses reply opens with `response.created`, while
+ * Chat Completions may also legitimately take time before the first chunk.
+ * Either way, once the configured first-byte window expires with a silent
+ * 2xx stream, the executor can rotate to another OpenCode account/proxy
+ * instead of leaving a request parked behind a silent upstream connection.
  *
- * Gated by OPENCODE_RESPONSES_STALL_ROTATION (default off). With the flag off
- * the window is 0 and every guard call hands back the very same result object,
- * so the stream readiness timeout stays the only bound, as before.
+ * Gated by OPENCODE_RESPONSES_STALL_ROTATION. With the flag off the window is 0
+ * and every guard call hands back the same result object.
  */
 
 import { isOpencodeResponsesStallRotationEnabled } from "@/shared/utils/featureFlags";
@@ -23,7 +23,12 @@ export function resolveResponsesStallWindowMs(
   stream: boolean | undefined,
   requestFormat: string | null
 ): number {
-  if (!stream || requestFormat !== "openai-responses") return 0;
+  if (
+    !stream ||
+    (requestFormat !== "openai-responses" && requestFormat !== "openai")
+  ) {
+    return 0;
+  }
   if (!isOpencodeResponsesStallRotationEnabled()) return 0;
   return getResponsesFirstByteTimeoutMs();
 }
