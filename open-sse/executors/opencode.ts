@@ -74,6 +74,12 @@ import {
   isOpencodeRateLimited429EarlyStopEnabled,
 } from "@/shared/utils/featureFlags";
 import { classifyUpstream429 } from "./opencodeRateLimited.ts";
+import {
+  getOpenCodeSharedProxyCandidates,
+  isOpenCodeSharedProxyPoolEnabled,
+  registerOpenCodeSharedProxies,
+  releaseOpenCodeSharedProxy,
+} from "../services/opencodeProxyPool.ts";
 
 /**
  * The main OpenCode Zen host, shared by the `opencode` and `opencode-zen`
@@ -541,6 +547,30 @@ export class OpencodeExecutor extends BaseExecutor {
 
       this.syncAccountsFromCredentials(input.credentials);
       const { log } = input;
+      const isKeylessOpenCode =
+        !input.credentials?.apiKey &&
+        !input.credentials?.accessToken &&
+        !input.credentials?.providerSpecificData?.extraApiKeys;
+      let sharedProxyPoolActive = isKeylessOpenCode && isOpenCodeSharedProxyPoolEnabled();
+      if (sharedProxyPoolActive) {
+        registerOpenCodeSharedProxies(
+          this.accounts
+            .map((account) => account.proxy)
+            .filter((proxy): proxy is NonNullable<typeof proxy> => proxy !== null)
+        );
+        const sharedCandidates = getOpenCodeSharedProxyCandidates(this.provider, input.model);
+        if (sharedCandidates.length > 0) {
+          this.accounts = sharedCandidates.map((candidate) => ({
+            fingerprint: "shared-proxy-" + candidate.key,
+            cooldownUntil: candidate.cooldownUntil,
+            consecutiveFails: 0,
+            proxy: candidate.proxy,
+          }));
+          this.nextAccountIdx = 0;
+        } else {
+          sharedProxyPoolActive = false;
+        }
+      }
       // Request-scoped attribution prefix for rotation logs: message head,
       // empty when absent (never n/a/none/fabricated). The existing motif
       // stays byte-identical after the prefix.
@@ -555,7 +585,7 @@ export class OpencodeExecutor extends BaseExecutor {
       // rejection (same predicate and logging as the rotation loop). Everything
       // else passes untouched: this path deliberately preserves BaseExecutor's
       // intra-URL 429 retries (no skipUpstreamRetry here).
-      if (this.accounts.length === 1 && !hasProxies) {
+      if (this.accounts.length === 1 && !hasProxies && !sharedProxyPoolActive) {
         // #11894: a connection-level proxy assignment (proxy_assignments) reaches
         // the executor as the AMBIENT proxy context — the chat handler wraps
         // execute() in runWithProxyContext(proxyInfo.proxy, ...) before we run.
@@ -685,6 +715,7 @@ export class OpencodeExecutor extends BaseExecutor {
         const lastWasTransient = lastStatus !== null && lastStatus >= 500 && lastStatus < 600;
         const isMonoRetryOwed = this.accounts.length === 1 && lastWasTransient;
         if (
+          !sharedProxyPoolActive &&
           !isMonoRetryOwed &&
           lastResult !== null &&
           geoTriedProxyKeys.size > 0 &&
@@ -702,8 +733,10 @@ export class OpencodeExecutor extends BaseExecutor {
         // above still lets this committed attempt through.
         if (account.proxy === null && geoTriedProxyKeys.size > 0) directTried = true;
         const masked = maskAccountId(account.fingerprint);
+        const dispatchProxy = account.proxy;
+        const dispatchStartedAt = Date.now();
 
-        if (sharedEgressGuardEnabled && sharedEgressDown && !account.proxy) {
+        if (!sharedProxyPoolActive && sharedEgressGuardEnabled && sharedEgressDown && !account.proxy) {
           log?.warn?.(
             "OPENCODE",
             `${cid}skipping account ${masked} (no dedicated proxy, shared egress already down this request)`
@@ -714,7 +747,7 @@ export class OpencodeExecutor extends BaseExecutor {
         // Opt-in (#13615): after repeated transient failures, release the failed body
         // and wait (bounded) before the next account; a client abort stops the loop.
         const pauseMs = transientRetryDelayMs(transientStreak, transientPausedMs);
-        if (pauseMs > 0 && lastResult !== null && isOpencodeTransientFailoverBackoffEnabled()) {
+        if (!sharedProxyPoolActive && pauseMs > 0 && lastResult !== null && isOpencodeTransientFailoverBackoffEnabled()) {
           lastResult = { ...lastResult, response: releaseResponseBody(lastResult.response) };
           transientPausedMs += pauseMs;
           log?.info?.(
@@ -745,18 +778,32 @@ export class OpencodeExecutor extends BaseExecutor {
           // OpenAI-compatible API, never the web/scraping bare-Response arm) —
           // see base.ts:290-294.
           result = (await guardStall(
-            await runWithProxyContext(account.proxy, () =>
+            await runWithProxyContext(dispatchProxy, () =>
               super.execute({ ...input, skipUpstreamRetry: true })
             )
           )) as HttpExecuteResult;
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
+          if (sharedProxyPoolActive && dispatchProxy) {
+            await releaseOpenCodeSharedProxy(
+              {
+                key: proxyEgressKey(dispatchProxy) ?? ("shared:" + dispatchProxy.type + "://" + dispatchProxy.host + ":" + dispatchProxy.port),
+                proxy: dispatchProxy,
+              },
+              {
+                provider: this.provider,
+                model: input.model,
+                latencyMs: Date.now() - dispatchStartedAt,
+                transportError: true,
+              }
+            );
+          }
           // Stall guard: headers arrived, so the egress works — never a shared-egress
           // outage; proxied and proxy-less accounts rotate alike. A client abort never rotates.
           if (stallWindowMs > 0 && (isResponsesFirstByteTimeout(err) || input.signal?.aborted)) {
             if (input.signal?.aborted) throw err;
-            markCooldown(account);
-            const stallKey = proxyKeyOf(account.proxy);
+            if (!sharedProxyPoolActive) markCooldown(account);
+            const stallKey = proxyKeyOf(dispatchProxy);
             if (stallKey !== null) geoTriedProxyKeys.add(stallKey);
             else directTried = true;
             const rotate = ++stalledAttempts === 1;
@@ -774,7 +821,7 @@ export class OpencodeExecutor extends BaseExecutor {
           // away from. Without a proxy, accounts share the same network egress:
           // the failure isn't attributable to this account. Never swallowed
           // silently either way: logged before rotating, skipping, or rethrowing.
-          if (!isNetworkErrorRotatable(account)) {
+          if (!dispatchProxy) {
             if (sharedEgressGuardEnabled) {
               markCooldown(account);
               sharedEgressDown = true;
@@ -791,7 +838,7 @@ export class OpencodeExecutor extends BaseExecutor {
             );
             throw err;
           }
-          markCooldown(account);
+          if (!sharedProxyPoolActive) markCooldown(account);
           log?.warn?.(
             "OPENCODE",
             `${cid}network error on account ${masked}, rotating to next… (${reason})`
@@ -805,6 +852,21 @@ export class OpencodeExecutor extends BaseExecutor {
         transientStreak = 0;
 
         const status = result.response.status;
+        if (sharedProxyPoolActive && dispatchProxy) {
+          await releaseOpenCodeSharedProxy(
+            {
+              key: proxyEgressKey(dispatchProxy) ?? ("shared:" + dispatchProxy.type + "://" + dispatchProxy.host + ":" + dispatchProxy.port),
+              proxy: dispatchProxy,
+            },
+            {
+              provider: this.provider,
+              model: input.model,
+              status,
+              latencyMs: Date.now() - dispatchStartedAt,
+              response: status === 429 ? result.response : null,
+            }
+          );
+        }
 
         // A 401 is credential-scoped, not fingerprint/proxy-scoped. Every
         // fingerprint in this executor shares the same provider credential, so
@@ -817,16 +879,16 @@ export class OpencodeExecutor extends BaseExecutor {
             "OPENCODE",
             `${cid}authentication failed (401) on account ${masked}; stopping account rotation`
           );
-          markOutcome(account, result.response);
+          if (!sharedProxyPoolActive) markOutcome(account, result.response);
           return result;
         }
 
         if (status === 429) {
-          markCooldown(account);
+          if (!sharedProxyPoolActive) markCooldown(account);
           // The provider refused through this member: set it aside beyond the account
           // cooldown. A direct account has a null key and is never set aside.
           const setAsideMs = skipRecentlyFailed
-            ? noteProxyRefusal(proxyEgressKey(account.proxy), "ip_quota_429")
+            ? noteProxyRefusal(proxyEgressKey(dispatchProxy), "ip_quota_429")
             : null;
           // Opt-in (#13657): a 429 that names a real rate limit stops the wave and
           // the real upstream 429 is returned untouched (body, Retry-After, quota
@@ -842,7 +904,7 @@ export class OpencodeExecutor extends BaseExecutor {
             return result;
           }
 
-          const key = proxyKeyOf(account.proxy);
+          const key = proxyKeyOf(dispatchProxy);
           if (key === null) {
             directTransientAttempts++;
             const rotate = directTransientAttempts < maxDirectTransientAttempts;
@@ -864,7 +926,7 @@ export class OpencodeExecutor extends BaseExecutor {
         }
 
         if (isRetriableUpstreamFailure(status)) {
-          const key = proxyKeyOf(account.proxy);
+          const key = proxyKeyOf(dispatchProxy);
           if (key !== null) geoTriedProxyKeys.add(key);
           else directTried = true;
           transientStreak = priorTransientStreak + 1;
@@ -895,7 +957,7 @@ export class OpencodeExecutor extends BaseExecutor {
             log?.debug?.("OPENCODE", "body read failed on geo-block check");
           }
           if (bodyText !== null && isOpencodeGeoBlocked(status, bodyText)) {
-            const key = proxyKeyOf(account.proxy);
+            const key = proxyKeyOf(dispatchProxy);
             if (key !== null) geoTriedProxyKeys.add(key);
             else directTried = true;
             log?.warn?.(
@@ -916,10 +978,10 @@ export class OpencodeExecutor extends BaseExecutor {
             isOpencodeUserBlocked(status, bodyText) &&
             isOpencodeUserBlockedRotationEnabled()
           ) {
-            const key = proxyKeyOf(account.proxy);
+            const key = proxyKeyOf(dispatchProxy);
             if (key !== null) geoTriedProxyKeys.add(key);
             else directTried = true;
-            markCooldown(account);
+            if (!sharedProxyPoolActive) markCooldown(account);
             const rotate = userBlockedRotations === 0 && this.accounts.length > 1;
             log?.warn?.(
               "OPENCODE",
@@ -943,12 +1005,12 @@ export class OpencodeExecutor extends BaseExecutor {
               input,
               result,
               this.freeTierRetryCtx(),
-              { account, masked, proxyKey: proxyKeyOf(account.proxy) ?? "direct" },
+              { account, masked, proxyKey: proxyKeyOf(dispatchProxy) ?? "direct" },
               log,
               cid,
               {
                 dispatch: (retryInput) =>
-                  runWithProxyContext(account.proxy, () =>
+                  runWithProxyContext(dispatchProxy, () =>
                     super.execute({ ...retryInput, skipUpstreamRetry: true })
                   ) as Promise<HttpExecuteResult>,
                 noteServed: (a) => noteResponseServed(a as typeof account),
@@ -974,7 +1036,7 @@ export class OpencodeExecutor extends BaseExecutor {
           if (bodyText !== null && isRetriableUpstreamFailure(400, bodyText)) {
             const chatcmplId = extractChatcmplId(bodyText);
             transientStreak = priorTransientStreak + 1;
-            const key = proxyKeyOf(account.proxy);
+            const key = proxyKeyOf(dispatchProxy);
             if (key === null) {
               directTransientAttempts++;
               const rotate = directTransientAttempts < maxDirectTransientAttempts;
@@ -997,7 +1059,7 @@ export class OpencodeExecutor extends BaseExecutor {
           return result;
         }
 
-        markOutcome(account, result.response);
+        if (!sharedProxyPoolActive) markOutcome(account, result.response);
         return this.finalizeForcedStream(input, this.normalizeMuseSparkResponse(input, result));
       }
 
