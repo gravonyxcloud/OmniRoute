@@ -396,6 +396,56 @@ test("modelSyncScheduler starts once, honors env interval and syncs only active 
   }
 });
 
+test("modelSyncScheduler excludes automatic OpenCode family refreshes", async () => {
+  await providersDb.createProviderConnection({
+    provider: "opencode",
+    authType: "apikey",
+    name: "OpenCode Auto Sync",
+    apiKey: "sk-opencode",
+    providerSpecificData: { autoSync: true },
+  });
+  await providersDb.createProviderConnection({
+    provider: "opencode-zen",
+    authType: "apikey",
+    name: "OpenCode Zen Auto Sync",
+    apiKey: "sk-opencode-zen",
+    providerSpecificData: { autoSync: true },
+  });
+  await providersDb.createProviderConnection({
+    provider: "openai",
+    authType: "apikey",
+    name: "OpenAI Auto Sync",
+    apiKey: "sk-openai",
+    providerSpecificData: { autoSync: true },
+  });
+
+  const timers = installTimerStubs();
+  const originalFetch = globalThis.fetch;
+  const fetchCalls = [];
+
+  globalThis.fetch = async (url) => {
+    fetchCalls.push(String(url));
+    return new Response(JSON.stringify({ syncedModels: 1 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+
+  try {
+    const scheduler = await loadScheduler("skip-opencode-family");
+    scheduler.startModelSyncScheduler("http://127.0.0.1:7777", 10_000);
+    await timers.timeouts[0].fn();
+
+    assert.equal(fetchCalls.length, 1);
+    assert.match(fetchCalls[0], /\/api\/providers\//);
+    assert.doesNotMatch(fetchCalls[0], /opencode/i);
+    scheduler.stopModelSyncScheduler();
+  } finally {
+    globalThis.fetch = originalFetch;
+    timers.restore();
+  }
+});
+
 test("modelSyncScheduler skips empty cycles and tolerates failing sync requests", async () => {
   const timers = installTimerStubs();
   const originalFetch = globalThis.fetch;
