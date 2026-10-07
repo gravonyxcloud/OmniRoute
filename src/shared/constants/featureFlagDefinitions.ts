@@ -234,7 +234,7 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
       "For the OpenCode executor, watch the first body byte of a streamed Responses reply (window: RESPONSES_FIRST_BYTE_TIMEOUT_MS, default 15000). A 2xx Responses stream that stays silent past the window is treated as stalled: the account is cooled down and the request rotates to the next account once; a second stall fails fast. Off by default: stalled streams keep today's wait until the stream readiness timeout.",
     descriptionI18nKey: "featureFlagOpencodeResponsesStallRotationDescription",
     category: "network",
-    defaultValue: "false",
+    defaultValue: "true",
     type: "boolean",
     requiresRestart: false,
     warningLevel: "caution",
