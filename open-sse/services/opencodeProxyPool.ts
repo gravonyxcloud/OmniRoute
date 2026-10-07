@@ -155,6 +155,46 @@ export function getOpenCodeSharedProxyPoolSize(): number {
   return getPool().members.size;
 }
 
+export interface OpenCodeSharedProxyCandidate {
+  key: string;
+  proxy: SharedOpenCodeProxy;
+  cooldownUntil: number;
+  latencyMs: number;
+  inflight: number;
+}
+
+export function getOpenCodeSharedProxyCandidates(
+  provider: string,
+  model: string,
+  now: number = Date.now()
+): OpenCodeSharedProxyCandidate[] {
+  const pool = getPool();
+  const scope = scopeKey(provider, model);
+  const candidates = [...pool.members.values()]
+    .map((member) => {
+      const scoped = member.scopes.get(scope);
+      const cooldownUntil = Math.max(member.transportUntil, scoped?.until ?? 0);
+      return {
+        member,
+        cooldownUntil,
+      };
+    })
+    .filter(({ cooldownUntil }) => cooldownUntil <= now)
+    .sort((a, b) => {
+      const delta = score(a.member) - score(b.member);
+      if (delta !== 0) return delta;
+      return a.member.lastUsedAt - b.member.lastUsedAt;
+    });
+
+  return candidates.map(({ member, cooldownUntil }) => ({
+    key: member.key,
+    proxy: cloneProxy(member.proxy),
+    cooldownUntil,
+    latencyMs: member.latencyMs,
+    inflight: member.inflight,
+  }));
+}
+
 export function acquireOpenCodeSharedProxy(
   provider: string,
   model: string,
