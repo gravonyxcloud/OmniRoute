@@ -174,7 +174,7 @@ async function getAutoSyncConnections(): Promise<
       // rows creates a request storm against the same upstream and competes with
       // real inference traffic. Keep explicit/manual sync available, but do not
       // schedule the automatic per-connection refresh for the OpenCode family.
-      if (conn.provider.toLowerCase().startsWith("opencode")) continue;
+      if (conn.provider.toLowerCase() === "opencode") continue;
 
       autoSyncConnections.push({
         id: conn.id,
