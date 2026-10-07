@@ -188,12 +188,13 @@ describe("OpencodeExecutor Responses first-byte stall", () => {
     }
   );
 
-  it("leaves a silent chat/completions stream alone", { timeout: 5000 }, async () => {
+  it("rotates past a silent Chat Completions stream to a healthy account", { timeout: 5000 }, async () => {
     const exec = new OpencodeExecutor("opencode-zen");
-    installFetch(["stall"]);
+    installFetch(["stall", "ok"]);
     const result = await run(exec, CHAT_MODEL, proxiedCredentials(2));
     assert.equal(result.response.status, 200);
-    assert.equal(calls.length, 1);
+    assert.deepEqual(calls, [String(ports[0]), String(ports[1])]);
+    assert.deepEqual(cooledDown(exec), [FPS[0]]);
     await result.response.body?.cancel();
   });
 
