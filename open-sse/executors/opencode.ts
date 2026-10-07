@@ -700,6 +700,10 @@ export class OpencodeExecutor extends BaseExecutor {
           return k !== null && !geoTriedProxyKeys.has(k);
         };
         let account = this.pickAccountWith(isProxiedCandidate);
+        if (sharedProxyPoolActive && account.proxy) {
+          const selectedKey = proxyEgressKey(account.proxy);
+          if (selectedKey !== null && geoTriedProxyKeys.has(selectedKey)) break;
+        }
         // Last resort: a single direct attempt (distinct egress that may
         // succeed) once no proxied account is a candidate — never before.
         if (!isProxiedCandidate(account) && !directTried && geoTriedProxyKeys.size > 0) {
@@ -838,7 +842,12 @@ export class OpencodeExecutor extends BaseExecutor {
             );
             throw err;
           }
-          if (!sharedProxyPoolActive) markCooldown(account);
+          if (!sharedProxyPoolActive) {
+            markCooldown(account);
+          } else if (dispatchProxy) {
+            const key = proxyEgressKey(dispatchProxy);
+            if (key !== null) geoTriedProxyKeys.add(key);
+          }
           log?.warn?.(
             "OPENCODE",
             `${cid}network error on account ${masked}, rotating to next… (${reason})`
@@ -884,7 +893,12 @@ export class OpencodeExecutor extends BaseExecutor {
         }
 
         if (status === 429) {
-          if (!sharedProxyPoolActive) markCooldown(account);
+          if (!sharedProxyPoolActive) {
+            markCooldown(account);
+          } else {
+            const key = proxyKeyOf(dispatchProxy);
+            if (key !== null) geoTriedProxyKeys.add(key);
+          }
           // The provider refused through this member: set it aside beyond the account
           // cooldown. A direct account has a null key and is never set aside.
           const setAsideMs = skipRecentlyFailed
