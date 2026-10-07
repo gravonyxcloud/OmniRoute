@@ -396,22 +396,22 @@ test("modelSyncScheduler starts once, honors env interval and syncs only active 
   }
 });
 
-test("modelSyncScheduler excludes automatic OpenCode family refreshes", async () => {
-  await providersDb.createProviderConnection({
+test("modelSyncScheduler skips shared OpenCode catalog refresh but keeps Zen", async () => {
+  const openCode = await providersDb.createProviderConnection({
     provider: "opencode",
     authType: "apikey",
     name: "OpenCode Auto Sync",
     apiKey: "sk-opencode",
     providerSpecificData: { autoSync: true },
   });
-  await providersDb.createProviderConnection({
+  const zen = await providersDb.createProviderConnection({
     provider: "opencode-zen",
     authType: "apikey",
     name: "OpenCode Zen Auto Sync",
     apiKey: "sk-opencode-zen",
     providerSpecificData: { autoSync: true },
   });
-  await providersDb.createProviderConnection({
+  const openai = await providersDb.createProviderConnection({
     provider: "openai",
     authType: "apikey",
     name: "OpenAI Auto Sync",
@@ -432,15 +432,17 @@ test("modelSyncScheduler excludes automatic OpenCode family refreshes", async ()
   };
 
   try {
-    const scheduler = await loadScheduler("skip-opencode-family");
+    const scheduler = await loadScheduler("skip-opencode-shared-catalog");
     scheduler.startModelSyncScheduler("http://127.0.0.1:7777", 10_000);
     await timers.timeouts[0].fn();
 
     assert.equal(fetchCalls.length, 2);
-    assert.match(fetchCalls[0], /\/api\/providers\//);
-    assert.match(fetchCalls[1], /\/api\/providers\//);
-    assert.doesNotMatch(fetchCalls[0], /opencode\//i);
-    assert.match(fetchCalls[1], /\/api\/providers\//);
+    const openCodePath = `/api/providers/${openCode.id}/sync-models`;
+    const zenPath = `/api/providers/${zen.id}/sync-models`;
+    const openaiPath = `/api/providers/${openai.id}/sync-models`;
+    assert.equal(fetchCalls.some((url) => url.includes(openCodePath)), false);
+    assert.equal(fetchCalls.some((url) => url.includes(zenPath)), true);
+    assert.equal(fetchCalls.some((url) => url.includes(openaiPath)), true);
     scheduler.stopModelSyncScheduler();
   } finally {
     globalThis.fetch = originalFetch;
