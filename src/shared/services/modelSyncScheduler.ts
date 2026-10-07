@@ -167,6 +167,15 @@ async function getAutoSyncConnections(): Promise<
           : {};
       if (psd.autoSync !== true) continue;
       if (typeof conn.id !== "string" || typeof conn.provider !== "string") continue;
+
+      // OpenCode's catalog is a shared public catalog, and the dashboard already
+      // has a bounded live-catalog path for no-auth/free models. Running the
+      // per-connection /sync-models endpoint across dozens of OpenCode API-key
+      // rows creates a request storm against the same upstream and competes with
+      // real inference traffic. Keep explicit/manual sync available, but do not
+      // schedule the automatic per-connection refresh for the OpenCode family.
+      if (conn.provider.toLowerCase().startsWith("opencode")) continue;
+
       autoSyncConnections.push({
         id: conn.id,
         provider: conn.provider,
