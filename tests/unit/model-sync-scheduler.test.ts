@@ -436,9 +436,11 @@ test("modelSyncScheduler excludes automatic OpenCode family refreshes", async ()
     scheduler.startModelSyncScheduler("http://127.0.0.1:7777", 10_000);
     await timers.timeouts[0].fn();
 
-    assert.equal(fetchCalls.length, 1);
+    assert.equal(fetchCalls.length, 2);
     assert.match(fetchCalls[0], /\/api\/providers\//);
-    assert.doesNotMatch(fetchCalls[0], /opencode/i);
+    assert.match(fetchCalls[1], /\/api\/providers\//);
+    assert.doesNotMatch(fetchCalls[0], /opencode\//i);
+    assert.match(fetchCalls[1], /\/api\/providers\//);
     scheduler.stopModelSyncScheduler();
   } finally {
     globalThis.fetch = originalFetch;
